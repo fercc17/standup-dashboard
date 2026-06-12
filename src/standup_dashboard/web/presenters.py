@@ -18,6 +18,7 @@ from ..domain.models import (
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
+    Cell,
     ChipVM,
     Color,
     CountsRow,
@@ -34,7 +35,7 @@ from ..domain.models import (
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
 from ..services.counts import build_counts as _build_counts
-from ..services.counts import row_metrics as _row_metrics
+from ..services.counts import combine_summaries, region_pulse_summary
 from ..services.oncall import others_off
 from ..services.pulse import current_pulse
 from ..storage.db import Database
@@ -249,30 +250,38 @@ def build_counts(
 
 
 def build_pulse_history(
-    db: Database, counts_rows: list[CountsRow], selected_regions: list[str], now: datetime
+    db: Database, data: DashboardData, selected_regions: list[str], now: datetime
 ) -> list[PulseHistoryRow]:
     """Growing per-pulse history (#80): stored summaries for past pulses + the
-    live current/previous pulse totals, summed across the selected regions."""
-    per_pulse: dict[int, dict[str, int]] = {}
-    for pnum, region, metrics in db.get_pulse_summaries():
+    live current/previous pulse, summed across selected regions. Each cell keeps
+    a per-person breakdown for the hover tooltip."""
+    per_pulse: dict[int, dict[str, Cell]] = {}
+
+    def _slot(pnum: int) -> dict[str, Cell]:
+        return per_pulse.setdefault(pnum, {m: Cell() for m in PULSE_SUMMARY_FIELDS})
+
+    for pnum, region, counts, breakdowns in db.get_pulse_summaries():
         if region not in selected_regions:
             continue
-        acc = per_pulse.setdefault(pnum, {f: 0 for f in PULSE_SUMMARY_FIELDS})
-        for f in PULSE_SUMMARY_FIELDS:
-            acc[f] += metrics.get(f, 0)
+        slot = _slot(pnum)
+        for m in PULSE_SUMMARY_FIELDS:
+            slot[m].count += counts.get(m, 0)
+            for name, n in (breakdowns.get(m) or {}).items():
+                slot[m].breakdown[name] = slot[m].breakdown.get(name, 0) + n
 
-    # Override the current + previous pulse with the freshly-computed totals.
+    # Overlay the current + previous pulse with freshly-computed cells.
     if selected_regions:
         zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
         cur_num, _, _ = current_pulse(now.astimezone(zone).date())
-        for r in counts_rows:
-            if r.label == "Pulse total":
-                per_pulse[cur_num] = _row_metrics(r)
-            elif r.is_previous:
-                per_pulse[cur_num - 1] = _row_metrics(r)
+        for num, prev in ((cur_num, False), (cur_num - 1, True)):
+            per_pulse[num] = combine_summaries([
+                region_pulse_summary(r, data.tickets, data.alerts, data.pulses,
+                                     now, previous=prev)
+                for r in selected_regions
+            ])
 
     return [
-        PulseHistoryRow(pulse_number=pnum, label=f"Pulse {pnum}", **per_pulse[pnum])
+        PulseHistoryRow(pulse_number=pnum, label=f"Pulse {pnum}", cells=per_pulse[pnum])
         for pnum in sorted(per_pulse)
     ]
 

@@ -18,19 +18,20 @@
   </thead>
   <tbody>
     {% for row in pulse_history %}
+    {% set c = row.cells %}
     <tr>
       <td>{{ row.label }}</td>
-      <td>{{ row.new_highest }}</td>
-      <td>{{ row.new_pr_mp }}</td>
-      <td>{{ row.new_ps5 }}</td>
-      <td>{{ row.new_regular }}</td>
-      <td class="sub">{{ row.new_total }}</td>
-      <td class="grp">{{ row.closed_highest }}</td>
-      <td>{{ row.closed_ps5 }}</td>
-      <td class="sub">{{ row.closed_total }}</td>
-      <td class="div">{{ row.alerts_ack }}</td>
-      <td>{{ row.alerts_resolved }}</td>
-      <td class="sub">{{ row.alerts_total }}</td>
+      <td data-tip="{{ c.new_highest.tip }}">{{ c.new_highest.count }}</td>
+      <td data-tip="{{ c.new_pr_mp.tip }}">{{ c.new_pr_mp.count }}</td>
+      <td data-tip="{{ c.new_ps5.tip }}">{{ c.new_ps5.count }}</td>
+      <td data-tip="{{ c.new_regular.tip }}">{{ c.new_regular.count }}</td>
+      <td class="sub" data-tip="{{ c.new_total.tip }}">{{ c.new_total.count }}</td>
+      <td class="grp" data-tip="{{ c.closed_highest.tip }}">{{ c.closed_highest.count }}</td>
+      <td data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
+      <td class="sub" data-tip="{{ c.closed_total.tip }}">{{ c.closed_total.count }}</td>
+      <td class="div" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
+      <td data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
+      <td class="sub" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
     </tr>
     {% endfor %}
   </tbody>

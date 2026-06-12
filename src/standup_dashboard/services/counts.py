@@ -164,6 +164,10 @@ def _assignee(t: Ticket) -> str | None:
     return t.assignee_email
 
 
+def _reporter(t: Ticket) -> str | None:
+    return t.reporter_email
+
+
 def build_counts(
     selected_regions: list[str],
     tickets: list[Ticket],
@@ -268,21 +272,71 @@ def build_region_counts(
     return build_counts([region_key], tickets, alerts, pulses, now)
 
 
-def row_metrics(row: CountsRow) -> dict[str, int]:
-    """The persistable per-pulse counts from a totals row (#80 history)."""
-    return {f: getattr(row, f).count for f in PULSE_SUMMARY_FIELDS}
+def _window_dates(pulses: list[Pulse], zone: ZoneInfo, now: datetime, previous: bool) -> set[date]:
+    if not previous:
+        return set(pulse_dates(pulses, zone, now))
+    _, start, end = previous_pulse(now.astimezone(zone).date())
+    return {start + timedelta(days=i) for i in range((end - start).days)}
+
+
+def region_pulse_summary(
+    region: str, tickets: list[Ticket], alerts: list[Alert], pulses: list[Pulse],
+    now: datetime, *, previous: bool = False,
+) -> dict[str, Cell]:
+    """Per-metric Cells (count + person breakdown) for one region's pulse (#80).
+
+    Attribution per the requested tooltips: new tickets break down by requestor
+    (reporter) — except [PR/MP Review], which uses assignee; closed by assignee;
+    alerts by handler.
+    """
+    zone = ZoneInfo(config.REGIONS[region].timezone)
+    dates = _window_dates(pulses, zone, now, previous)
+    members = set(config.REGIONS[region].member_emails)
+    scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
+
+    def _new(t: Ticket) -> bool:
+        if t.assignee_email not in members or t.created is None:
+            return False
+        z = _handler_zone(t.assignee_email)
+        return z is not None and _local_date(t.created, z) in dates
+
+    new_tickets = [t for t in scoped if _new(t)]
+    buckets: dict[str, list[Ticket]] = {"highest": [], "pr_mp": [], "ps5": [], "regular": []}
+    for t in new_tickets:
+        buckets[_new_bucket(t)].append(t)
+    closed = [t for t in scoped if t.assignee_email in members and t.is_done_date in dates]
+    ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
+    res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
+    return {
+        "new_highest": _ticket_cell(buckets["highest"], _reporter),
+        "new_pr_mp": _ticket_cell(buckets["pr_mp"], _assignee),
+        "new_ps5": _ticket_cell(buckets["ps5"], _reporter),
+        "new_regular": _ticket_cell(buckets["regular"], _reporter),
+        "new_total": _ticket_cell(new_tickets, _reporter),
+        "closed_highest": _ticket_cell([t for t in closed if t.is_highest], _assignee),
+        "closed_ps5": _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
+        "closed_total": _ticket_cell(closed, _assignee),
+        "alerts_ack": ack,
+        "alerts_resolved": res,
+        "alerts_total": _merge_cells([ack, res]),
+    }
+
+
+def combine_summaries(summaries: list[dict[str, Cell]]) -> dict[str, Cell]:
+    """Merge per-region summaries into one (sum counts, merge breakdowns)."""
+    return {m: _merge_cells([s[m] for s in summaries]) for m in PULSE_SUMMARY_FIELDS}
 
 
 def persist_pulse_summaries(db, tickets, alerts, pulses, now: datetime) -> None:
-    """Store the current + previous pulse totals per region so the pulse-history
-    table accumulates across pulses (#80)."""
+    """Store the current + previous pulse totals + breakdowns per region so the
+    pulse-history table accumulates across pulses (#80)."""
     if not pulses:
         return
     for region in config.REGION_KEYS:
         zone = ZoneInfo(config.REGIONS[region].timezone)
         cur_num, _, _ = current_pulse(now.astimezone(zone).date())
-        for r in build_region_counts(region, tickets, alerts, pulses, now):
-            if r.label == "Pulse total":
-                db.upsert_pulse_summary(cur_num, region, row_metrics(r), now)
-            elif r.is_previous:
-                db.upsert_pulse_summary(cur_num - 1, region, row_metrics(r), now)
+        for num, prev in ((cur_num, False), (cur_num - 1, True)):
+            cells = region_pulse_summary(region, tickets, alerts, pulses, now, previous=prev)
+            counts = {m: c.count for m, c in cells.items()}
+            breakdowns = {m: c.breakdown for m, c in cells.items()}
+            db.upsert_pulse_summary(num, region, counts, breakdowns, now)
