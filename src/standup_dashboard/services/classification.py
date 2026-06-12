@@ -1,14 +1,16 @@
 """Ticket classification into To Do / WIP / Success / Distractors (FR-013) — T024.
 
-For an engineer E:
-  * To Do / WIP / Success = tickets assigned to E that are in the active sprint
-    **or not in any sprint** (an unsprinted/backlog ticket assigned to E is
-    still their work), grouped by status.
+Everything shown is scoped to the current pulse. For an engineer E:
+  * To Do / WIP / Success = tickets assigned to E that are **in scope** —
+    in the active sprint, or fresh **untriaged ISReq** intake not yet sprinted
+    (so brand-new customer requests surface) — grouped by status. Assigned
+    tickets that are out of scope (e.g. backlog with no/another sprint) are the
+    engineer's backlog, not this pulse, so they are not shown.
   * Success also includes tickets E **touched** that are **Done and in the
-    active pulse**, even if unassigned (#74) — finishing someone's ticket is a
-    success, not a distraction.
-  * Distractors = other tickets E touched during the pulse but is not assigned
-    to in this sprint, or that belong to a different sprint.
+    active pulse** but assigned to someone else (#74).
+  * Distractors = in-pulse tickets E touched but is not assigned to (they got
+    pulled into a teammate's current-sprint work). Touches outside the active
+    pulse are not shown.
 
 The ``[PR/MP Review]`` ISReq prefix is already surfaced on ``Ticket`` via
 ``is_bvg_review`` (FR-015); detection lives on the model.
@@ -23,6 +25,22 @@ def in_pulse(ticket: Ticket, pulse_sprint_ids: dict[str, int]) -> bool:
     """True iff the ticket belongs to its own project's active sprint."""
     sprint_id = pulse_sprint_ids.get(ticket.project_key)
     return sprint_id is not None and ticket.sprint_id == sprint_id
+
+
+def in_scope(ticket: Ticket, pulse_sprint_ids: dict[str, int]) -> bool:
+    """Whether an assigned ticket counts as this-pulse work for its engineer.
+
+    In the active sprint, or fresh untriaged ISReq intake not yet sprinted (a new
+    customer request the team still needs to triage). Backlog tickets parked with
+    no sprint or in another sprint are out of scope.
+    """
+    if in_pulse(ticket, pulse_sprint_ids):
+        return True
+    return (
+        ticket.is_isreq
+        and ticket.sprint_id is None
+        and (ticket.status or "").strip().lower() == "untriaged"
+    )
 
 
 def classify_for_engineer(
@@ -41,11 +59,7 @@ def classify_for_engineer(
 
     assigned_ids: set[str] = set()
     for t in tickets:
-        # A ticket assigned to E counts as their work when it's in the active
-        # sprint or sits in no sprint at all (backlog / untriaged intake); a
-        # ticket parked in a *different* sprint is not this pulse's work.
-        own = in_pulse(t, pulse_sprint_ids) or t.sprint_id is None
-        if t.assignee_email == email and own:
+        if t.assignee_email == email and in_scope(t, pulse_sprint_ids):
             group = t.group
             if group in (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS):
                 groups[group].append(t)
@@ -58,10 +72,14 @@ def classify_for_engineer(
         ticket = by_id.get(tid)
         if ticket is None:
             continue
-        # A ticket E touched that is Done and in the active pulse counts as a
-        # Success even when it isn't assigned to E (#74); everything else they
-        # only touched is a Distractor.
-        if ticket.group is TicketGroup.SUCCESS and in_pulse(ticket, pulse_sprint_ids):
+        # A ticket assigned to E but out of scope is their backlog, not a
+        # distraction — don't show it. Only in-pulse touches of *others'*
+        # tickets surface: Done → Success (#74), otherwise a Distractor.
+        if ticket.assignee_email == email:
+            continue
+        if not in_pulse(ticket, pulse_sprint_ids):
+            continue
+        if ticket.group is TicketGroup.SUCCESS:
             groups[TicketGroup.SUCCESS].append(ticket)
         else:
             groups[TicketGroup.DISTRACTORS].append(ticket)

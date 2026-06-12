@@ -41,13 +41,15 @@ def test_engineer_with_zero_activity_classifies_empty():
     assert all(len(v) == 0 for v in groups.values())
 
 
-def test_touched_ticket_with_no_pulse_is_a_distractor():
-    t = Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
-               priority=None, labels=[], assignee_email=EMAIL, sprint_id=999)
-    touches = [TouchEvent("ISReq-1", EMAIL, TouchKind.COMMENT, utc())]
-    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={})  # no active sprint
-    assert groups[TicketGroup.DISTRACTORS] == [t]
-    assert groups[TicketGroup.WIP] == []
+def test_assigned_out_of_scope_ticket_is_omitted():
+    # Assigned to E but in another/no sprint (not untriaged ISReq) — backlog, not
+    # this pulse. It must not appear anywhere, even if E touched it.
+    t = Ticket(id="ISDB-2482", project_key="ISDB", title="x", status="Triaged",
+               priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+               status_category="To Do")
+    touches = [TouchEvent("ISDB-2482", EMAIL, TouchKind.COMMENT, utc())]
+    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISDB": 101})
+    assert all(v == [] for v in groups.values())
 
 
 def test_assigned_unsprinted_untriaged_is_todo_not_distractor():
@@ -72,13 +74,14 @@ def test_touched_unassigned_done_in_pulse_is_a_success():
     assert groups[TicketGroup.DISTRACTORS] == []
 
 
-def test_touched_unassigned_done_outside_pulse_stays_a_distractor():
-    t = Ticket(id="ISDB-8", project_key="ISDB", title="x", status="Done",
+def test_touched_unassigned_out_of_pulse_is_omitted():
+    # A touch on someone else's ticket outside the active pulse is not this
+    # pulse's distraction — it isn't shown at all.
+    t = Ticket(id="ISDB-8", project_key="ISDB", title="x", status="In Progress",
                priority=None, labels=[], assignee_email="other@example.com", sprint_id=999)
     touches = [TouchEvent("ISDB-8", EMAIL, TouchKind.STATUS, utc())]
     groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISDB": 101})
-    assert groups[TicketGroup.DISTRACTORS] == [t]
-    assert groups[TicketGroup.SUCCESS] == []
+    assert all(v == [] for v in groups.values())
 
 
 def test_pr_mp_review_prefix_detection():
