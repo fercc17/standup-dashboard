@@ -29,9 +29,6 @@ from .touches import extract_touches, parse_ticket
 
 logger = logging.getLogger("standup_dashboard.fetch")
 
-_DEFAULT_WINDOW_DAYS = 14
-
-
 @dataclass
 class JiraResult:
     ok: bool = True
@@ -55,14 +52,14 @@ class ICalResult:
     raw: str | None = None
 
 
-async def _fetch_jira(secrets: Secrets, now: datetime, roster: set[str]) -> JiraResult:
+async def _fetch_jira(
+    secrets: Secrets, now: datetime, window_start: datetime, roster: set[str]
+) -> JiraResult:
     res = JiraResult()
     try:
         async with jira_mod.make_async_client(secrets.jira_token) as hc:
             jira = jira_mod.JiraClient(hc)
             res.pulses = await resolve_pulses(jira, config.PROJECT_KEYS)
-            default_start = now - timedelta(days=_DEFAULT_WINDOW_DAYS)
-            window_start = min((p.start for p in res.pulses), default=default_start)
 
             issues_by_key: dict[str, dict[str, Any]] = {}
             for pulse in res.pulses:
@@ -71,29 +68,43 @@ async def _fetch_jira(secrets: Secrets, now: datetime, roster: set[str]) -> Jira
                 for issue in sprint_issues:
                     issues_by_key[issue["key"]] = issue
 
+            # Best-effort candidate search (for Distractors). A failure here must
+            # not discard the sprint issues we already have.
             jql = (
                 f"project in ({', '.join(config.PROJECT_KEYS)}) "
                 f'AND updated >= "{window_start.strftime("%Y-%m-%d %H:%M")}"'
             )
-            candidates = await jira.search(jql)
-            res.raw["jira_search.json"] = candidates
-            for issue in candidates:
-                issues_by_key.setdefault(issue["key"], issue)
+            try:
+                candidates = await jira.search(jql)
+                res.raw["jira_search.json"] = candidates
+                for issue in candidates:
+                    issues_by_key.setdefault(issue["key"], issue)
+            except Exception:  # noqa: BLE001
+                logger.exception("Jira candidate search failed; using sprint issues only")
 
-            for key, issue in issues_by_key.items():
-                res.tickets.append(parse_ticket(issue))
-                comments = await jira.comments(key)
-                worklogs = await jira.worklogs(key)
-                res.touches.extend(
-                    extract_touches(
-                        issue,
-                        comments=comments,
-                        worklogs=worklogs,
-                        window_start=window_start,
-                        window_end=now,
-                        roster_emails=roster,
-                    )
+            res.tickets = [parse_ticket(issue) for issue in issues_by_key.values()]
+
+            # Fetch comments + worklogs per issue concurrently (bounded).
+            sem = asyncio.Semaphore(10)
+
+            async def _touches_for(key: str, issue: dict[str, Any]) -> list[TouchEvent]:
+                async with sem:
+                    comments = await jira.comments(key)
+                    worklogs = await jira.worklogs(key)
+                return extract_touches(
+                    issue,
+                    comments=comments,
+                    worklogs=worklogs,
+                    window_start=window_start,
+                    window_end=now,
+                    roster_emails=roster,
                 )
+
+            touch_lists = await asyncio.gather(
+                *(_touches_for(k, i) for k, i in issues_by_key.items())
+            )
+            for touches in touch_lists:
+                res.touches.extend(touches)
     except Exception:  # noqa: BLE001 — any failure marks the source down (US6)
         logger.exception("Jira fetch failed")
         res.ok = False
@@ -123,21 +134,30 @@ def _alerts_from_logs(
     return out
 
 
-async def _fetch_pagerduty(secrets: Secrets, now: datetime, roster: set[str]) -> PagerDutyResult:
+async def _fetch_pagerduty(
+    secrets: Secrets, now: datetime, since: datetime, roster: set[str]
+) -> PagerDutyResult:
     res = PagerDutyResult()
     try:
         async with pd_mod.make_async_client(secrets.pagerduty_token) as hc:
             pd = pd_mod.PagerDutyClient(hc)
             users = await pd.list_users()
             id_to_email = {u["id"]: u.get("email", "") for u in users}
-            since = now - timedelta(days=_DEFAULT_WINDOW_DAYS)
-            incidents = await pd.incidents(since, now)
+            # Scope to the roster's PagerDuty team(s) so we don't pull the whole org.
+            incidents = await pd.incidents(since, now, team_ids=config.PAGERDUTY_TEAM_IDS)
             res.raw["pagerduty_incidents.json"] = incidents
+
+            # Fetch each incident's log entries concurrently (bounded).
+            sem = asyncio.Semaphore(10)
+
+            async def _logs(inc: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+                async with sem:
+                    return inc["id"], await pd.log_entries(inc["id"])
+
             all_logs: dict[str, Any] = {}
-            for inc in incidents:
-                logs = await pd.log_entries(inc["id"])
-                all_logs[inc["id"]] = logs
-                res.alerts.extend(_alerts_from_logs(inc["id"], logs, id_to_email, roster))
+            for incident_id, logs in await asyncio.gather(*(_logs(i) for i in incidents)):
+                all_logs[incident_id] = logs
+                res.alerts.extend(_alerts_from_logs(incident_id, logs, id_to_email, roster))
             res.raw["pagerduty_log_entries.json"] = all_logs
     except Exception:  # noqa: BLE001
         logger.exception("PagerDuty fetch failed")
@@ -163,14 +183,17 @@ async def run_fetch(
     secrets: Secrets,
     *,
     now: datetime | None = None,
+    window_days: int | None = None,
 ) -> int:
     """Perform one refresh; persist a snapshot; return its fetch_id."""
     now = now or datetime.now(UTC)
+    days = window_days if window_days is not None else config.FETCH_WINDOW_DAYS
+    window_start = now - timedelta(days=days)
     roster = set(config.all_roster_emails())
 
     jira_res, pd_res, ical_res = await asyncio.gather(
-        _fetch_jira(secrets, now, roster),
-        _fetch_pagerduty(secrets, now, roster),
+        _fetch_jira(secrets, now, window_start, roster),
+        _fetch_pagerduty(secrets, now, window_start, roster),
         _fetch_ical(secrets, now),
     )
 

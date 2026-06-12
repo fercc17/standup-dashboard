@@ -11,8 +11,22 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .. import config
 from ..domain.models import Ticket, TouchEvent, TouchKind
 from .pulse import parse_jira_dt
+
+
+def _canonical_project(issue_key: str) -> str:
+    """Map a Jira key prefix (e.g. ``ISREQ-1837``) to the canonical config key.
+
+    Jira returns keys uppercased (``ISREQ``) while config/coloring use ``ISReq``;
+    normalize so project comparisons and pulse matching work.
+    """
+    prefix = issue_key.split("-", 1)[0]
+    for key in config.PROJECT_KEYS:
+        if key.upper() == prefix.upper():
+            return key
+    return prefix
 
 
 def _author_email(actor: dict[str, Any] | None) -> str | None:
@@ -30,7 +44,7 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
     sprint = fields.get("sprint") or {}
     return Ticket(
         id=issue["key"],
-        project_key=issue["key"].split("-", 1)[0],
+        project_key=_canonical_project(issue["key"]),
         title=fields.get("summary", ""),
         status=status,
         priority=priority,

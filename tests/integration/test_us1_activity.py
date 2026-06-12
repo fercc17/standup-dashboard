@@ -68,13 +68,17 @@ def test_us1_refresh_and_detail(client, app, respx_mock):
     slot = region_weekday(now, AMER_TZ)
     app.state.ctx.db.set_weekly_role(EMAIL, slot, "Project", now)
 
-    # Refresh performs the fetch and renders the dashboard fragment.
+    # Refresh kicks off a background fetch (completes before the test client
+    # returns) and renders the "refreshing" fragment with the roster.
     resp = client.post("/refresh", data={"regions": "AMER"})
     assert resp.status_code == 200
-    body = resp.text
-    assert "Alexandre Gomes" in body
-    assert "Project" in body          # role tag
-    assert "1/0" in body              # alerts ack/resolved (24h)
+    assert "Refreshing" in resp.text
+
+    # The page then reflects the fetched data.
+    page = client.get("/", params={"regions": "AMER"}).text
+    assert "Alexandre Gomes" in page
+    assert "Project" in page          # role tag
+    assert "1/0" in page              # alerts ack/resolved (24h)
 
     # Detail panel: coloring per role.
     detail = client.get(f"/chip/{EMAIL}/detail", params={"regions": "AMER"})

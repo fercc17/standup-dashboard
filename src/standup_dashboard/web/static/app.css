@@ -69,6 +69,11 @@ button.action {
   font-size: 13px;
 }
 button.action:hover { background: #f0f2f4; }
+button.action.htmx-request { opacity: .6; pointer-events: none; }
+
+/* Refresh-in-progress banner + spinner */
+.refreshing-banner .spin { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- Banners ---- */
 .banner {

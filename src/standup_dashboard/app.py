@@ -47,6 +47,14 @@ def validate_startup(secrets: Secrets) -> None:
     validate_identities(secrets)
 
 
+class RefreshState:
+    """Tracks an in-flight background refresh (single-user, in-memory)."""
+
+    def __init__(self) -> None:
+        self.running = False
+        self.error: str | None = None
+
+
 class AppState:
     def __init__(self, db: Database, snapshots: SnapshotWriter,
                  secrets: Secrets | None, setup_error: SetupError | None):
@@ -54,6 +62,7 @@ class AppState:
         self.snapshots = snapshots
         self.secrets = secrets
         self.setup_error = setup_error
+        self.refresh = RefreshState()
 
 
 def create_app(

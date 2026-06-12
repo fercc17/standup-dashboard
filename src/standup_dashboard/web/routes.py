@@ -12,8 +12,8 @@ import logging
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .. import config
 from ..domain.models import WEEKDAYS, FetchSnapshot, Role
@@ -83,49 +83,53 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "region_links": _region_links(selected_regions),
         "strict_mode": schedule.get_strict_mode(db),
         "strict_visible": presenters.any_bvg_today(db, selected_regions, now),
-        "counts_rows": [],         # wired in US3 (T040)
+        "counts_rows": [],
         "banner": None,
-        "ready": False,
+        "ready": True,            # the roster always renders, fetch or not
+        "refreshing": ctx.refresh.running,
         "chip_groups": [],
         "global_chips": [],
         "last_fetch_label": "No fetch yet",
     }
 
     latest = db.latest_fetch()
-    if latest is None:
-        return context
-
     # Last-good fallback (US6/FR-028): if the latest fetch's primary source
     # (Jira) failed, render the most recent fetch where it succeeded.
     display = latest
-    if not latest.jira_ok:
+    if latest is not None and not latest.jira_ok:
         good = db.latest_good_fetch()
         if good is not None:
             display = good
 
-    data = presenters.load_fetch_data(db, display.fetched_at, display.id)
+    if display is not None:
+        data = presenters.load_fetch_data(db, display.fetched_at, display.id)
+        context["last_fetch_label"] = _fmt_fetch(display, selected_regions, now)
+    else:
+        # No fetch yet — still show the team (zero activity).
+        data = presenters.DashboardData(fetched_at=now)
+        context["last_fetch_label"] = "No fetch yet — showing roster"
+
     chip_groups, global_chips = presenters.build_chip_groups(db, data, selected_regions, now)
     context.update(
-        ready=True,
         chip_groups=chip_groups,
         global_chips=global_chips,
         counts_rows=presenters.build_counts(data, selected_regions, now),
-        last_fetch_label=_fmt_fetch(display, selected_regions, now),
     )
 
-    failed = [
-        name for name, ok in (
-            ("Jira", latest.jira_ok),
-            ("PagerDuty", latest.pagerduty_ok),
-            ("on-call iCal", latest.ical_ok),
-        ) if not ok
-    ]
-    if failed:
-        stale = " Showing last good data." if display is not latest else ""
-        context["banner"] = {
-            "kind": "error" if not latest.jira_ok else "warn",
-            "text": f"Latest refresh failed for: {', '.join(failed)}.{stale}",
-        }
+    if latest is not None:
+        failed = [
+            name for name, ok in (
+                ("Jira", latest.jira_ok),
+                ("PagerDuty", latest.pagerduty_ok),
+                ("on-call iCal", latest.ical_ok),
+            ) if not ok
+        ]
+        if failed:
+            stale = " Showing last good data." if display is not latest else ""
+            context["banner"] = {
+                "kind": "error" if not latest.jira_ok else "warn",
+                "text": f"Latest refresh failed for: {', '.join(failed)}.{stale}",
+            }
     return context
 
 
@@ -143,8 +147,19 @@ async def index(request: Request) -> HTMLResponse:
     return _templates(request).TemplateResponse(request, "index.html", context)
 
 
+async def _run_refresh_bg(ctx) -> None:
+    """Run a fetch in the background; the UI polls /refresh/status for completion."""
+    try:
+        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now())
+    except Exception:  # noqa: BLE001
+        logger.exception("Background refresh failed")
+        ctx.refresh.error = "Refresh failed — see server logs."
+    finally:
+        ctx.refresh.running = False
+
+
 @router.post("/refresh", response_class=HTMLResponse)
-async def refresh(request: Request) -> HTMLResponse:
+async def refresh(request: Request, background: BackgroundTasks) -> Response:
     ctx = _ctx(request)
     if ctx.setup_error is not None or ctx.secrets is None:
         return render_setup(request)
@@ -154,9 +169,26 @@ async def refresh(request: Request) -> HTMLResponse:
     except ValueError as exc:
         return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
 
-    await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now())
+    # Fire-and-forget: the fetch runs server-side, the UI keeps reading the DB.
+    if not ctx.refresh.running:
+        ctx.refresh.running = True
+        ctx.refresh.error = None
+        background.add_task(_run_refresh_bg, ctx)
+
     context = _dashboard_context(request, selected, _now())
-    return _templates(request).TemplateResponse(request, "_dashboard.html", context)
+    context["refreshing"] = True
+    return _templates(request).TemplateResponse(
+        request, "_dashboard.html", context, background=background
+    )
+
+
+@router.get("/refresh/status")
+async def refresh_status(request: Request) -> Response:
+    """Poll target: 204 while a refresh runs, then ask HTMX to reload the page."""
+    ctx = _ctx(request)
+    if ctx.refresh.running:
+        return Response(status_code=204)
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 
 @router.get("/chip/{engineer_email}/detail", response_class=HTMLResponse)

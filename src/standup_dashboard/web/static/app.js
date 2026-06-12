@@ -16,15 +16,4 @@ document.addEventListener('click', function (e) {
   }
 });
 
-// Avoid opening duplicate panels for the same engineer: if one exists, scroll to it.
-document.body.addEventListener('htmx:beforeRequest', function (e) {
-  const trigger = e.detail.elt;
-  const email = trigger && trigger.getAttribute('data-engineer');
-  if (email) {
-    const existing = document.querySelector('.panel[data-engineer="' + CSS.escape(email) + '"]');
-    if (existing) {
-      existing.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      e.preventDefault();
-    }
-  }
-});
+// One detail panel at a time: clicking a chip replaces #panels (hx-swap=innerHTML).

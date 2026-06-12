@@ -2,7 +2,7 @@
      data-engineer="{{ chip.email }}"
      {% if chip.region_key != "Global" %}
      hx-get="/chip/{{ chip.email }}/detail?regions={{ chip.region_key }}"
-     hx-target="#panels" hx-swap="beforeend"
+     hx-target="#panels" hx-swap="innerHTML"
      {% endif %}>
   <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}</span>
   <span class="meta">

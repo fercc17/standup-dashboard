@@ -32,14 +32,37 @@ def make_async_client(token: str, *, base_url: str = config.JIRA_BASE_URL) -> ht
 
 class JiraClient(ReadOnlyClient):
     async def active_sprint(self, project_key: str) -> dict[str, Any] | None:
-        """Resolve the active sprint for a project (first board, first active sprint)."""
+        """Resolve the active sprint for a project.
+
+        Tries the pinned board id from config first, then falls back to board
+        discovery (skipping kanban boards, which have no sprints and return 400
+        on the sprint endpoint).
+        """
+        pinned = config.PROJECT_BOARDS.get(project_key)
+        if pinned is not None:
+            sprint = await self._first_active_sprint([pinned])
+            if sprint is not None:
+                return sprint
+
         boards = await self._get_json(
             f"{_AGILE}/board", params={"projectKeyOrId": project_key}
         )
-        for board in boards.get("values", []):
-            sprints = await self._get_json(
-                f"{_AGILE}/board/{board['id']}/sprint", params={"state": "active"}
-            )
+        discovered = [
+            b["id"] for b in boards.get("values", [])
+            if (b.get("type") or "scrum") == "scrum" and b["id"] != pinned
+        ]
+        return await self._first_active_sprint(discovered)
+
+    async def _first_active_sprint(self, board_ids: list[int]) -> dict[str, Any] | None:
+        for board_id in board_ids:
+            try:
+                sprints = await self._get_json(
+                    f"{_AGILE}/board/{board_id}/sprint", params={"state": "active"}
+                )
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 400:
+                    continue  # kanban board — no sprints; other errors are real
+                raise
             values = sprints.get("values", [])
             if values:
                 return values[0]
@@ -56,21 +79,29 @@ class JiraClient(ReadOnlyClient):
         )
 
     async def search(self, jql: str, *, expand_changelog: bool = True) -> list[dict[str, Any]]:
-        """Run a JQL search, paginated, optionally expanding changelog."""
+        """Run a JQL search via the enhanced ``/search/jql`` endpoint (token paging).
+
+        The legacy ``/rest/api/3/search`` GET endpoint was removed by Atlassian
+        (HTTP 410); this uses its replacement, which paginates by nextPageToken.
+        """
         params: dict[str, Any] = {
             "jql": jql,
             "fields": "summary,status,priority,labels,assignee,created",
+            "maxResults": _PAGE,
         }
         if expand_changelog:
             params["expand"] = "changelog"
-        return await self._paginate(f"{_API}/search", params=params)
 
-    async def search_count(self, jql: str) -> int:
-        """Total matches for a JQL query without fetching every issue."""
-        data = await self._get_json(
-            f"{_API}/search", params={"jql": jql, "maxResults": 0}
-        )
-        return int(data.get("total", 0))
+        out: list[dict[str, Any]] = []
+        token: str | None = None
+        while True:
+            page = {**params, **({"nextPageToken": token} if token else {})}
+            data = await self._get_json(f"{_API}/search/jql", params=page)
+            out.extend(data.get("issues", []))
+            token = data.get("nextPageToken")
+            if not token:
+                break
+        return out
 
     async def comments(self, issue_key: str) -> list[dict[str, Any]]:
         data = await self._get_json(f"{_API}/issue/{issue_key}/comment")

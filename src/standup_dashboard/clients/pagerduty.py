@@ -42,18 +42,23 @@ class PagerDutyClient(ReadOnlyClient):
                 return user
         return None
 
-    async def incidents(self, since: datetime, until: datetime) -> list[dict[str, Any]]:
-        """Acknowledged + resolved incidents in the window."""
-        return await self._paginate(
-            "/incidents",
-            "incidents",
-            params={
-                "since": since.isoformat(),
-                "until": until.isoformat(),
-                "time_zone": "UTC",
-                "statuses[]": ["acknowledged", "resolved"],
-            },
-        )
+    async def incidents(
+        self,
+        since: datetime,
+        until: datetime,
+        *,
+        team_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Acknowledged + resolved incidents in the window, optionally team-scoped."""
+        params: dict[str, Any] = {
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "time_zone": "UTC",
+            "statuses[]": ["acknowledged", "resolved"],
+        }
+        if team_ids:
+            params["team_ids[]"] = list(team_ids)
+        return await self._paginate("/incidents", "incidents", params=params)
 
     async def log_entries(self, incident_id: str) -> list[dict[str, Any]]:
         return await self._paginate(

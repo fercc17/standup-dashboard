@@ -7,6 +7,7 @@ dashboard reads from. Secrets (tokens, iCal URL) live only in ``secrets/*.txt``
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -20,9 +21,27 @@ PROJECT_ISDB = "ISDB"
 PROJECT_ISREQ = "ISReq"
 PROJECT_KEYS = (PROJECT_ISDB, PROJECT_ISREQ)
 
-# Server bind (quickstart.md)
-HOST = "127.0.0.1"
-PORT = 8765
+# Jira boards to read the active sprint ("pulse") from, per project. Pinned
+# because board discovery via projectKeyOrId is unreliable here (ISDB returns a
+# kanban board first; ISReq's board isn't returned by the project filter).
+PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
+
+# How far back a refresh collects activity (Jira "updated"/touches + PagerDuty
+# incidents). Small by default for fast test refreshes; raise for a full pulse.
+FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "1"))
+
+# PagerDuty team(s) whose incidents are relevant (the roster's "IS" squad).
+# Scopes the /incidents query so a refresh fetches this team's alerts, not the
+# entire organization's. Override with STANDUP_PD_TEAM_IDS (comma-separated).
+PAGERDUTY_TEAM_IDS = tuple(
+    t for t in os.environ.get("STANDUP_PD_TEAM_IDS", "PQ4ZG3S").split(",") if t
+)
+
+# Server bind. Defaults to loopback (single-user, localhost-only per FR-011).
+# Set STANDUP_HOST=0.0.0.0 to expose the dashboard on the LAN (no auth — only
+# do this on a trusted network), and STANDUP_PORT to change the port.
+HOST = os.environ.get("STANDUP_HOST", "127.0.0.1")
+PORT = int(os.environ.get("STANDUP_PORT", "8765"))
 
 # ---------------------------------------------------------------------------
 # Regions (FR-002) — IANA timezones
