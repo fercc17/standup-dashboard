@@ -46,7 +46,8 @@ def test_us3_counts_table_renders(client, respx_mock):
     client.post("/refresh", data={"regions": "AMER"})
     page = client.get("/", params={"regions": "AMER"}).text
 
-    assert "Pulse counts" in page
+    import re
+    assert re.search(r"Pulse \d+ counts", page)  # title carries the pulse number
     assert "<table class=\"counts\">" in page
     # Redesigned columns: ISReq new/closed groups + relabelled alert columns (#91).
     for header in ("New", "Highest", "PR/MP", "Review", "ps5", "Regular",

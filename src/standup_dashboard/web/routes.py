@@ -19,6 +19,7 @@ from .. import config
 from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
 from ..services import roster, schedule
 from ..services.fetch import run_fetch
+from ..services.pulse import current_pulse
 from . import presenters
 
 logger = logging.getLogger("standup_dashboard.web")
@@ -77,9 +78,12 @@ def render_setup(request: Request, status_code: int = 200) -> HTMLResponse:
 def _dashboard_context(request: Request, selected_regions: list[str], now: datetime) -> dict:
     ctx = _ctx(request)
     db = ctx.db
+    axis_tz = config.REGIONS[selected_regions[0]].timezone if selected_regions else "UTC"
+    pulse_number, _, _ = current_pulse(now.astimezone(ZoneInfo(axis_tz)).date())
     context: dict = {
         "regions": config.REGION_KEYS,
         "selected_regions": selected_regions,
+        "pulse_number": pulse_number,
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
         "oncall_name": None,
