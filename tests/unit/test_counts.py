@@ -1,4 +1,4 @@
-"""US3 + #91 unit tests: ISDB new/closed buckets, per-person tooltips, weekend."""
+"""US3 + #91 unit tests: ISReq new/closed buckets, per-person tooltips, weekend."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ def utc(y, m, d, h=18):
 
 def _pulses():
     # 18:00 UTC ≈ 12:00 in Mexico City, so the region-local day equals the date.
+    # Within the anchored pulse 12 (Jun 8–21), so the window is the sprint span.
     start, end = utc(2026, 6, 11), utc(2026, 6, 19)
     return [Pulse("ISDB", 101, "s", start, end), Pulse("ISReq", 201, "s", start, end)]
 
@@ -25,21 +26,21 @@ def _pulses():
 def _build(now):
     fri = utc(2026, 6, 12)  # a pulse weekday (Friday)
     tickets = [
-        # New ISDB tickets created Friday — one per bucket.
-        Ticket(id="ISDB-H", project_key="ISDB", title="boom", status="To Do",
+        # New ISReq tickets created Friday — one per bucket.
+        Ticket(id="ISReq-H", project_key="ISReq", title="boom", status="To Do",
                priority="Highest", labels=[], created=fri, reporter_email=MEMBER),
-        Ticket(id="ISDB-PR", project_key="ISDB", title="[PR/MP Review] x", status="To Do",
+        Ticket(id="ISReq-PR", project_key="ISReq", title="[PR/MP Review] x", status="To Do",
                priority="Medium", labels=[], created=fri, reporter_email=MEMBER),
-        Ticket(id="ISDB-P5", project_key="ISDB", title="blk", status="To Do",
-               priority="Medium", labels=["ps5-blockers"], created=fri, reporter_email=OTHER),
-        Ticket(id="ISDB-R", project_key="ISDB", title="reg", status="To Do",
+        Ticket(id="ISReq-P5", project_key="ISReq", title="blk", status="To Do",
+               priority="Medium", labels=["ps5-blocker"], created=fri, reporter_email=OTHER),
+        Ticket(id="ISReq-R", project_key="ISReq", title="reg", status="To Do",
                priority="Medium", labels=[], created=fri, reporter_email=MEMBER),
-        # Closed ISDB Highest on Friday.
-        Ticket(id="ISDB-C", project_key="ISDB", title="done", status="Done",
+        # Closed ISReq Highest on Friday.
+        Ticket(id="ISReq-C", project_key="ISReq", title="done", status="Done",
                priority="Highest", labels=[], is_done_date=date(2026, 6, 12),
                assignee_email=MEMBER),
-        # Non-ISDB ticket is ignored by the counts table.
-        Ticket(id="ISReq-1", project_key="ISReq", title="x", status="To Do",
+        # Non-ISReq (ISDB) ticket is ignored by the counts table.
+        Ticket(id="ISDB-1", project_key="ISDB", title="x", status="To Do",
                priority="Highest", labels=[], created=fri, reporter_email=MEMBER),
     ]
     alerts = [
@@ -60,22 +61,22 @@ def test_one_row_per_day_with_weekend_combined():
     assert rows[3].label.startswith("Mon")
 
 
-def test_new_isdb_buckets_sum_to_total_on_created_day():
+def test_new_isreq_buckets_sum_to_total_on_created_day():
     rows = _build(utc(2026, 6, 15))
     fri = rows[1]
     assert fri.new_highest.count == 1
     assert fri.new_pr_mp.count == 1
     assert fri.new_ps5.count == 1
     assert fri.new_regular.count == 1
-    assert fri.new_total.count == 4            # ISReq excluded
-    assert rows[0].new_total.count == 0        # Thursday has no new ISDB tickets
+    assert fri.new_total.count == 4            # ISDB excluded
+    assert rows[0].new_total.count == 0        # Thursday has no new ISReq tickets
 
 
 def test_new_bucket_precedence_highest_wins():
     fri = utc(2026, 6, 12)
     # Highest + [PR/MP Review] + ps5 → counted once, in the Highest bucket only.
-    t = Ticket(id="ISDB-X", project_key="ISDB", title="[PR/MP Review] hot", status="To Do",
-               priority="Highest", labels=["ps5-blockers"], created=fri, reporter_email=MEMBER)
+    t = Ticket(id="ISReq-X", project_key="ISReq", title="[PR/MP Review] hot", status="To Do",
+               priority="Highest", labels=["ps5-blocker"], created=fri, reporter_email=MEMBER)
     fri_row = build_region_counts(AMER, [t], [], _pulses(), utc(2026, 6, 15))[1]
     assert fri_row.new_highest.count == 1
     assert fri_row.new_pr_mp.count == 0
@@ -83,7 +84,7 @@ def test_new_bucket_precedence_highest_wins():
     assert fri_row.new_total.count == 1
 
 
-def test_closed_isdb_buckets_to_done_day():
+def test_closed_isreq_buckets_to_done_day():
     rows = _build(utc(2026, 6, 15))
     fri = rows[1]
     assert fri.closed_total.count == 1
@@ -121,8 +122,18 @@ def test_pulse_total_sums_new_closed_and_alerts():
     assert total.region_alert_pct is None
 
 
+def test_closes_before_pulse_start_are_excluded():
+    # A ticket Done before the pulse-12 anchor (Jun 8) — rolled into this sprint
+    # by Jira — must NOT be counted as closed this pulse (#93).
+    rolled = Ticket(id="ISReq-OLD", project_key="ISReq", title="old", status="Done",
+                    priority="Highest", labels=[], is_done_date=date(2026, 6, 6),
+                    assignee_email=MEMBER)
+    rows = build_region_counts(AMER, [rolled], [], _pulses(), utc(2026, 6, 15))
+    assert rows[-1].closed_total.count == 0
+
+
 def test_days_capped_at_today():
-    # Today is the Thursday the pulse starts → a single row.
+    # Today is the Thursday the sprint starts → a single row (within pulse 12).
     rows = _build(utc(2026, 6, 11))
     day_rows = [r for r in rows if not r.is_total]
     assert len(day_rows) == 1

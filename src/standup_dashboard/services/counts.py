@@ -3,7 +3,9 @@
 One row per region-local calendar day of the pulse, with Saturday+Sunday merged
 into a single weekend row (shown on Monday), plus a trailing "Pulse total" row.
 
-Ticket columns are ISDB-scoped and split into two groups (#91):
+Ticket columns are scoped to one project (``COUNTS_PROJECT`` — ISReq, where
+Highest / [PR/MP Review] / ps5-blocker work lives, #91) and split into two
+groups (#91):
 
   * New that day, four mutually exclusive buckets (precedence
     Highest → [PR/MP Review] → ps5-blocker → regular) that sum to "New total".
@@ -34,6 +36,12 @@ from ..domain.models import (
     Pulse,
     Ticket,
 )
+from .pulse import current_pulse
+
+# Project whose tickets feed the counts table's New/Closed columns. Highest,
+# [PR/MP Review] and ps5-blocker work all live in ISReq (#91); switch here to
+# retarget the whole ticket section.
+COUNTS_PROJECT = config.PROJECT_ISREQ
 
 
 def _local_date(dt: datetime, zone: ZoneInfo) -> date:
@@ -57,16 +65,20 @@ def _display_name(email: str | None) -> str:
 
 
 def pulse_dates(pulses: list[Pulse], zone: ZoneInfo, now: datetime) -> list[date]:
-    """Region-local calendar days of the pulse, capped at today."""
+    """Region-local days of the current pulse, capped at today.
+
+    The window is the sprint span intersected with the anchored pulse-calendar
+    window (#93), so days (and the closes/news bucketed into them) never reach
+    back into a prior pulse whose tickets Jira rolled into this sprint.
+    """
     if not pulses:
         return []
-    start = min(p.start for p in pulses)
-    end = max(p.end for p in pulses)
-    d = start.astimezone(zone).date()
-    last = end.astimezone(zone).date()
     today = now.astimezone(zone).date()
-    if last > today:
-        last = today
+    sprint_start = min(p.start for p in pulses).astimezone(zone).date()
+    sprint_end = max(p.end for p in pulses).astimezone(zone).date()
+    _, pulse_start, pulse_end_excl = current_pulse(today)
+    d = max(sprint_start, pulse_start)
+    last = min(sprint_end, pulse_end_excl - timedelta(days=1), today)
     days: list[date] = []
     while d <= last:
         days.append(d)
@@ -174,17 +186,17 @@ def build_counts(
     # Global denominator = all counted roster members (excludes management).
     counted_members = {e.email for e in config.ROSTER if config.is_counted(e)}
 
-    isdb = [t for t in tickets if t.is_isdb]
+    scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
 
     def _created_on(t: Ticket, dates: set[date]) -> bool:
         return t.created is not None and _local_date(t.created, axis_zone) in dates
 
     def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
-        new_tickets = [t for t in isdb if _created_on(t, dset)]
+        new_tickets = [t for t in scoped if _created_on(t, dset)]
         buckets: dict[str, list[Ticket]] = {"highest": [], "pr_mp": [], "ps5": [], "regular": []}
         for t in new_tickets:
             buckets[_new_bucket(t)].append(t)
-        closed = [t for t in isdb if t.is_done_date in dset]
+        closed = [t for t in scoped if t.is_done_date in dset]
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
