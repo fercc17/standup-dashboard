@@ -176,6 +176,8 @@ class Alert:
     handler_email: str
     state: AlertState
     at: datetime
+    title: str | None = None     # PagerDuty incident title ("what went down")
+    url: str | None = None       # PagerDuty incident link
 
 
 @dataclass
@@ -233,7 +235,8 @@ class TicketVM:
     title: str
     color: Color
     is_bvg_review: bool = False
-    url: str | None = None  # Jira browse link; None for non-Jira rows (e.g. alerts)
+    url: str | None = None  # Jira browse / PagerDuty link
+    touched_24h: bool = False  # touched in the last 24h (for the panel split, #17)
 
 
 @dataclass
