@@ -18,10 +18,12 @@ def issue(
     *,
     status: str = "In Progress",
     assignee: str | None = None,
+    reporter: str | None = None,
     priority: str | None = None,
     labels: list[str] | None = None,
     summary: str | None = None,
     sprint_id: int | None = None,
+    created: str | None = None,
     changelog: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
@@ -32,7 +34,9 @@ def issue(
             "priority": {"name": priority} if priority else None,
             "labels": labels or [],
             "assignee": {"emailAddress": assignee} if assignee else None,
+            "reporter": {"emailAddress": reporter} if reporter else None,
             "sprint": {"id": sprint_id} if sprint_id else None,
+            "created": created,
         },
         "changelog": {"histories": changelog or []},
     }

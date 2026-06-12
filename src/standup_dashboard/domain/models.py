@@ -121,6 +121,7 @@ class Ticket:
     is_done_date: date | None = None
     created: datetime | None = None
     status_category: str | None = None
+    reporter_email: str | None = None
 
     @property
     def group(self) -> TicketGroup | None:
@@ -150,6 +151,11 @@ class Ticket:
     def is_bvg_review(self) -> bool:
         """ISReq ticket whose title starts with ``[PR/MP Review]`` (FR-015)."""
         return self.is_isreq and self.title.strip().startswith(ISREQ_REVIEW_PREFIX)
+
+    @property
+    def is_pr_mp_review(self) -> bool:
+        """Any ticket whose title starts with ``[PR/MP Review]`` (project-agnostic)."""
+        return self.title.strip().startswith(ISREQ_REVIEW_PREFIX)
 
 
 @dataclass
@@ -228,17 +234,46 @@ class DetailPanelVM:
 
 
 @dataclass
+class Cell:
+    """One counts-table number plus a per-person breakdown for its tooltip (#91).
+
+    ``breakdown`` maps a person's display name → how many of the counted items
+    are attributed to them (reporter for new tickets, assignee for closed
+    tickets, handler for alerts).
+    """
+    count: int = 0
+    breakdown: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def tip(self) -> str:
+        """Tooltip text: ``Name ×N`` lines, most-active first."""
+        if not self.breakdown:
+            return ""
+        items = sorted(self.breakdown.items(), key=lambda kv: (-kv[1], kv[0]))
+        return "\n".join(f"{name} ×{n}" for name, n in items)
+
+
+@dataclass
 class CountsRow:
+    """One row of the pulse counts table — a region-local day or the pulse total.
+
+    Ticket cells are ISDB-scoped (#91): the four ``new_*`` buckets are mutually
+    exclusive and sum to ``new_total``; ``closed_*`` are ISDB completions that
+    day (``closed_highest``/``closed_ps5`` are subcounts of ``closed_total``).
+    Alert cells are scoped to the selected regions' members.
+    """
     label: str
-    is_weekend: bool
-    open_highest_isreq: int
-    new_highest_isreq_24h: int
-    isdb_completed: int
-    open_ps5_blockers: int
-    new_ps5_blockers_24h: int
-    alerts_ack: int
-    alerts_resolved: int
-    alerts_total: int
-    region_alert_pct: float | None
-    open_pr_mp_review: int = 0
+    is_weekend: bool = False
     is_total: bool = False
+    new_highest: Cell = field(default_factory=Cell)
+    new_pr_mp: Cell = field(default_factory=Cell)
+    new_ps5: Cell = field(default_factory=Cell)
+    new_regular: Cell = field(default_factory=Cell)
+    new_total: Cell = field(default_factory=Cell)
+    closed_highest: Cell = field(default_factory=Cell)
+    closed_ps5: Cell = field(default_factory=Cell)
+    closed_total: Cell = field(default_factory=Cell)
+    alerts_ack: Cell = field(default_factory=Cell)
+    alerts_resolved: Cell = field(default_factory=Cell)
+    alerts_total: Cell = field(default_factory=Cell)
+    region_alert_pct: float | None = None

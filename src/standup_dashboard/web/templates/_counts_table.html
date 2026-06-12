@@ -3,15 +3,17 @@
   <thead>
     <tr>
       <th>Day</th>
-      <th title="Open Highest ISReq (snapshot)" class="stk"><span>Open</span><span>Highest</span></th>
-      <th title="New Highest ISReq (24h)" class="stk"><span>New</span><span>Highest</span></th>
-      <th title="ISDB completed that day" class="stk"><span>ISDB</span><span>done</span></th>
-      <th title="Open ps5-blockers (snapshot)" class="stk"><span>Open</span><span>ps5</span></th>
-      <th title="New ps5-blockers (24h)" class="stk"><span>New</span><span>ps5</span></th>
-      <th title="Open [PR/MP Review] ISReq tickets (snapshot)" class="stk"><span>PR/MP</span><span>Review</span></th>
-      <th title="Alerts acknowledged">Ack</th>
-      <th title="Alerts resolved">Res</th>
-      <th title="Total alerts">Total</th>
+      <th title="New ISDB Highest tickets" class="stk"><span>New</span><span>Highest</span></th>
+      <th title="New ISDB [PR/MP Review] tickets" class="stk"><span>PR/MP</span><span>Review</span></th>
+      <th title="New ISDB ps5-blocker tickets" class="stk"><span>New</span><span>ps5</span></th>
+      <th title="New ISDB regular tickets (not Highest / PR-MP / ps5)" class="stk"><span>New</span><span>Regular</span></th>
+      <th title="New ISDB tickets total (sum of the four)" class="stk"><span>New</span><span>Total</span></th>
+      <th title="Closed ISDB Highest tickets" class="stk grp"><span>Closed</span><span>Highest</span></th>
+      <th title="Closed ISDB ps5-blocker tickets" class="stk"><span>Closed</span><span>ps5</span></th>
+      <th title="ISDB tickets closed total" class="stk"><span>Closed</span><span>Total</span></th>
+      <th title="Alerts acknowledged" class="stk div"><span>Alerts</span><span>Ack</span></th>
+      <th title="Alerts resolved" class="stk"><span>Alert</span><span>Res</span></th>
+      <th title="Total alerts (ack + resolved)" class="stk"><span>Alerts</span><span>Total</span></th>
       <th title="Region share of global alerts that day">Region %</th>
     </tr>
   </thead>
@@ -19,15 +21,17 @@
     {% for row in counts_rows %}
     <tr class="{% if row.is_total %}pulse-total{% elif row.is_weekend %}weekend{% endif %}">
       <td>{{ row.label }}</td>
-      <td>{{ row.open_highest_isreq }}</td>
-      <td>{{ row.new_highest_isreq_24h }}</td>
-      <td>{{ row.isdb_completed }}</td>
-      <td>{{ row.open_ps5_blockers }}</td>
-      <td>{{ row.new_ps5_blockers_24h }}</td>
-      <td>{{ row.open_pr_mp_review }}</td>
-      <td>{{ row.alerts_ack }}</td>
-      <td>{{ row.alerts_resolved }}</td>
-      <td>{{ row.alerts_total }}</td>
+      <td title="{{ row.new_highest.tip }}">{{ row.new_highest.count }}</td>
+      <td title="{{ row.new_pr_mp.tip }}">{{ row.new_pr_mp.count }}</td>
+      <td title="{{ row.new_ps5.tip }}">{{ row.new_ps5.count }}</td>
+      <td title="{{ row.new_regular.tip }}">{{ row.new_regular.count }}</td>
+      <td class="sub" title="{{ row.new_total.tip }}">{{ row.new_total.count }}</td>
+      <td class="grp" title="{{ row.closed_highest.tip }}">{{ row.closed_highest.count }}</td>
+      <td title="{{ row.closed_ps5.tip }}">{{ row.closed_ps5.count }}</td>
+      <td class="sub" title="{{ row.closed_total.tip }}">{{ row.closed_total.count }}</td>
+      <td class="div" title="{{ row.alerts_ack.tip }}">{{ row.alerts_ack.count }}</td>
+      <td title="{{ row.alerts_resolved.tip }}">{{ row.alerts_resolved.count }}</td>
+      <td class="sub" title="{{ row.alerts_total.tip }}">{{ row.alerts_total.count }}</td>
       <td>{% if row.region_alert_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_alert_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}

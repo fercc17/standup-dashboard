@@ -1,23 +1,27 @@
-"""Per-day pulse counts table (FR-020/021/022/023/024) — T038 + T043.
+"""Per-day pulse counts table (FR-020/021/022/023/024, redesigned in #91).
 
 One row per region-local calendar day of the pulse, with Saturday+Sunday merged
-into a single weekend row (shown on Monday). Columns (FR-021):
+into a single weekend row (shown on Monday), plus a trailing "Pulse total" row.
 
-  open Highest ISReq*, new Highest ISReq (24h)*, ISDB completed that day,
-  open ps5-blockers*, new ps5-blockers (24h)*, alerts ack, alerts resolved,
-  total, region % of the global (3-region, deduped) alert total that day.
+Ticket columns are ISDB-scoped and split into two groups (#91):
 
-Columns marked * are fetch-time snapshots / 24h figures attached to the most
-recent (today) row only. Ticket columns are project-wide (not region-scoped);
-alert columns are scoped to the selected regions' members. When multiple
-regions are selected, alerts are deduplicated by incident id, each handler is
-bucketed in their own region's timezone (FR-022/024), and the percentage
-denominator is the deduplicated three-region total (excluding management —
-regional + global managers — FR-004 / #72).
+  * New that day, four mutually exclusive buckets (precedence
+    Highest → [PR/MP Review] → ps5-blocker → regular) that sum to "New total".
+  * Closed that day: Highest, ps5-blocker (subcounts) and the closed total.
+
+Alert columns (Alerts Ack / Alert Res / Total + region % of the global total)
+are scoped to the selected regions' members, deduplicated by incident id, each
+handler bucketed in their own region timezone (FR-022/024). The percentage
+denominator is the deduplicated total over all counted members (excluding
+management — FR-004 / #72).
+
+Every number carries a per-person breakdown for its tooltip: reporter for new
+tickets, assignee for closed tickets, handler for alerts.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -25,13 +29,11 @@ from .. import config
 from ..domain.models import (
     Alert,
     AlertState,
+    Cell,
     CountsRow,
     Pulse,
     Ticket,
-    TicketGroup,
 )
-
-_24H = timedelta(hours=24)
 
 
 def _local_date(dt: datetime, zone: ZoneInfo) -> date:
@@ -41,6 +43,17 @@ def _local_date(dt: datetime, zone: ZoneInfo) -> date:
 def _handler_zone(email: str) -> ZoneInfo | None:
     region_key = config.primary_region_for(email)
     return ZoneInfo(config.REGIONS[region_key].timezone) if region_key else None
+
+
+def _display_name(email: str | None) -> str:
+    """Human label for a tooltip: roster name, else derived from the email."""
+    if not email:
+        return "Unassigned"
+    eng = config.ENGINEERS_BY_EMAIL.get(email)
+    if eng:
+        return eng.name
+    parts = [p for p in re.split(r"[._-]+", email.split("@", 1)[0]) if p]
+    return " ".join(p.capitalize() for p in parts) if parts else email
 
 
 def pulse_dates(pulses: list[Pulse], zone: ZoneInfo, now: datetime) -> list[date]:
@@ -80,18 +93,25 @@ def _group_days(days: list[date]) -> list[tuple[str, list[date], bool]]:
     return groups
 
 
-def _isdb_completed(tickets: list[Ticket], dates: set[date]) -> int:
-    return sum(1 for t in tickets if t.is_isdb and t.is_done_date in dates)
+def _ticket_cell(tickets: list[Ticket], email_of) -> Cell:
+    """A Cell for a set of tickets, broken down by ``email_of`` (reporter/assignee)."""
+    breakdown: dict[str, int] = {}
+    for t in tickets:
+        name = _display_name(email_of(t))
+        breakdown[name] = breakdown.get(name, 0) + 1
+    return Cell(count=len(tickets), breakdown=breakdown)
 
 
-def _incident_ids(
+def _alert_cell(
     alerts: list[Alert], members: set[str], dates: set[date], state: AlertState | None
-) -> set[str]:
-    """Distinct incident ids handled by ``members`` on ``dates`` (handler-tz bucketed).
+) -> Cell:
+    """Distinct incidents handled by ``members`` on ``dates`` (handler-tz bucketed).
 
-    ``state=None`` matches any state (used for the global denominator).
+    ``state=None`` matches any state. The breakdown maps handler → distinct
+    incidents they handled.
     """
-    out: set[str] = set()
+    ids: set[str] = set()
+    per_person: dict[str, set[str]] = {}
     for a in alerts:
         if a.handler_email not in members:
             continue
@@ -101,8 +121,37 @@ def _incident_ids(
         if zone is None:
             continue
         if _local_date(a.at, zone) in dates:
-            out.add(a.id)
-    return out
+            ids.add(a.id)
+            per_person.setdefault(_display_name(a.handler_email), set()).add(a.id)
+    return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
+
+
+def _merge_cells(cells: list[Cell]) -> Cell:
+    """Element-wise sum of cells (count + per-person breakdown)."""
+    breakdown: dict[str, int] = {}
+    for c in cells:
+        for name, n in c.breakdown.items():
+            breakdown[name] = breakdown.get(name, 0) + n
+    return Cell(count=sum(c.count for c in cells), breakdown=breakdown)
+
+
+def _new_bucket(ticket: Ticket) -> str:
+    """Exactly one new-ticket bucket, by precedence (so the four sum to total)."""
+    if ticket.is_highest:
+        return "highest"
+    if ticket.is_pr_mp_review:
+        return "pr_mp"
+    if ticket.has_ps5_blockers:
+        return "ps5"
+    return "regular"
+
+
+def _reporter(t: Ticket) -> str | None:
+    return t.reporter_email
+
+
+def _assignee(t: Ticket) -> str | None:
+    return t.assignee_email
 
 
 def build_counts(
@@ -118,73 +167,60 @@ def build_counts(
     axis_zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
     days = pulse_dates(pulses, axis_zone, now)
     groups = _group_days(days)
-    today = now.astimezone(axis_zone).date()
 
     selected_members: set[str] = set()
     for key in selected_regions:
         selected_members.update(config.REGIONS[key].member_emails)
-    # Global denominator = all counted roster members, i.e. excluding management
-    # (regional + global managers, FR-004 / #72).
+    # Global denominator = all counted roster members (excludes management).
     counted_members = {e.email for e in config.ROSTER if config.is_counted(e)}
 
-    # Fetch-time snapshot / 24h figures (FR-021 *), attached to today's row.
-    open_highest = sum(
-        1 for t in tickets if t.is_isreq and t.is_highest and t.group is not TicketGroup.SUCCESS
-    )
-    open_ps5 = sum(
-        1 for t in tickets if t.has_ps5_blockers and t.group is not TicketGroup.SUCCESS
-    )
-    new_highest = sum(
-        1 for t in tickets if t.is_isreq and t.is_highest and t.created and t.created >= now - _24H
-    )
-    new_ps5 = sum(
-        1 for t in tickets if t.has_ps5_blockers and t.created and t.created >= now - _24H
-    )
-    open_pr_mp = sum(
-        1 for t in tickets if t.is_bvg_review and t.group is not TicketGroup.SUCCESS
-    )
+    isdb = [t for t in tickets if t.is_isdb]
 
-    rows: list[CountsRow] = []
-    for label, dates_list, is_weekend in groups:
-        dset = set(dates_list)
-        ack = _incident_ids(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
-        resolved = _incident_ids(alerts, selected_members, dset, AlertState.RESOLVED)
-        region_ids = ack | resolved
-        global_ids = _incident_ids(alerts, counted_members, dset, None)
-        pct = (100.0 * len(region_ids) / len(global_ids)) if global_ids else None
+    def _created_on(t: Ticket, dates: set[date]) -> bool:
+        return t.created is not None and _local_date(t.created, axis_zone) in dates
 
-        is_today_row = today in dset
-        rows.append(CountsRow(
+    def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
+        new_tickets = [t for t in isdb if _created_on(t, dset)]
+        buckets: dict[str, list[Ticket]] = {"highest": [], "pr_mp": [], "ps5": [], "regular": []}
+        for t in new_tickets:
+            buckets[_new_bucket(t)].append(t)
+        closed = [t for t in isdb if t.is_done_date in dset]
+
+        ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
+        resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
+        region_distinct = _alert_cell(alerts, selected_members, dset, None).count
+        global_distinct = _alert_cell(alerts, counted_members, dset, None).count
+        pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
+
+        return CountsRow(
             label=label,
             is_weekend=is_weekend,
-            open_highest_isreq=open_highest if is_today_row else 0,
-            new_highest_isreq_24h=new_highest if is_today_row else 0,
-            isdb_completed=_isdb_completed(tickets, dset),
-            open_ps5_blockers=open_ps5 if is_today_row else 0,
-            new_ps5_blockers_24h=new_ps5 if is_today_row else 0,
-            alerts_ack=len(ack),
-            alerts_resolved=len(resolved),
-            alerts_total=len(ack) + len(resolved),
+            is_total=is_total,
+            new_highest=_ticket_cell(buckets["highest"], _reporter),
+            new_pr_mp=_ticket_cell(buckets["pr_mp"], _reporter),
+            new_ps5=_ticket_cell(buckets["ps5"], _reporter),
+            new_regular=_ticket_cell(buckets["regular"], _reporter),
+            new_total=_ticket_cell(new_tickets, _reporter),
+            closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
+            closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
+            closed_total=_ticket_cell(closed, _assignee),
+            alerts_ack=ack,
+            alerts_resolved=resolved,
+            alerts_total=_merge_cells([ack, resolved]),
             region_alert_pct=pct,
-            open_pr_mp_review=open_pr_mp if is_today_row else 0,
-        ))
+        )
+
+    rows: list[CountsRow] = []
+    all_dates: set[date] = set()
+    for label, dates_list, is_weekend in groups:
+        dset = set(dates_list)
+        all_dates |= dset
+        rows.append(_row(label, dset, is_weekend=is_weekend, is_total=False))
 
     if rows:
-        rows.append(CountsRow(
-            label="Pulse total",
-            is_weekend=False,
-            is_total=True,
-            open_highest_isreq=open_highest,
-            new_highest_isreq_24h=new_highest,
-            isdb_completed=sum(r.isdb_completed for r in rows),
-            open_ps5_blockers=open_ps5,
-            new_ps5_blockers_24h=new_ps5,
-            alerts_ack=sum(r.alerts_ack for r in rows),
-            alerts_resolved=sum(r.alerts_resolved for r in rows),
-            alerts_total=sum(r.alerts_total for r in rows),
-            region_alert_pct=None,
-            open_pr_mp_review=open_pr_mp,
-        ))
+        total = _row("Pulse total", all_dates, is_weekend=False, is_total=True)
+        total.region_alert_pct = None  # a pulse-wide region share isn't meaningful here
+        rows.append(total)
     return rows
 
 

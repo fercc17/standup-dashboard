@@ -73,7 +73,7 @@ class JiraClient(ReadOnlyClient):
         return await self._paginate(
             f"{_AGILE}/sprint/{sprint_id}/issue",
             params={
-                "fields": "summary,status,priority,labels,assignee,sprint,created,updated",
+                "fields": "summary,status,priority,labels,assignee,reporter,sprint,created,updated",
                 "expand": "changelog",
             },
         )
@@ -86,7 +86,7 @@ class JiraClient(ReadOnlyClient):
         """
         params: dict[str, Any] = {
             "jql": jql,
-            "fields": "summary,status,priority,labels,assignee,created",
+            "fields": "summary,status,priority,labels,assignee,reporter,created",
             "maxResults": _PAGE,
         }
         if expand_changelog:

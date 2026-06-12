@@ -76,6 +76,6 @@ async def test_us5_monday_combined_weekend(app, respx_mock):
     rows = build_counts(["AMER"], data.tickets, data.alerts, data.pulses, now)
     weekend = [r for r in rows if r.is_weekend]
     assert len(weekend) == 1
-    assert weekend[0].alerts_ack == 1
-    assert weekend[0].alerts_resolved == 1
-    assert weekend[0].alerts_total == 2
+    assert weekend[0].alerts_ack.count == 1
+    assert weekend[0].alerts_resolved.count == 1
+    assert weekend[0].alerts_total.count == 2
