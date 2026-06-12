@@ -13,6 +13,24 @@
   --panel: #ffffff;
 }
 
+/* Dark theme — toggled by adding `.dark` to <body> (persisted in localStorage). */
+body.dark {
+  --green: #4cc38a; --green-bg: #14301f;
+  --yellow: #d9a93a; --yellow-bg: #332b12;
+  --red: #e06c63; --red-bg: #3a1f1c;
+  --fg: #e6e8eb; --muted: #99a2ad; --border: #353b45; --bg: #14171b; --panel: #1d2128;
+}
+body.dark .region-btn,
+body.dark button.action { background: var(--panel); color: var(--fg); }
+body.dark .region-btn.active { background: #e6e8eb; color: #14171b; border-color: #e6e8eb; }
+body.dark button.action:hover,
+body.dark .chip:hover { background: #262b33; }
+body.dark table.counts th { background: #262b33; }
+body.dark table.counts tr.weekend td { background: #20242b; }
+body.dark table.counts tr.pulse-total td { background: #2a2f37; }
+body.dark .ticket .badge { background: #2d2a52; color: #c3bdff; }
+body.dark code, body.dark .setup code { background: #262b33; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -106,6 +124,8 @@ table.counts th, table.counts td { padding: 5px 6px; text-align: right; border-b
 table.counts th { background: #f0f2f4; font-weight: 600; text-align: right; position: sticky; top: 0; }
 table.counts td:first-child, table.counts th:first-child { text-align: left; white-space: nowrap; }
 table.counts tr.weekend td { background: #f9f6ef; font-style: italic; }
+table.counts th.stk span { display: block; line-height: 1.05; }
+table.counts tr.pulse-total td { font-weight: 600; background: #eef1f4; border-top: 2px solid var(--border); }
 table.counts tr:last-child td { border-bottom: none; }
 
 /* ---- Chips ---- */

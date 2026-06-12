@@ -1,5 +1,16 @@
 // Minimal vanilla helpers. Most interactivity is handled by HTMX attributes in templates.
 
+// Dark mode: apply the saved preference on load, toggle + persist on click.
+(function () {
+  if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');
+})();
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-toggle-theme]')) {
+    const dark = document.body.classList.toggle('dark');
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
+  }
+});
+
 // Close a detail panel (event delegation — panels are added dynamically by HTMX).
 document.addEventListener('click', function (e) {
   const closer = e.target.closest('[data-close-panel]');

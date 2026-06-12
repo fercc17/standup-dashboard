@@ -38,8 +38,10 @@ def _build(now):
 def test_one_row_per_day_with_weekend_combined():
     now = utc(2026, 6, 15)  # Monday
     rows = _build(now)
-    # Thu, Fri, Weekend(Sat+Sun), Mon
-    assert len(rows) == 4
+    # Thu, Fri, Weekend(Sat+Sun), Mon (+ a trailing "Pulse total" row)
+    day_rows = [r for r in rows if not r.is_total]
+    assert len(day_rows) == 4
+    assert rows[-1].is_total and rows[-1].label == "Pulse total"
     assert rows[0].label.startswith("Thu")
     assert rows[1].label.startswith("Fri")
     assert rows[2].is_weekend and "Sat–Sun" in rows[2].label
@@ -75,5 +77,6 @@ def test_snapshot_and_24h_columns_on_today_row_only():
 def test_days_capped_at_today():
     # Today is the Thursday the pulse starts → a single row.
     rows = _build(utc(2026, 6, 11))
-    assert len(rows) == 1
-    assert rows[0].label.startswith("Thu")
+    day_rows = [r for r in rows if not r.is_total]
+    assert len(day_rows) == 1
+    assert day_rows[0].label.startswith("Thu")

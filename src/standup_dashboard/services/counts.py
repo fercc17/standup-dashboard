@@ -139,6 +139,9 @@ def build_counts(
     new_ps5 = sum(
         1 for t in tickets if t.has_ps5_blockers and t.created and t.created >= now - _24H
     )
+    open_pr_mp = sum(
+        1 for t in tickets if t.is_bvg_review and t.group is not TicketGroup.SUCCESS
+    )
 
     rows: list[CountsRow] = []
     for label, dates_list, is_weekend in groups:
@@ -162,6 +165,24 @@ def build_counts(
             alerts_resolved=len(resolved),
             alerts_total=len(ack) + len(resolved),
             region_alert_pct=pct,
+            open_pr_mp_review=open_pr_mp if is_today_row else 0,
+        ))
+
+    if rows:
+        rows.append(CountsRow(
+            label="Pulse total",
+            is_weekend=False,
+            is_total=True,
+            open_highest_isreq=open_highest,
+            new_highest_isreq_24h=new_highest,
+            isdb_completed=sum(r.isdb_completed for r in rows),
+            open_ps5_blockers=open_ps5,
+            new_ps5_blockers_24h=new_ps5,
+            alerts_ack=sum(r.alerts_ack for r in rows),
+            alerts_resolved=sum(r.alerts_resolved for r in rows),
+            alerts_total=sum(r.alerts_total for r in rows),
+            region_alert_pct=None,
+            open_pr_mp_review=open_pr_mp,
         ))
     return rows
 
