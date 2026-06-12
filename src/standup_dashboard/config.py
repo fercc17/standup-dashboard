@@ -69,6 +69,9 @@ class EngineerConfig:
     region_keys: tuple[str, ...]
     is_manager: bool = False
     is_global: bool = False
+    # Short names used in the manager's spreadsheet headers, for schedule paste
+    # (#71). Matched case-insensitively alongside email/full-name/first-name.
+    aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -89,11 +92,15 @@ ROSTER: tuple[EngineerConfig, ...] = (
     # AMER
     EngineerConfig("Fernando Carrillo Castro", "fernando.carrillo.castro@canonical.com",
                    ("AMER", "APAC"), is_manager=True),
-    EngineerConfig("Alexandre Gomes", "alexandre.gomes@canonical.com", ("AMER",)),
+    EngineerConfig("Alexandre Gomes", "alexandre.gomes@canonical.com", ("AMER",),
+                   aliases=("Alejdg", "Alex G")),
     EngineerConfig("Colin Misare", "colin.misare@canonical.com", ("AMER",)),
-    EngineerConfig("Matheus Carvalho", "matheus.carvalho@canonical.com", ("AMER",)),
-    EngineerConfig("Nikolaos Sakkos", "nikolaos.sakkos@canonical.com", ("AMER",)),
-    EngineerConfig("Alex Lukens", "alex.lukens@canonical.com", ("AMER",)),
+    EngineerConfig("Matheus Carvalho", "matheus.carvalho@canonical.com", ("AMER",),
+                   aliases=("Matt",)),
+    EngineerConfig("Nikolaos Sakkos", "nikolaos.sakkos@canonical.com", ("AMER",),
+                   aliases=("Nick", "Niko")),
+    EngineerConfig("Alex Lukens", "alex.lukens@canonical.com", ("AMER",),
+                   aliases=("Alex L",)),
     EngineerConfig("Afif Refrizal", "afif.refrizal@canonical.com", ("AMER",)),
     # APAC
     EngineerConfig("James Simpson", "james.simpson@canonical.com", ("APAC",)),

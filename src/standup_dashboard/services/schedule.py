@@ -85,13 +85,19 @@ class PasteAction:
 
 
 def _roster_lookup() -> dict[str, str]:
-    """Name/email (lowercased) → email, for schedulable (non-management) engineers."""
+    """Header label (lowercased) → email, for schedulable (non-management) engineers.
+
+    Matches on email, full name, first name, and any configured aliases so the
+    manager's short spreadsheet headers (e.g. ``Alejdg``, ``Nick``, ``Alex L``)
+    resolve to the right engineer.
+    """
     lookup: dict[str, str] = {}
     for e in config.ROSTER:
         if e.is_manager or e.is_global:
             continue
-        lookup[e.email.lower()] = e.email
-        lookup[e.name.lower()] = e.email
+        keys = [e.email, e.name, e.name.split()[0], *e.aliases]
+        for k in keys:
+            lookup[k.lower()] = e.email
     return lookup
 
 
@@ -101,34 +107,36 @@ def _weekday_of(label: str) -> str | None:
     return token if token in _DAY_SLOTS else None
 
 
-def _parse_cell(cell: str) -> tuple[str | None, str | None, str | None]:
-    """Parse a grid cell into (role, note, error). Blank → (None, None, None)."""
-    cell = cell.strip()
-    if not cell:
-        return None, None, None
-    role_part, _, note_part = cell.partition("|")
-    role_token = role_part.strip()
-    note = note_part.strip() or None
-    if not role_token:
-        return None, note, None
-    role = _ROLE_BY_KEY.get(role_token.lower())
-    if role is None:
-        return None, note, f"unknown role {role_token!r}"
-    return role, note, None
+def _classify_cell(cell: str) -> tuple[str | None, str | None]:
+    """Map a grid cell to (role, note).
+
+    Blank → (None, None). A token matching a role (PVG/GEN/BVG/OFF/Project,
+    case-insensitive) → that role with no note. Anything else (e.g. ``PS7+``) →
+    the Project role, keeping the raw token as a day note (#71).
+    """
+    token = cell.strip()
+    if not token:
+        return None, None
+    role = _ROLE_BY_KEY.get(token.lower())
+    if role is not None:
+        return role, None
+    return Role.PROJECT.value, token
 
 
 def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
     """Parse a tab-separated schedule paste into actions + human-readable errors.
 
-    Format (matches the modal grid, dates as rows, engineers as columns):
+    Format (matches the transposed modal grid — engineers as columns, days as
+    rows):
 
-        Date<TAB>Alexandre Gomes<TAB>Colin Misare<TAB>...
-        Mon, Jun 08<TAB>PVG<TAB>BVG | 1:1 at 3pm<TAB>...
-        Tue, Jun 09<TAB>GEN<TAB>OFF<TAB>...
+        Date<TAB>Afif<TAB>Alejdg<TAB>Alex L<TAB>Colin<TAB>Matt<TAB>Nick
+        Wed, Jun 10<TAB>OK<TAB>PVG<TAB>GEN<TAB>PS7+<TAB>BVG<TAB>OFF
 
-    The first row is a header naming each engineer (by display name or email).
-    Each later row starts with a day label (Mon..Fri; weekend rows are ignored)
-    and one cell per engineer: ``ROLE``, ``ROLE | note``, or ``| note``.
+    The first row names each engineer (display name, first name, alias or email).
+    Each later row starts with a day label (Mon..Fri; weekend rows are ignored).
+    Role cells are right-aligned to the engineer columns, so a leading status
+    column (e.g. ``OK``) is ignored. PVG/GEN/BVG/OFF map directly; any other
+    non-blank value is treated as Project (keeping the raw text as a day note).
     """
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if len(lines) < 2:
@@ -136,27 +144,33 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
 
     lookup = _roster_lookup()
     header = lines[0].split("\t")
-    columns: list[str | None] = [None]  # column 0 is the day label
+    engineers: list[str | None] = []  # emails, positionally (header[1:] = engineers)
     errors: list[str] = []
     for name in header[1:]:
-        email = lookup.get(name.strip().lower())
-        if email is None and name.strip():
-            errors.append(f"unknown engineer in header: {name.strip()!r}")
-        columns.append(email)
+        nm = name.strip()
+        if not nm:
+            engineers.append(None)
+            continue
+        email = lookup.get(nm.lower())
+        if email is None:
+            errors.append(f"unknown engineer in header: {nm!r}")
+        engineers.append(email)
 
+    n = len(engineers)
     actions: list[PasteAction] = []
     for line in lines[1:]:
         cells = line.split("\t")
         weekday = _weekday_of(cells[0]) if cells else None
         if weekday is None:
             continue  # weekend or unrecognized day row → skipped
-        for idx in range(1, len(cells)):
-            email = columns[idx] if idx < len(columns) else None
+        values = cells[1:]
+        if len(values) > n:
+            values = values[-n:]  # drop leading extras (e.g. an 'OK' status column)
+        for i, cell in enumerate(values):
+            email = engineers[i] if i < n else None
             if email is None:
                 continue
-            role, note, err = _parse_cell(cells[idx])
-            if err:
-                errors.append(f"{cells[0].strip()} / column {idx}: {err}")
+            role, note = _classify_cell(cell)
             if role is not None or note is not None:
                 actions.append(PasteAction(email=email, weekday=weekday, role=role, note=note))
     return actions, errors
