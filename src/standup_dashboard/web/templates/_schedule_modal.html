@@ -1,0 +1,49 @@
+<div class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Role schedule</h2>
+      <button class="close" data-close-modal title="Close">&times;</button>
+    </div>
+    <table class="sched">
+      <thead>
+        <tr>
+          <th>Engineer</th>
+          {% for wd in weekdays %}<th>{{ wd }}</th>{% endfor %}
+          <th>Today override</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for eng in engineers %}
+        <tr>
+          <td>{{ eng.name }}</td>
+          {% for wd in weekdays %}
+          <td>
+            <select hx-post="/schedule/weekly" hx-swap="none"
+                    name="role"
+                    hx-vals='{"engineer_email": "{{ eng.email }}", "weekday": "{{ wd }}"}'>
+              {% for r in roles %}
+              <option value="{{ r }}" {% if defaults[(eng.email, wd)] == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          {% endfor %}
+          <td>
+            <select hx-post="/schedule/override" hx-swap="none"
+                    name="role"
+                    hx-vals='{"engineer_email": "{{ eng.email }}"}'>
+              <option value="">&mdash;</option>
+              {% for r in roles %}
+              <option value="{{ r }}" {% if overrides.get(eng.email) == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="override-note">
+      Overrides apply to <strong>today only</strong> and expire at the engineer's
+      region-local midnight. Weekly defaults persist until changed.
+    </p>
+  </div>
+</div>
