@@ -143,6 +143,9 @@ async def _fetch_pagerduty(
             pd = pd_mod.PagerDutyClient(hc)
             users = await pd.list_users()
             id_to_email = {u["id"]: u.get("email", "") for u in users}
+            # Never request incidents from before the hard floor (FR: PagerDuty
+            # window starts no earlier than June 11).
+            since = max(since, config.PAGERDUTY_MIN_SINCE)
             # Scope to the roster's PagerDuty team(s) so we don't pull the whole org.
             incidents = await pd.incidents(since, now, team_ids=config.PAGERDUTY_TEAM_IDS)
             res.raw["pagerduty_incidents.json"] = incidents
