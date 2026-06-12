@@ -26,9 +26,10 @@ def _pulses(now):
 def _rows(selected):
     now = utc(2026, 6, 15, 12)
     at = utc(2026, 6, 15, 10)  # date 2026-06-15 in AMER, APAC and EMEA tz
+    # Reporter is an AMER member so the ticket counts for AMER (region-scoped, #21).
     tickets = [Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
                       priority="Highest", labels=[], created=now - timedelta(hours=1),
-                      reporter_email=JAMES)]
+                      reporter_email="alexandre.gomes@canonical.com")]
     alerts = [
         Alert("INC1", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager → excluded,
         Alert("INC1", JAMES, AlertState.ACKNOWLEDGED, at),     # but James (APAC) counts it

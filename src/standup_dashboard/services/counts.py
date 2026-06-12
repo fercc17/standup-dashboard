@@ -4,7 +4,9 @@ One row per region-local calendar day of the pulse, with Saturday+Sunday merged
 into a single weekend row (shown on Monday), plus a trailing "Pulse total" row.
 
 Ticket columns are scoped to one project (``COUNTS_PROJECT`` — ISReq, where
-Highest / [PR/MP Review] / ps5-blocker work lives, #91) and split into two
+Highest / [PR/MP Review] / ps5-blocker work lives, #91) AND to the selected
+region(s), just like alerts: a "new" ticket counts for the region of its
+reporter, a "closed" ticket for the region of its assignee. Split into two
 groups (#91):
 
   * New that day, four mutually exclusive buckets (precedence
@@ -188,15 +190,24 @@ def build_counts(
 
     scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
 
-    def _created_on(t: Ticket, dates: set[date]) -> bool:
-        return t.created is not None and _local_date(t.created, axis_zone) in dates
+    def _new_on(t: Ticket, dates: set[date]) -> bool:
+        # Region-scoped like alerts: a "new" ticket belongs to the selected
+        # region(s) when its reporter is a member, bucketed in the reporter's tz.
+        if t.reporter_email not in selected_members or t.created is None:
+            return False
+        zone = _handler_zone(t.reporter_email)
+        return zone is not None and _local_date(t.created, zone) in dates
+
+    def _closed_on(t: Ticket, dates: set[date]) -> bool:
+        # Closes belong to the region of the engineer who owned (was assigned) them.
+        return t.assignee_email in selected_members and t.is_done_date in dates
 
     def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
-        new_tickets = [t for t in scoped if _created_on(t, dset)]
+        new_tickets = [t for t in scoped if _new_on(t, dset)]
         buckets: dict[str, list[Ticket]] = {"highest": [], "pr_mp": [], "ps5": [], "regular": []}
         for t in new_tickets:
             buckets[_new_bucket(t)].append(t)
-        closed = [t for t in scoped if t.is_done_date in dset]
+        closed = [t for t in scoped if _closed_on(t, dset)]
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
