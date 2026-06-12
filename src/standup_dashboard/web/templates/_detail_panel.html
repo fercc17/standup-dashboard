@@ -1,0 +1,36 @@
+<div class="panel" data-engineer="{{ panel.email }}">
+  <div class="panel-head">
+    <span class="name">{{ panel.name }}</span>
+    <label class="role-pick" title="Set today's role">
+      Role:
+      <select name="role"
+              hx-post="/chip/{{ panel.email }}/role"
+              hx-vals='{"regions": "{{ region_key }}"}'
+              hx-target="closest .panel" hx-swap="outerHTML">
+        {% for r in roles %}
+        <option value="{{ r }}" {% if panel.role.value == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="close" data-close-panel title="Close">&times;</button>
+  </div>
+  {% for group, tickets in panel.groups.items() %}
+  <div class="group-title">{{ group }}</div>
+  {% if tickets %}
+    {% for t in tickets %}
+    <div class="ticket c-{{ t.color.value }}">
+      {% if t.url %}
+      <a class="key" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.key }}</a>
+      <a class="title" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.title }}</a>
+      {% else %}
+      <span class="key">{{ t.key }}</span>
+      <span class="title">{{ t.title }}</span>
+      {% endif %}
+      {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty">none</p>
+  {% endif %}
+  {% endfor %}
+</div>

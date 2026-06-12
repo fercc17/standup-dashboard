@@ -36,7 +36,7 @@ The spec deliberately left the implementation stack to planning. This document r
 
 ## Decision 6 — Authentication to external services
 
-- **Decision**: Jira Cloud via HTTP Basic auth using the account email (`fernando.carrillo.castro@canonical.com`) + the API token from `secrets/jira_token.txt`. PagerDuty via the `Authorization: Token token=<...>` header from `secrets/pagerduty_token.txt`. The weekend on-call iCal is fetched from the URL in `secrets/jira_ical_url.txt` (a PagerDuty schedule iCal). All three are read at startup; a missing/empty file is a blocking setup error with a message naming the expected file.
+- **Decision**: Jira Cloud via HTTP Basic auth using the account email (`fernando.carrillo.castro@canonical.com`) + the API token from `secrets/jira_token.txt`. PagerDuty via the `Authorization: Token token=<...>` header from `secrets/pagerduty_token.txt`. The weekend on-call iCal is fetched from the URL in `secrets/pagerduty_ical_url.txt` (a PagerDuty schedule iCal). All three are read at startup; a missing/empty file is a blocking setup error with a message naming the expected file.
 - **Rationale**: Matches the documented credential files and Jira Cloud's standard email+token Basic auth and PagerDuty's REST token scheme. Centralizing secret loading at startup gives one clear failure point.
 - **Alternatives considered**: OAuth flows — unnecessary for a personal token-based local tool. Env vars — the spec explicitly mandates per-secret plain-text files under `secrets/`.
 

@@ -1,0 +1,35 @@
+{% extends "_base.html" %}
+{% block content %}
+<div class="topbar">
+  <h1>IS SRE Standup</h1>
+  <div class="region-btns">
+    {% for link in region_links %}
+    <a class="region-btn {% if link.active %}active{% endif %}"
+       href="{{ link.href }}">{{ link.key }}</a>
+    {% endfor %}
+  </div>
+  <button class="action" hx-post="/refresh" hx-include="#controls"
+          hx-target="#dashboard" hx-swap="outerHTML">Refresh</button>
+  {% if strict_visible %}
+  <label class="toggle">
+    <input type="checkbox" name="value" {% if strict_mode %}checked{% endif %}
+           hx-post="/toggle/strict" hx-include="#controls"
+           hx-target="#dashboard" hx-swap="outerHTML"
+           hx-vals='js:{value: event.target.checked ? "on" : "off"}'>
+    BVG strict
+  </label>
+  {% endif %}
+  <button class="action" hx-get="/schedule" hx-target="#modal-root">Schedule</button>
+  <button class="action" data-toggle-theme title="Toggle dark mode">&#9789;</button>
+  <div class="spacer"></div>
+  <span id="last-fetch" class="last-fetch">{{ last_fetch_label }}</span>
+</div>
+
+<form id="controls" style="display:none">
+  {% for r in selected_regions %}<input type="hidden" name="regions" value="{{ r }}">{% endfor %}
+</form>
+
+{% include "_dashboard.html" %}
+
+<div id="panels"></div>
+{% endblock %}

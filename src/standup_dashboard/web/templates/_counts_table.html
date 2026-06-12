@@ -1,0 +1,35 @@
+<div class="section-title">Pulse counts</div>
+<table class="counts">
+  <thead>
+    <tr>
+      <th>Day</th>
+      <th title="Open Highest ISReq (snapshot)" class="stk"><span>Open</span><span>Highest</span></th>
+      <th title="New Highest ISReq (24h)" class="stk"><span>New</span><span>Highest</span></th>
+      <th title="ISDB completed that day" class="stk"><span>ISDB</span><span>done</span></th>
+      <th title="Open ps5-blockers (snapshot)" class="stk"><span>Open</span><span>ps5</span></th>
+      <th title="New ps5-blockers (24h)" class="stk"><span>New</span><span>ps5</span></th>
+      <th title="Open [PR/MP Review] ISReq tickets (snapshot)" class="stk"><span>PR/MP</span><span>Review</span></th>
+      <th title="Alerts acknowledged">Ack</th>
+      <th title="Alerts resolved">Res</th>
+      <th title="Total alerts">Total</th>
+      <th title="Region share of global alerts that day">Region %</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in counts_rows %}
+    <tr class="{% if row.is_total %}pulse-total{% elif row.is_weekend %}weekend{% endif %}">
+      <td>{{ row.label }}</td>
+      <td>{{ row.open_highest_isreq }}</td>
+      <td>{{ row.new_highest_isreq_24h }}</td>
+      <td>{{ row.isdb_completed }}</td>
+      <td>{{ row.open_ps5_blockers }}</td>
+      <td>{{ row.new_ps5_blockers_24h }}</td>
+      <td>{{ row.open_pr_mp_review }}</td>
+      <td>{{ row.alerts_ack }}</td>
+      <td>{{ row.alerts_resolved }}</td>
+      <td>{{ row.alerts_total }}</td>
+      <td>{% if row.region_alert_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_alert_pct) }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

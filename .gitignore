@@ -1,0 +1,24 @@
+# Secrets — real tokens live here at runtime, never committed
+secrets/
+
+# Local data — sqlite db + raw JSON snapshots, never committed
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Tooling / IDE
+.pytest_cache/
+.ruff_cache/
+.idea/
+*.swp
+.DS_Store
+
+# App runtime (PID + logs from scripts/app.sh)
+.run/

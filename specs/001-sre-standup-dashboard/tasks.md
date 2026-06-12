@@ -28,12 +28,12 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Initialize uv project and author `pyproject.toml` at repo root with deps (fastapi, uvicorn, httpx, jinja2, icalendar, pydantic) and dev deps (pytest, pytest-asyncio, respx, ruff); run `uv sync`
-- [ ] T002 [P] Create package skeleton: `src/standup_dashboard/{__init__.py,domain/__init__.py,clients/__init__.py,services/__init__.py,storage/__init__.py,web/__init__.py}`, `src/standup_dashboard/web/templates/`, `src/standup_dashboard/web/static/`, and `tests/{unit,integration,fixtures}/`
-- [ ] T003 [P] Configure ruff + pytest (incl. pytest-asyncio mode) in `pyproject.toml`
-- [ ] T004 [P] Create `.gitignore` at repo root excluding `secrets/`, `data/`, `.venv/`, `__pycache__/`
-- [ ] T005 [P] Create committed placeholders `secrets.example/jira_token.txt`, `secrets.example/pagerduty_token.txt`, `secrets.example/jira_ical_url.txt` (FR-030)
-- [ ] T006 [P] Vendor `htmx.min.js` and create base `app.css` + `app.js` in `src/standup_dashboard/web/static/`
+- [X] T001 Initialize uv project and author `pyproject.toml` at repo root with deps (fastapi, uvicorn, httpx, jinja2, icalendar, pydantic) and dev deps (pytest, pytest-asyncio, respx, ruff); run `uv sync`
+- [X] T002 [P] Create package skeleton: `src/standup_dashboard/{__init__.py,domain/__init__.py,clients/__init__.py,services/__init__.py,storage/__init__.py,web/__init__.py}`, `src/standup_dashboard/web/templates/`, `src/standup_dashboard/web/static/`, and `tests/{unit,integration,fixtures}/`
+- [X] T003 [P] Configure ruff + pytest (incl. pytest-asyncio mode) in `pyproject.toml`
+- [X] T004 [P] Create `.gitignore` at repo root excluding `secrets/`, `data/`, `.venv/`, `__pycache__/`
+- [X] T005 [P] Create committed placeholders `secrets.example/jira_token.txt`, `secrets.example/pagerduty_token.txt`, `secrets.example/pagerduty_ical_url.txt` (FR-030)
+- [X] T006 [P] Vendor `htmx.min.js` and create base `app.css` + `app.js` in `src/standup_dashboard/web/static/`
 
 ---
 
@@ -43,13 +43,13 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T007 Implement static configuration in `src/standup_dashboard/config.py`: regions + IANA timezones (AMER→America/Mexico_City, APAC→Australia/Sydney, EMEA→Europe/Paris), full roster (names/emails, manager + global flags, region membership incl. Fernando in AMER+APAC), project keys ISDB/ISReq, Jira base URL, Jira account email (FR-001–FR-004)
-- [ ] T008 [P] Implement domain dataclasses in `src/standup_dashboard/domain/models.py`: Region, Engineer, Role enum, Ticket, TouchEvent, Alert, Pulse, WeekendOnCall, FetchSnapshot, and view models (ChipVM, CountsRow, DetailPanelVM) per data-model.md
-- [ ] T009 Implement SQLite schema + history-preserving access in `src/standup_dashboard/storage/db.py`: tables `fetch_snapshot, ticket, touch_event, alert, pulse, weekend_oncall, role_schedule, role_override, ui_state`; append-only writes keyed by `fetch_id`; never update/delete fetched rows (FR-028)
-- [ ] T010 [P] Implement append-only raw JSON snapshot writer in `src/standup_dashboard/storage/snapshots.py` (writes `data/snapshots/<fetched_at>/`)
-- [ ] T011 [P] Implement secrets loading + validation in `src/standup_dashboard/settings.py`: read `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/jira_ical_url.txt`; missing/empty file → structured blocking setup error naming the file (FR-029)
-- [ ] T012 Implement FastAPI app factory + startup checks + Jinja2/static mounts in `src/standup_dashboard/app.py` and entrypoint `src/standup_dashboard/__main__.py` (uvicorn bound to `localhost:8765`; single-user, no authentication layer per FR-011)
-- [ ] T013 Implement setup-page renderer + structured logging/error-handling scaffold in `src/standup_dashboard/web/routes.py` (serves blocking setup page when startup validation fails) and wire logging in `app.py`
+- [X] T007 Implement static configuration in `src/standup_dashboard/config.py`: regions + IANA timezones (AMER→America/Mexico_City, APAC→Australia/Sydney, EMEA→Europe/Paris), full roster (names/emails, manager + global flags, region membership incl. Fernando in AMER+APAC), project keys ISDB/ISReq, Jira base URL, Jira account email (FR-001–FR-004)
+- [X] T008 [P] Implement domain dataclasses in `src/standup_dashboard/domain/models.py`: Region, Engineer, Role enum, Ticket, TouchEvent, Alert, Pulse, WeekendOnCall, FetchSnapshot, and view models (ChipVM, CountsRow, DetailPanelVM) per data-model.md
+- [X] T009 Implement SQLite schema + history-preserving access in `src/standup_dashboard/storage/db.py`: tables `fetch_snapshot, ticket, touch_event, alert, pulse, weekend_oncall, role_schedule, role_override, ui_state`; append-only writes keyed by `fetch_id`; never update/delete fetched rows (FR-028)
+- [X] T010 [P] Implement append-only raw JSON snapshot writer in `src/standup_dashboard/storage/snapshots.py` (writes `data/snapshots/<fetched_at>/`)
+- [X] T011 [P] Implement secrets loading + validation in `src/standup_dashboard/settings.py`: read `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/pagerduty_ical_url.txt`; missing/empty file → structured blocking setup error naming the file (FR-029)
+- [X] T012 Implement FastAPI app factory + startup checks + Jinja2/static mounts in `src/standup_dashboard/app.py` and entrypoint `src/standup_dashboard/__main__.py` (uvicorn bound to `localhost:8765`; single-user, no authentication layer per FR-011)
+- [X] T013 Implement setup-page renderer + structured logging/error-handling scaffold in `src/standup_dashboard/web/routes.py` (serves blocking setup page when startup validation fails) and wire logging in `app.py`
 
 **Checkpoint**: Foundation ready — user stories can begin.
 
@@ -65,25 +65,25 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 1
 
-- [ ] T014 [P] [US1] Unit tests for the color matrix (every role × project × strict × Success combination, FR-016/017) in `tests/unit/test_coloring.py`
-- [ ] T015 [P] [US1] Unit tests for effective-role resolution (override → weekly → weekend, region tz) in `tests/unit/test_roles.py`
-- [ ] T016 [P] [US1] Read-only guard test asserting Jira/PagerDuty clients issue only GET requests (FR-027) in `tests/unit/test_read_only.py`
+- [X] T014 [P] [US1] Unit tests for the color matrix (every role × project × strict × Success combination, FR-016/017) in `tests/unit/test_coloring.py`
+- [X] T015 [P] [US1] Unit tests for effective-role resolution (override → weekly → weekend, region tz) in `tests/unit/test_roles.py`
+- [X] T016 [P] [US1] Read-only guard test asserting Jira/PagerDuty clients issue only GET requests (FR-027) in `tests/unit/test_read_only.py`
 
 ### Implementation for User Story 1
 
-- [ ] T017 [P] [US1] Implement Role enum + effective-role resolution (override → weekly default → weekend; region-timezone "today") in `src/standup_dashboard/domain/roles.py` (FR-009)
-- [ ] T018 [P] [US1] Implement pure color-matrix function in `src/standup_dashboard/domain/coloring.py` (FR-016/017, BVG strict param, Success-always-green)
-- [ ] T019 [US1] Implement read-only Jira client in `src/standup_dashboard/clients/jira.py`: active sprint per project, sprint issues with `expand=changelog`, JQL search, comments, worklogs (contracts/jira.md)
-- [ ] T020 [US1] Implement read-only PagerDuty client + email→user identity resolution in `src/standup_dashboard/clients/pagerduty.py`: users lookup, incidents, log_entries (contracts/pagerduty.md)
-- [ ] T021 [US1] Wire FR-005a blocking identity validation at startup (every roster email must match a PagerDuty user; unmatched → setup page naming them) in `src/standup_dashboard/settings.py` + `src/standup_dashboard/app.py`
-- [ ] T022 [P] [US1] Implement active-sprint ("pulse") resolution per project in `src/standup_dashboard/services/pulse.py` (FR-012)
-- [ ] T023 [US1] Implement touch attribution (status/comment/assignment/worklog/link within pulse window) in `src/standup_dashboard/services/touches.py` (FR-014; depends on T019)
-- [ ] T024 [US1] Implement ticket classification into To Do/WIP/Success/Distractors in `src/standup_dashboard/services/classification.py`, including detection of the `[PR/MP Review]` ISReq title-prefix as the BVG review ticket type and tagging it on the Ticket model (FR-013, FR-015; depends on T022, T023)
-- [ ] T025 [US1] Implement refresh orchestration (Jira + PagerDuty async fan-out → persist SQLite + raw snapshot) in `src/standup_dashboard/services/fetch.py` (FR-026; depends on T019, T020, T009, T010)
-- [ ] T026 [US1] Implement chip + detail view models (apply coloring, 24h touch/alert counts, surface `[PR/MP Review]` BVG type label) in `src/standup_dashboard/web/presenters.py` (FR-018/019, FR-015; depends on T018, T024)
-- [ ] T027 [P] [US1] Create Jinja2 templates `index.html`, `_chip.html`, `_detail_panel.html` in `src/standup_dashboard/web/templates/` (half-screen vertical layout, top bar with region buttons + refresh + last-fetch timestamp)
-- [ ] T028 [US1] Implement routes `GET /`, `POST /refresh`, `GET /chip/{engineer_email}/detail` in `src/standup_dashboard/web/routes.py` (contracts/internal-web.md; additive panels via HTMX; depends on T025, T026, T027)
-- [ ] T029 [US1] Integration test fetch→persist→render chips + detail panel with respx-mocked Jira/PagerDuty in `tests/integration/test_us1_activity.py`
+- [X] T017 [P] [US1] Implement Role enum + effective-role resolution (override → weekly default → weekend; region-timezone "today") in `src/standup_dashboard/domain/roles.py` (FR-009)
+- [X] T018 [P] [US1] Implement pure color-matrix function in `src/standup_dashboard/domain/coloring.py` (FR-016/017, BVG strict param, Success-always-green)
+- [X] T019 [US1] Implement read-only Jira client in `src/standup_dashboard/clients/jira.py`: active sprint per project, sprint issues with `expand=changelog`, JQL search, comments, worklogs (contracts/jira.md)
+- [X] T020 [US1] Implement read-only PagerDuty client + email→user identity resolution in `src/standup_dashboard/clients/pagerduty.py`: users lookup, incidents, log_entries (contracts/pagerduty.md)
+- [X] T021 [US1] Wire FR-005a blocking identity validation at startup (every roster email must match a PagerDuty user; unmatched → setup page naming them) in `src/standup_dashboard/settings.py` + `src/standup_dashboard/app.py`
+- [X] T022 [P] [US1] Implement active-sprint ("pulse") resolution per project in `src/standup_dashboard/services/pulse.py` (FR-012)
+- [X] T023 [US1] Implement touch attribution (status/comment/assignment/worklog/link within pulse window) in `src/standup_dashboard/services/touches.py` (FR-014; depends on T019)
+- [X] T024 [US1] Implement ticket classification into To Do/WIP/Success/Distractors in `src/standup_dashboard/services/classification.py`, including detection of the `[PR/MP Review]` ISReq title-prefix as the BVG review ticket type and tagging it on the Ticket model (FR-013, FR-015; depends on T022, T023)
+- [X] T025 [US1] Implement refresh orchestration (Jira + PagerDuty async fan-out → persist SQLite + raw snapshot) in `src/standup_dashboard/services/fetch.py` (FR-026; depends on T019, T020, T009, T010)
+- [X] T026 [US1] Implement chip + detail view models (apply coloring, 24h touch/alert counts, surface `[PR/MP Review]` BVG type label) in `src/standup_dashboard/web/presenters.py` (FR-018/019, FR-015; depends on T018, T024)
+- [X] T027 [P] [US1] Create Jinja2 templates `index.html`, `_chip.html`, `_detail_panel.html` in `src/standup_dashboard/web/templates/` (half-screen vertical layout, top bar with region buttons + refresh + last-fetch timestamp)
+- [X] T028 [US1] Implement routes `GET /`, `POST /refresh`, `GET /chip/{engineer_email}/detail` in `src/standup_dashboard/web/routes.py` (contracts/internal-web.md; additive panels via HTMX; depends on T025, T026, T027)
+- [X] T029 [US1] Integration test fetch→persist→render chips + detail panel with respx-mocked Jira/PagerDuty in `tests/integration/test_us1_activity.py`
 
 **Checkpoint**: MVP — a single-region, role-aware activity view is fully functional.
 
@@ -97,15 +97,15 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 2
 
-- [ ] T030 [P] [US2] Unit tests for override expiry at region-local midnight, weekly fallback, and strict-mode effect on BVG coloring in `tests/unit/test_role_schedule.py`
+- [X] T030 [P] [US2] Unit tests for override expiry at region-local midnight, weekly fallback, and strict-mode effect on BVG coloring in `tests/unit/test_role_schedule.py`
 
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement schedule service in `src/standup_dashboard/services/schedule.py`: set weekly default, set today-only override with region-midnight `expires_at`, get/set BVG strict mode via `ui_state` (FR-007/008/010; uses storage/db.py)
-- [ ] T032 [P] [US2] Create `_schedule_modal.html` (per-engineer Mon–Fri + Weekend dropdowns + today-override row) in `src/standup_dashboard/web/templates/`
-- [ ] T033 [US2] Implement routes `GET /schedule`, `POST /schedule/weekly`, `POST /schedule/override`, `POST /toggle/strict` in `src/standup_dashboard/web/routes.py` (contracts/internal-web.md; depends on T031, T032)
-- [ ] T034 [US2] Integrate strict-mode + persisted roles into chip/coloring presenters and make the strict toggle conditionally visible (only when a BVG engineer exists today) in `src/standup_dashboard/web/presenters.py` (FR-010/032; depends on T026, T031)
-- [ ] T035 [US2] Integration test schedule persistence + override expiry + strict-toggle recolor in `tests/integration/test_us2_roles.py`
+- [X] T031 [US2] Implement schedule service in `src/standup_dashboard/services/schedule.py`: set weekly default, set today-only override with region-midnight `expires_at`, get/set BVG strict mode via `ui_state` (FR-007/008/010; uses storage/db.py)
+- [X] T032 [P] [US2] Create `_schedule_modal.html` (per-engineer Mon–Fri + Weekend dropdowns + today-override row) in `src/standup_dashboard/web/templates/`
+- [X] T033 [US2] Implement routes `GET /schedule`, `POST /schedule/weekly`, `POST /schedule/override`, `POST /toggle/strict` in `src/standup_dashboard/web/routes.py` (contracts/internal-web.md; depends on T031, T032)
+- [X] T034 [US2] Integrate strict-mode + persisted roles into chip/coloring presenters and make the strict toggle conditionally visible (only when a BVG engineer exists today) in `src/standup_dashboard/web/presenters.py` (FR-010/032; depends on T026, T031)
+- [X] T035 [US2] Integration test schedule persistence + override expiry + strict-toggle recolor in `tests/integration/test_us2_roles.py`
 
 **Checkpoint**: Roles drive the US1 view end-to-end; US1 + US2 both work.
 
@@ -119,15 +119,15 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 3
 
-- [ ] T036 [P] [US3] Unit tests for per-day bucketing, the nine columns, and Monday weekend-combine in `tests/unit/test_counts.py`
+- [X] T036 [P] [US3] Unit tests for per-day bucketing, the nine columns, and Monday weekend-combine in `tests/unit/test_counts.py`
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Extend Jira client with counts queries (open Highest ISReq snapshot, new Highest 24h, open/new `ps5-blockers`, ISDB completed-that-day) in `src/standup_dashboard/clients/jira.py` (contracts/jira.md §4)
-- [ ] T038 [US3] Implement counts service in `src/standup_dashboard/services/counts.py`: per-day rows, nine columns, region-timezone bucketing, Monday weekend row, alert ack/resolved/total aggregation (FR-020/021/022/023)
-- [ ] T039 [US3] Implement CountsRow presenter and `_counts_table.html` template in `src/standup_dashboard/web/presenters.py` + `src/standup_dashboard/web/templates/`
-- [ ] T040 [US3] Wire the counts table into `GET /` and `POST /refresh` in `src/standup_dashboard/web/routes.py` (depends on T038, T039)
-- [ ] T041 [US3] Integration test counts-table rows/columns/weekend-combine with mocked data in `tests/integration/test_us3_counts.py`
+- [X] T037 [US3] Extend Jira client with counts queries (open Highest ISReq snapshot, new Highest 24h, open/new `ps5-blockers`, ISDB completed-that-day) in `src/standup_dashboard/clients/jira.py` (contracts/jira.md §4)
+- [X] T038 [US3] Implement counts service in `src/standup_dashboard/services/counts.py`: per-day rows, nine columns, region-timezone bucketing, Monday weekend row, alert ack/resolved/total aggregation (FR-020/021/022/023)
+- [X] T039 [US3] Implement CountsRow presenter and `_counts_table.html` template in `src/standup_dashboard/web/presenters.py` + `src/standup_dashboard/web/templates/`
+- [X] T040 [US3] Wire the counts table into `GET /` and `POST /refresh` in `src/standup_dashboard/web/routes.py` (depends on T038, T039)
+- [X] T041 [US3] Integration test counts-table rows/columns/weekend-combine with mocked data in `tests/integration/test_us3_counts.py`
 
 **Checkpoint**: Single-region counts table renders alongside chips.
 
@@ -141,14 +141,14 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 4
 
-- [ ] T042 [P] [US4] Unit tests for cross-region dedup (ticket id / alert id), multi-region-manager-counted-once, Global exclusion, and denominator in `tests/unit/test_multiregion.py`
+- [X] T042 [P] [US4] Unit tests for cross-region dedup (ticket id / alert id), multi-region-manager-counted-once, Global exclusion, and denominator in `tests/unit/test_multiregion.py`
 
 ### Implementation for User Story 4
 
-- [ ] T043 [US4] Extend counts service with cross-region combine + dedup by ticket/alert id + deduplicated three-region denominator in `src/standup_dashboard/services/counts.py` (FR-024)
-- [ ] T044 [US4] Implement per-region chip grouping headers, manager-once-per-region, and dedicated "Global" group (excluded from totals) in `src/standup_dashboard/web/presenters.py` + templates (FR-004/005)
-- [ ] T045 [US4] Handle multi-value `regions` selection in `GET /` and `POST /refresh` (per-region current local day display) in `src/standup_dashboard/web/routes.py` (FR-002/032)
-- [ ] T046 [US4] Integration test AMER+APAC combined dedup + Global group in `tests/integration/test_us4_multiregion.py`
+- [X] T043 [US4] Extend counts service with cross-region combine + dedup by ticket/alert id + deduplicated three-region denominator in `src/standup_dashboard/services/counts.py` (FR-024)
+- [X] T044 [US4] Implement per-region chip grouping headers, manager-once-per-region, and dedicated "Global" group (excluded from totals) in `src/standup_dashboard/web/presenters.py` + templates (FR-004/005)
+- [X] T045 [US4] Handle multi-value `regions` selection in `GET /` and `POST /refresh` (per-region current local day display) in `src/standup_dashboard/web/routes.py` (FR-002/032)
+- [X] T046 [US4] Integration test AMER+APAC combined dedup + Global group in `tests/integration/test_us4_multiregion.py`
 
 **Checkpoint**: Multi-region combined view is correct and de-duplicated.
 
@@ -162,14 +162,14 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 5
 
-- [ ] T047 [P] [US5] Unit tests for on-call resolution, others-OFF, and Monday Sat+Sun combine in `tests/unit/test_oncall.py`
+- [X] T047 [P] [US5] Unit tests for on-call resolution, others-OFF, and Monday Sat+Sun combine in `tests/unit/test_oncall.py`
 
 ### Implementation for User Story 5
 
-- [ ] T048 [US5] Implement read-only iCal client in `src/standup_dashboard/clients/ical.py` (fetch + `icalendar` parse; contracts/pagerduty.md §3)
-- [ ] T049 [US5] Implement on-call service in `src/standup_dashboard/services/oncall.py`: resolve weekend on-call → roster match, others OFF Sat/Sun, Monday combined weekend (FR-025; depends on T048)
-- [ ] T050 [US5] Integrate on-call into `services/fetch.py` (fetch iCal), the counts weekend row, and chip role resolution in `src/standup_dashboard/web/presenters.py`
-- [ ] T051 [US5] Integration test Monday combined-weekend view with iCal fixture in `tests/integration/test_us5_oncall.py`
+- [X] T048 [US5] Implement read-only iCal client in `src/standup_dashboard/clients/ical.py` (fetch + `icalendar` parse; contracts/pagerduty.md §3)
+- [X] T049 [US5] Implement on-call service in `src/standup_dashboard/services/oncall.py`: resolve weekend on-call → roster match, others OFF Sat/Sun, Monday combined weekend (FR-025; depends on T048)
+- [X] T050 [US5] Integrate on-call into `services/fetch.py` (fetch iCal), the counts weekend row, and chip role resolution in `src/standup_dashboard/web/presenters.py`
+- [X] T051 [US5] Integration test Monday combined-weekend view with iCal fixture in `tests/integration/test_us5_oncall.py`
 
 **Checkpoint**: Monday stand-ups attribute weekend coverage correctly.
 
@@ -183,12 +183,12 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 ### Tests for User Story 6
 
-- [ ] T052 [P] [US6] Integration test: two fetches retained + per-source ok flags + no-delete invariant in `tests/integration/test_us6_history.py`
+- [X] T052 [P] [US6] Integration test: two fetches retained + per-source ok flags + no-delete invariant in `tests/integration/test_us6_history.py`
 
 ### Implementation for User Story 6
 
-- [ ] T053 [US6] Enforce append-only retention + per-source `jira_ok/pagerduty_ok/ical_ok` flags on `fetch_snapshot`, with last-good fallback, in `src/standup_dashboard/services/fetch.py` + `src/standup_dashboard/storage/db.py` (FR-028)
-- [ ] T054 [US6] Implement partial-outage UI indicator + last-fetch fallback rendering in `src/standup_dashboard/web/routes.py` + templates (Edge Cases)
+- [X] T053 [US6] Enforce append-only retention + per-source `jira_ok/pagerduty_ok/ical_ok` flags on `fetch_snapshot`, with last-good fallback, in `src/standup_dashboard/services/fetch.py` + `src/standup_dashboard/storage/db.py` (FR-028)
+- [X] T054 [US6] Implement partial-outage UI indicator + last-fetch fallback rendering in `src/standup_dashboard/web/routes.py` + templates (Edge Cases)
 
 **Checkpoint**: History is durable and read-only safety is observable.
 
@@ -198,10 +198,10 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 
 **Purpose**: Improvements spanning multiple stories
 
-- [ ] T055 [P] Write `README.md` with setup (copy `secrets.example/` → `secrets/`), run, and validation instructions
-- [ ] T056 [P] Add edge-case unit tests (no active pulse, missing credentials, engineer with zero activity, `[PR/MP Review]` ISReq type) in `tests/unit/test_edge_cases.py`
-- [ ] T057 [P] Run `ruff check`/format cleanup across `src/` and `tests/`
-- [ ] T058 Run `quickstart.md` scenarios S1–S7 end-to-end and fix any gaps
+- [X] T055 [P] Write `README.md` with setup (copy `secrets.example/` → `secrets/`), run, and validation instructions
+- [X] T056 [P] Add edge-case unit tests (no active pulse, missing credentials, engineer with zero activity, `[PR/MP Review]` ISReq type) in `tests/unit/test_edge_cases.py`
+- [X] T057 [P] Run `ruff check`/format cleanup across `src/` and `tests/`
+- [X] T058 Run `quickstart.md` scenarios S1–S7 end-to-end and fix any gaps
 
 ---
 

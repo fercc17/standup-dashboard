@@ -1,0 +1,35 @@
+<div id="dashboard">
+  {% if refreshing %}
+  <div class="banner warn refreshing-banner">
+    <span class="spin">&#10227;</span> Refreshing from Jira + PagerDuty… the page updates when it's done.
+  </div>
+  <span hx-get="/refresh/status" hx-trigger="every 2s" hx-swap="none"></span>
+  {% endif %}
+
+  {% if banner %}
+  <div class="banner {{ banner.kind }}">{{ banner.text }}</div>
+  {% endif %}
+
+  {% if counts_rows %}
+  {% include "_counts_table.html" %}
+  {% endif %}
+
+  {% for group in chip_groups %}
+  <div class="region-group">
+    <h3>{{ group.label }} <span class="region-day">{{ group.local_day }}</span></h3>
+    <div class="chips">
+      {% for chip in group.chips %}{% include "_chip.html" %}{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if global_chips %}
+  <div class="region-group">
+    <h3>Global</h3>
+    <div class="chips">
+      {% for chip in global_chips %}{% include "_chip.html" %}{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+<span id="last-fetch" class="last-fetch" hx-swap-oob="true">{{ last_fetch_label }}</span>
