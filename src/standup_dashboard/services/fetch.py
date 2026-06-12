@@ -264,6 +264,11 @@ async def run_fetch(
     if ical_res.oncall is not None:
         db.insert_weekend_oncall(fetch_id, [ical_res.oncall])
 
+    # Snapshot this fetch's current + previous pulse totals so the pulse-history
+    # table accumulates over time (#80).
+    from .counts import persist_pulse_summaries
+    persist_pulse_summaries(db, jira_res.tickets, pd_res.alerts, jira_res.pulses, now)
+
     logger.info(
         "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s tickets=%d alerts=%d oncall=%s",
         fetch_id, jira_res.ok, pd_res.ok, ical_res.ok, len(jira_res.tickets),

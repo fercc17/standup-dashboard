@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..domain.models import (
+    PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
     Cell,
@@ -265,3 +266,23 @@ def build_region_counts(
 ) -> list[CountsRow]:
     """Single-region convenience wrapper (US3)."""
     return build_counts([region_key], tickets, alerts, pulses, now)
+
+
+def row_metrics(row: CountsRow) -> dict[str, int]:
+    """The persistable per-pulse counts from a totals row (#80 history)."""
+    return {f: getattr(row, f).count for f in PULSE_SUMMARY_FIELDS}
+
+
+def persist_pulse_summaries(db, tickets, alerts, pulses, now: datetime) -> None:
+    """Store the current + previous pulse totals per region so the pulse-history
+    table accumulates across pulses (#80)."""
+    if not pulses:
+        return
+    for region in config.REGION_KEYS:
+        zone = ZoneInfo(config.REGIONS[region].timezone)
+        cur_num, _, _ = current_pulse(now.astimezone(zone).date())
+        for r in build_region_counts(region, tickets, alerts, pulses, now):
+            if r.label == "Pulse total":
+                db.upsert_pulse_summary(cur_num, region, row_metrics(r), now)
+            elif r.is_previous:
+                db.upsert_pulse_summary(cur_num - 1, region, row_metrics(r), now)

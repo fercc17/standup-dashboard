@@ -1,0 +1,37 @@
+<div class="section-title">Pulse history</div>
+<table class="counts">
+  <thead>
+    <tr>
+      <th>Pulse</th>
+      <th class="stk"><span>New</span><span>Highest</span></th>
+      <th class="stk"><span>PR/MP</span><span>Review</span></th>
+      <th class="stk"><span>New</span><span>ps5</span></th>
+      <th class="stk"><span>New</span><span>Regular</span></th>
+      <th class="stk"><span>New</span><span>Total</span></th>
+      <th class="stk grp"><span>Closed</span><span>Highest</span></th>
+      <th class="stk"><span>Closed</span><span>ps5</span></th>
+      <th class="stk"><span>Closed</span><span>Total</span></th>
+      <th class="stk div"><span>Alerts</span><span>Ack</span></th>
+      <th class="stk"><span>Alert</span><span>Res</span></th>
+      <th class="stk"><span>Alerts</span><span>Total</span></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in pulse_history %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.new_highest }}</td>
+      <td>{{ row.new_pr_mp }}</td>
+      <td>{{ row.new_ps5 }}</td>
+      <td>{{ row.new_regular }}</td>
+      <td class="sub">{{ row.new_total }}</td>
+      <td class="grp">{{ row.closed_highest }}</td>
+      <td>{{ row.closed_ps5 }}</td>
+      <td class="sub">{{ row.closed_total }}</td>
+      <td class="div">{{ row.alerts_ack }}</td>
+      <td>{{ row.alerts_resolved }}</td>
+      <td class="sub">{{ row.alerts_total }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

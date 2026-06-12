@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 from .. import config
 from ..domain.coloring import is_role_distractor, ticket_color
 from ..domain.models import (
+    PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
     ChipVM,
@@ -22,6 +23,7 @@ from ..domain.models import (
     CountsRow,
     DetailPanelVM,
     Pulse,
+    PulseHistoryRow,
     Role,
     Ticket,
     TicketGroup,
@@ -32,6 +34,7 @@ from ..domain.models import (
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
 from ..services.counts import build_counts as _build_counts
+from ..services.counts import row_metrics as _row_metrics
 from ..services.oncall import others_off
 from ..services.pulse import current_pulse
 from ..storage.db import Database
@@ -243,6 +246,35 @@ def build_counts(
     if not selected_regions:
         return []
     return _build_counts(selected_regions, data.tickets, data.alerts, data.pulses, now)
+
+
+def build_pulse_history(
+    db: Database, counts_rows: list[CountsRow], selected_regions: list[str], now: datetime
+) -> list[PulseHistoryRow]:
+    """Growing per-pulse history (#80): stored summaries for past pulses + the
+    live current/previous pulse totals, summed across the selected regions."""
+    per_pulse: dict[int, dict[str, int]] = {}
+    for pnum, region, metrics in db.get_pulse_summaries():
+        if region not in selected_regions:
+            continue
+        acc = per_pulse.setdefault(pnum, {f: 0 for f in PULSE_SUMMARY_FIELDS})
+        for f in PULSE_SUMMARY_FIELDS:
+            acc[f] += metrics.get(f, 0)
+
+    # Override the current + previous pulse with the freshly-computed totals.
+    if selected_regions:
+        zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
+        cur_num, _, _ = current_pulse(now.astimezone(zone).date())
+        for r in counts_rows:
+            if r.label == "Pulse total":
+                per_pulse[cur_num] = _row_metrics(r)
+            elif r.is_previous:
+                per_pulse[cur_num - 1] = _row_metrics(r)
+
+    return [
+        PulseHistoryRow(pulse_number=pnum, label=f"Pulse {pnum}", **per_pulse[pnum])
+        for pnum in sorted(per_pulse)
+    ]
 
 
 def build_panel(
