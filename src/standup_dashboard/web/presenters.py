@@ -256,11 +256,13 @@ def build_pulse_history(
     live current/previous pulse, summed across selected regions. Each cell keeps
     a per-person breakdown for the hover tooltip."""
     per_pulse: dict[int, dict[str, Cell]] = {}
+    all_alerts: dict[int, int] = {}  # alerts across ALL regions (region-% denominator)
 
     def _slot(pnum: int) -> dict[str, Cell]:
         return per_pulse.setdefault(pnum, {m: Cell() for m in PULSE_SUMMARY_FIELDS})
 
     for pnum, region, counts, breakdowns in db.get_pulse_summaries():
+        all_alerts[pnum] = all_alerts.get(pnum, 0) + counts.get("alerts_total", 0)
         if region not in selected_regions:
             continue
         slot = _slot(pnum)
@@ -274,16 +276,21 @@ def build_pulse_history(
         zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
         cur_num, _, _ = current_pulse(now.astimezone(zone).date())
         for num, prev in ((cur_num, False), (cur_num - 1, True)):
-            per_pulse[num] = combine_summaries([
-                region_pulse_summary(r, data.tickets, data.alerts, data.pulses,
-                                     now, previous=prev)
-                for r in selected_regions
-            ])
+            by_region = {
+                r: region_pulse_summary(r, data.tickets, data.alerts, data.pulses,
+                                        now, previous=prev)
+                for r in config.REGION_KEYS
+            }
+            per_pulse[num] = combine_summaries([by_region[r] for r in selected_regions])
+            all_alerts[num] = sum(by_region[r]["alerts_total"].count for r in config.REGION_KEYS)
 
-    return [
-        PulseHistoryRow(pulse_number=pnum, label=f"Pulse {pnum}", cells=per_pulse[pnum])
-        for pnum in sorted(per_pulse)
-    ]
+    rows: list[PulseHistoryRow] = []
+    for pnum in sorted(per_pulse):
+        cells = per_pulse[pnum]
+        total = all_alerts.get(pnum, 0)
+        pct = (100.0 * cells["alerts_total"].count / total) if total else None
+        rows.append(PulseHistoryRow(pnum, f"Pulse {pnum}", cells=cells, region_pct=pct))
+    return rows
 
 
 def build_panel(

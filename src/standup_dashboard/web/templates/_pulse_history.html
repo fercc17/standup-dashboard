@@ -14,6 +14,7 @@
       <th class="stk div"><span>Alerts</span><span>Ack</span></th>
       <th class="stk"><span>Alert</span><span>Res</span></th>
       <th class="stk"><span>Alerts</span><span>Total</span></th>
+      <th>Region %</th>
     </tr>
   </thead>
   <tbody>
@@ -32,6 +33,7 @@
       <td class="div" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
       <td data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
       <td class="sub" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
+      <td>{% if row.region_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
