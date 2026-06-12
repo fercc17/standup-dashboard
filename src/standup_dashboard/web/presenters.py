@@ -239,6 +239,11 @@ def build_panel(
                 kept.append(t)
         grouped[grp] = kept
 
+    touched_24h_ids = {
+        tc.ticket_id for tc in data.touches
+        if tc.engineer_email == email and tc.at >= now - _24H
+    }
+
     shown = (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS)
     if not is_management:
         shown = (*shown, TicketGroup.DISTRACTORS)
@@ -261,26 +266,32 @@ def build_panel(
                     color=color,
                     is_bvg_review=t.is_bvg_review,
                     url=config.jira_browse_url(t.id),
+                    touched_24h=t.id in touched_24h_ids,
                 )
             )
         out[group.value] = vms
 
-    # Surface the engineer's own alerts (we already have them): resolved → green
-    # under Success, acknowledged → yellow under WIP. Dedupe by incident.
-    state_by_incident: dict[str, AlertState] = {}
+    # Surface the engineer's own alerts: resolved → green under Success,
+    # acknowledged → yellow under WIP. Dedupe by incident (resolved wins), show
+    # the incident title + a PagerDuty link, sorted alphabetically.
+    alert_by_incident: dict[str, Alert] = {}
     for a in data.alerts:
         if a.handler_email != email:
             continue
-        if state_by_incident.get(a.id) is not AlertState.RESOLVED:
-            state_by_incident[a.id] = a.state
-    for incident_id, state in sorted(state_by_incident.items()):
-        if state is AlertState.RESOLVED:
-            out[TicketGroup.SUCCESS.value].append(
-                TicketVM(key=f"⚠ {incident_id}", title="alert — resolved", color=Color.GREEN)
-            )
-        else:
-            out[TicketGroup.WIP.value].append(
-                TicketVM(key=f"⚠ {incident_id}", title="alert — acknowledged", color=Color.YELLOW)
-            )
+        prev = alert_by_incident.get(a.id)
+        if prev is None or prev.state is not AlertState.RESOLVED:
+            alert_by_incident[a.id] = a
+    for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
+        recent = a.at >= now - _24H
+        resolved = a.state is AlertState.RESOLVED
+        label = a.title or ("alert — resolved" if resolved else "alert — acknowledged")
+        vm = TicketVM(
+            key=f"⚠ {a.id}",
+            title=label,
+            color=Color.GREEN if resolved else Color.YELLOW,
+            url=a.url,
+            touched_24h=recent,
+        )
+        out[(TicketGroup.SUCCESS if resolved else TicketGroup.WIP).value].append(vm)
 
     return DetailPanelVM(email=email, name=eng.name, role=role, groups=out)

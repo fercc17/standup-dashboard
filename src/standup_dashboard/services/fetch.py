@@ -123,6 +123,8 @@ def _alerts_from_logs(
     log_entries: list[dict[str, Any]],
     id_to_email: dict[str, str],
     roster: set[str],
+    title: str | None = None,
+    url: str | None = None,
 ) -> list[Alert]:
     out: list[Alert] = []
     state_for = {
@@ -137,7 +139,8 @@ def _alerts_from_logs(
         email = id_to_email.get(agent.get("id", ""))
         at = parse_jira_dt(entry.get("created_at"))
         if email and email in roster and at is not None:
-            out.append(Alert(id=incident_id, handler_email=email, state=state, at=at))
+            out.append(Alert(id=incident_id, handler_email=email, state=state, at=at,
+                             title=title, url=url))
     return out
 
 
@@ -156,6 +159,11 @@ async def _fetch_pagerduty(
             # Scope to the roster's PagerDuty team(s) so we don't pull the whole org.
             incidents = await pd.incidents(since, now, team_ids=config.PAGERDUTY_TEAM_IDS)
             res.raw["pagerduty_incidents.json"] = incidents
+            # Incident id → (title, link) so alerts carry "what went down" + a link.
+            inc_meta = {
+                i["id"]: (i.get("title") or i.get("summary"), i.get("html_url"))
+                for i in incidents
+            }
 
             # Fetch each incident's log entries concurrently (bounded).
             sem = asyncio.Semaphore(10)
@@ -167,7 +175,10 @@ async def _fetch_pagerduty(
             all_logs: dict[str, Any] = {}
             for incident_id, logs in await asyncio.gather(*(_logs(i) for i in incidents)):
                 all_logs[incident_id] = logs
-                res.alerts.extend(_alerts_from_logs(incident_id, logs, id_to_email, roster))
+                title, url = inc_meta.get(incident_id, (None, None))
+                res.alerts.extend(
+                    _alerts_from_logs(incident_id, logs, id_to_email, roster, title, url)
+                )
             res.raw["pagerduty_log_entries.json"] = all_logs
     except Exception:  # noqa: BLE001
         logger.exception("PagerDuty fetch failed")
