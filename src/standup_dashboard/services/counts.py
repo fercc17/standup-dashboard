@@ -215,6 +215,11 @@ def build_counts(
         region_distinct = _alert_cell(alerts, selected_members, dset, None).count
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
+        # Closed %: the selected region's share of all closed tickets that day.
+        global_closed = sum(
+            1 for t in scoped if t.assignee_email in counted_members and t.is_done_date in dset
+        )
+        closed_pct = (100.0 * len(closed) / global_closed) if global_closed else None
 
         return CountsRow(
             label=label,
@@ -232,6 +237,7 @@ def build_counts(
             alerts_resolved=resolved,
             alerts_total=_merge_cells([ack, resolved]),
             region_alert_pct=pct,
+            closed_pct=closed_pct,
         )
 
     rows: list[CountsRow] = []

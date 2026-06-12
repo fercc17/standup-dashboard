@@ -91,6 +91,7 @@ def test_closed_isreq_buckets_to_done_day():
     assert fri.closed_total.count == 1
     assert fri.closed_highest.count == 1
     assert fri.closed_ps5.count == 0
+    assert fri.closed_pct == 100.0   # AMER closed the only closed ticket that day
     assert rows[0].closed_total.count == 0
 
 

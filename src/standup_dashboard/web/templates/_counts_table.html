@@ -11,6 +11,7 @@
       <th title="Closed ISDB Highest tickets" class="stk grp"><span>Closed</span><span>Highest</span></th>
       <th title="Closed ISDB ps5-blocker tickets" class="stk"><span>Closed</span><span>ps5</span></th>
       <th title="ISDB tickets closed total" class="stk"><span>Closed</span><span>Total</span></th>
+      <th title="Region's share of all closed tickets" class="stk"><span>Closed</span><span>%</span></th>
       <th title="Alerts acknowledged" class="stk div"><span>Alerts</span><span>Ack</span></th>
       <th title="Alerts resolved" class="stk"><span>Alert</span><span>Res</span></th>
       <th title="Total alerts (ack + resolved)" class="stk"><span>Alerts</span><span>Total</span></th>
@@ -29,6 +30,7 @@
       <td class="grp" data-tip="{{ row.closed_highest.tip }}">{{ row.closed_highest.count }}</td>
       <td data-tip="{{ row.closed_ps5.tip }}">{{ row.closed_ps5.count }}</td>
       <td class="sub" data-tip="{{ row.closed_total.tip }}">{{ row.closed_total.count }}</td>
+      <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>
       <td class="div" data-tip="{{ row.alerts_ack.tip }}">{{ row.alerts_ack.count }}</td>
       <td data-tip="{{ row.alerts_resolved.tip }}">{{ row.alerts_resolved.count }}</td>
       <td class="sub" data-tip="{{ row.alerts_total.tip }}">{{ row.alerts_total.count }}</td>

@@ -43,9 +43,10 @@ def test_history_attribution_requestor_vs_assignee(tmp_path):
     assert cur["new_total"].breakdown == {"Jane Doe": 2}        # both new, by requestor
     # Closed breaks down by assignee.
     assert cur["closed_total"].breakdown == {"Alexandre Gomes": 1}
-    # Only-AMER alert → AMER is 100% of all alerts that pulse.
+    # Only-AMER alert/closed → AMER is 100% of all alerts and closes that pulse.
     cur_row = {r.pulse_number: r for r in rows}[12]
     assert cur_row.region_pct == 100.0
+    assert cur_row.closed_pct == 100.0
     db.close()
 
 

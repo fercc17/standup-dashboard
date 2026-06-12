@@ -263,7 +263,8 @@ class PulseHistoryRow:
     label: str
     # metric name → Cell(count, breakdown) for the per-person hover tooltip (#80).
     cells: dict[str, Cell] = field(default_factory=dict)
-    region_pct: float | None = None  # selected regions' share of all alerts that pulse
+    region_pct: float | None = None      # selected regions' share of all alerts that pulse
+    closed_pct: float | None = None      # selected regions' share of all closed that pulse
 
 
 @dataclass
@@ -310,4 +311,5 @@ class CountsRow:
     alerts_resolved: Cell = field(default_factory=Cell)
     alerts_total: Cell = field(default_factory=Cell)
     region_alert_pct: float | None = None
+    closed_pct: float | None = None  # region's share of all closed tickets
     is_previous: bool = False  # the previous-pulse comparison row (#80)

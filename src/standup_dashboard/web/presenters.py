@@ -256,13 +256,15 @@ def build_pulse_history(
     live current/previous pulse, summed across selected regions. Each cell keeps
     a per-person breakdown for the hover tooltip."""
     per_pulse: dict[int, dict[str, Cell]] = {}
-    all_alerts: dict[int, int] = {}  # alerts across ALL regions (region-% denominator)
+    all_alerts: dict[int, int] = {}   # alerts across ALL regions (region-% denominator)
+    all_closed: dict[int, int] = {}   # closed across ALL regions (closed-% denominator)
 
     def _slot(pnum: int) -> dict[str, Cell]:
         return per_pulse.setdefault(pnum, {m: Cell() for m in PULSE_SUMMARY_FIELDS})
 
     for pnum, region, counts, breakdowns in db.get_pulse_summaries():
         all_alerts[pnum] = all_alerts.get(pnum, 0) + counts.get("alerts_total", 0)
+        all_closed[pnum] = all_closed.get(pnum, 0) + counts.get("closed_total", 0)
         if region not in selected_regions:
             continue
         slot = _slot(pnum)
@@ -283,13 +285,16 @@ def build_pulse_history(
             }
             per_pulse[num] = combine_summaries([by_region[r] for r in selected_regions])
             all_alerts[num] = sum(by_region[r]["alerts_total"].count for r in config.REGION_KEYS)
+            all_closed[num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
 
     rows: list[PulseHistoryRow] = []
     for pnum in sorted(per_pulse):
         cells = per_pulse[pnum]
-        total = all_alerts.get(pnum, 0)
-        pct = (100.0 * cells["alerts_total"].count / total) if total else None
-        rows.append(PulseHistoryRow(pnum, f"Pulse {pnum}", cells=cells, region_pct=pct))
+        ga, gc = all_alerts.get(pnum, 0), all_closed.get(pnum, 0)
+        region_pct = (100.0 * cells["alerts_total"].count / ga) if ga else None
+        closed_pct = (100.0 * cells["closed_total"].count / gc) if gc else None
+        rows.append(PulseHistoryRow(pnum, f"Pulse {pnum}", cells=cells,
+                                    region_pct=region_pct, closed_pct=closed_pct))
     return rows
 
 
