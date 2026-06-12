@@ -203,8 +203,24 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .modal-head h2 { margin: 0; font-size: 16px; }
 .modal-head .close { margin-left: auto; cursor: pointer; border: none; background: none; font-size: 20px; }
 table.sched { width: 100%; border-collapse: collapse; font-size: 12px; }
-table.sched th, table.sched td { padding: 4px 5px; border-bottom: 1px solid var(--border); text-align: center; }
+table.sched th, table.sched td { padding: 4px 5px; border-bottom: 1px solid var(--border); text-align: center; vertical-align: top; }
 table.sched td:first-child, table.sched th:first-child { text-align: left; white-space: nowrap; }
 table.sched select { font-size: 12px; padding: 1px; }
+table.sched th.stk span { display: block; line-height: 1.1; }
+table.sched th .sched-date { font-weight: 400; color: var(--muted); font-size: 11px; }
+.day-note { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .override-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
+
+/* Per-region schedule sections (#71) */
+.sched-region { margin-bottom: 14px; }
+.sched-region > h3 { font-size: 12px; margin: 10px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+
+/* Spreadsheet paste box (#71) */
+.paste-box { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+.paste-box > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.paste-hint { font-size: 11px; color: var(--muted); margin: 6px 0; }
+.paste-box textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
+.paste-box form button { margin-top: 6px; }
+.banner.ok { background: var(--green-bg); border: 1px solid var(--green); color: var(--green); }
+.paste-summary ul { margin: 6px 0 0; padding-left: 18px; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }

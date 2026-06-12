@@ -9,14 +9,14 @@ PagerDuty (FR-027).
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .. import config
-from ..domain.models import WEEKDAYS, FetchSnapshot, Role
+from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
 from ..services import schedule
 from ..services.fetch import run_fetch
 from . import presenters
@@ -242,32 +242,67 @@ async def chip_role(request: Request, engineer_email: str) -> HTMLResponse:
 # --- US2: schedule modal + role mutations ----------------------------------
 
 
-@router.get("/schedule", response_class=HTMLResponse)
-async def schedule_modal(request: Request) -> HTMLResponse:
-    ctx = _ctx(request)
-    if ctx.setup_error is not None:
-        return render_setup(request)
-    db = ctx.db
+def _current_week(now: datetime) -> list[dict]:
+    """Mon..Fri of the current week, for date-stamped schedule headers (#71)."""
+    monday = now.date() - timedelta(days=now.weekday())
+    return [
+        {"slot": slot, "dow": (monday + timedelta(days=i)).strftime("%a"),
+         "date": (monday + timedelta(days=i)).strftime("%b %d")}
+        for i, slot in enumerate(WEEKDAY_SLOTS)
+    ]
+
+
+def _render_schedule_modal(request: Request, *, summary: dict | None = None) -> HTMLResponse:
+    db = _ctx(request).db
+    now = _now()
     weekly = db.get_weekly_schedule()
-    # Management and global managers don't carry a daily role schedule.
-    engineers = [e for e in config.ROSTER if not e.is_manager and not e.is_global]
+    notes = db.get_day_notes()
+    overrides = db.get_active_overrides(now)
+    # Per-region sections; management is excluded (it has its own group, #72/#71).
+    regions: list[dict] = []
+    for key in config.REGION_KEYS:
+        engs = [
+            e for e in config.engineers_in_region(key)
+            if not e.is_manager and not e.is_global
+        ]
+        if engs:
+            regions.append({"key": key, "engineers": engs})
     defaults: dict[tuple[str, str], str] = {}
-    for eng in engineers:
-        for wd in WEEKDAYS:
-            default = "OFF" if wd == "WEEKEND" else "GEN"
-            defaults[(eng.email, wd)] = weekly.get((eng.email, wd), default)
-    overrides = db.get_active_overrides(_now())
+    for region in regions:
+        for eng in region["engineers"]:
+            for slot in WEEKDAY_SLOTS:
+                defaults[(eng.email, slot)] = weekly.get((eng.email, slot), "GEN")
     return _templates(request).TemplateResponse(
         request,
         "_schedule_modal.html",
         {
-            "engineers": engineers,
-            "weekdays": WEEKDAYS,
+            "regions": regions,
+            "week": _current_week(now),
             "roles": [r.value for r in Role],
             "defaults": defaults,
+            "notes": notes,
             "overrides": overrides,
+            "summary": summary,
         },
     )
+
+
+@router.get("/schedule", response_class=HTMLResponse)
+async def schedule_modal(request: Request) -> HTMLResponse:
+    if _ctx(request).setup_error is not None:
+        return render_setup(request)
+    return _render_schedule_modal(request)
+
+
+@router.post("/schedule/paste", response_class=HTMLResponse)
+async def schedule_paste(request: Request) -> HTMLResponse:
+    """Bulk-apply a tab-separated paste of the manager's spreadsheet (#71)."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    summary = schedule.apply_schedule_paste(ctx.db, form.get("paste", ""), _now())
+    return _render_schedule_modal(request, summary=summary)
 
 
 @router.post("/schedule/weekly", response_class=HTMLResponse)

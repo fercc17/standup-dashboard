@@ -106,6 +106,13 @@ CREATE TABLE IF NOT EXISTS role_override (
     created_at     TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS day_note (
+    engineer_email TEXT NOT NULL,
+    weekday        TEXT NOT NULL,
+    note           TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ui_state (
     key        TEXT NOT NULL,
     value      TEXT NOT NULL,
@@ -114,6 +121,8 @@ CREATE TABLE IF NOT EXISTS ui_state (
 
 CREATE INDEX IF NOT EXISTS idx_role_schedule_latest
     ON role_schedule (engineer_email, weekday, updated_at);
+CREATE INDEX IF NOT EXISTS idx_day_note_latest
+    ON day_note (engineer_email, weekday, updated_at);
 CREATE INDEX IF NOT EXISTS idx_ui_state_latest
     ON ui_state (key, updated_at);
 """
@@ -306,6 +315,27 @@ class Database:
             "   WHERE engineer_email = rs.engineer_email AND weekday = rs.weekday)"
         ).fetchall()
         return {(r["engineer_email"], r["weekday"]): r["role"] for r in rows}
+
+    # -- day notes (latest row wins per engineer+weekday) --------------------
+
+    def set_day_note(self, engineer_email: str, weekday: str, note: str,
+                     now: datetime) -> None:
+        self._conn.execute(
+            "INSERT INTO day_note (engineer_email, weekday, note, updated_at)"
+            " VALUES (?, ?, ?, ?)",
+            (engineer_email, weekday, note, now.isoformat()),
+        )
+        self._conn.commit()
+
+    def get_day_notes(self) -> dict[tuple[str, str], str]:
+        """Latest free-text day note per (engineer_email, weekday)."""
+        rows = self._conn.execute(
+            "SELECT engineer_email, weekday, note FROM day_note dn"
+            " WHERE updated_at = ("
+            "   SELECT MAX(updated_at) FROM day_note"
+            "   WHERE engineer_email = dn.engineer_email AND weekday = dn.weekday)"
+        ).fetchall()
+        return {(r["engineer_email"], r["weekday"]): r["note"] for r in rows}
 
     # -- role override -------------------------------------------------------
 
