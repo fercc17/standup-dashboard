@@ -18,6 +18,7 @@ from ..domain.models import (
     Alert,
     AlertState,
     ChipVM,
+    Color,
     CountsRow,
     DetailPanelVM,
     Pulse,
@@ -193,4 +194,23 @@ def build_panel(
             )
             for t in grouped[group]
         ]
+
+    # Surface the engineer's own alerts (we already have them): resolved → green
+    # under Success, acknowledged → yellow under WIP. Dedupe by incident.
+    state_by_incident: dict[str, AlertState] = {}
+    for a in data.alerts:
+        if a.handler_email != email:
+            continue
+        if state_by_incident.get(a.id) is not AlertState.RESOLVED:
+            state_by_incident[a.id] = a.state
+    for incident_id, state in sorted(state_by_incident.items()):
+        if state is AlertState.RESOLVED:
+            out[TicketGroup.SUCCESS.value].append(
+                TicketVM(key=f"⚠ {incident_id}", title="alert — resolved", color=Color.GREEN)
+            )
+        else:
+            out[TicketGroup.WIP.value].append(
+                TicketVM(key=f"⚠ {incident_id}", title="alert — acknowledged", color=Color.YELLOW)
+            )
+
     return DetailPanelVM(email=email, name=eng.name, role=role, groups=out)

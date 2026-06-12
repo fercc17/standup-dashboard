@@ -254,8 +254,10 @@ async def schedule_modal(request: Request) -> HTMLResponse:
         return render_setup(request)
     db = ctx.db
     weekly = db.get_weekly_schedule()
+    # Management and global managers don't carry a daily role schedule.
+    engineers = [e for e in config.ROSTER if not e.is_manager and not e.is_global]
     defaults: dict[tuple[str, str], str] = {}
-    for eng in config.ROSTER:
+    for eng in engineers:
         for wd in WEEKDAYS:
             default = "OFF" if wd == "WEEKEND" else "GEN"
             defaults[(eng.email, wd)] = weekly.get((eng.email, wd), default)
@@ -264,7 +266,7 @@ async def schedule_modal(request: Request) -> HTMLResponse:
         request,
         "_schedule_modal.html",
         {
-            "engineers": config.ROSTER,
+            "engineers": engineers,
             "weekdays": WEEKDAYS,
             "roles": [r.value for r in Role],
             "defaults": defaults,

@@ -38,7 +38,9 @@ def _author_email(actor: dict[str, Any] | None) -> str | None:
 def parse_ticket(issue: dict[str, Any]) -> Ticket:
     """Map a raw Jira issue (with optional changelog) into a ``Ticket``."""
     fields = issue.get("fields", {})
-    status = (fields.get("status") or {}).get("name", "")
+    status_obj = fields.get("status") or {}
+    status = status_obj.get("name", "")
+    status_category = (status_obj.get("statusCategory") or {}).get("name")
     priority = (fields.get("priority") or {}).get("name")
     assignee = fields.get("assignee") or {}
     sprint = fields.get("sprint") or {}
@@ -53,6 +55,7 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
         sprint_id=sprint.get("id") if isinstance(sprint, dict) else None,
         is_done_date=_done_date(issue),
         created=parse_jira_dt(fields.get("created")),
+        status_category=status_category,
     )
 
 

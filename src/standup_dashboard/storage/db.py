@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS ticket (
     sprint_id      INTEGER,
     is_done_date   TEXT,
     created        TEXT,
+    status_category TEXT,
     PRIMARY KEY (fetch_id, id)
 );
 
@@ -127,7 +128,15 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Idempotent column additions for databases created by older schemas."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(ticket)")}
+        for name, decl in (("created", "TEXT"), ("status_category", "TEXT")):
+            if name not in cols:
+                self._conn.execute(f"ALTER TABLE ticket ADD COLUMN {name} {decl}")
 
     def close(self) -> None:
         self._conn.close()
@@ -172,14 +181,15 @@ class Database:
         self._conn.executemany(
             "INSERT OR IGNORE INTO ticket"
             " (fetch_id, id, project_key, title, status, priority, labels_json,"
-            "  assignee_email, sprint_id, is_done_date, created)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "  assignee_email, sprint_id, is_done_date, created, status_category)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     fetch_id, t.id, t.project_key, t.title, t.status, t.priority,
                     json.dumps(t.labels), t.assignee_email, t.sprint_id,
                     t.is_done_date.isoformat() if t.is_done_date else None,
                     t.created.isoformat() if t.created else None,
+                    t.status_category,
                 )
                 for t in tickets
             ],
@@ -356,4 +366,5 @@ def _row_to_ticket(row: sqlite3.Row) -> Ticket:
         sprint_id=row["sprint_id"],
         is_done_date=date.fromisoformat(row["is_done_date"]) if row["is_done_date"] else None,
         created=datetime.fromisoformat(row["created"]) if row["created"] else None,
+        status_category=row["status_category"],
     )
