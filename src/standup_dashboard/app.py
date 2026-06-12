@@ -9,6 +9,7 @@ serves a blocking setup page instead of the dashboard.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -89,7 +90,11 @@ def create_app(
         setup_error = exc
 
     app.state.ctx = AppState(db, snapshots, secrets, setup_error)
-    app.state.templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    # Cache-bust static assets per process start so a restart always serves the
+    # latest app.js/app.css (browsers otherwise cache them indefinitely).
+    templates.env.globals["static_version"] = str(int(time.time()))
+    app.state.templates = templates
     app.state.config = config
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

@@ -170,6 +170,9 @@ def build_panel(
     eng = config.ENGINEERS_BY_EMAIL[email]
     region = config.REGIONS[region_key]
     role = resolve_roles(db, [email], region.timezone, now)[email]
+    # Managers/global management get a simple view of their own work: To Do / WIP
+    # / Done, no Distractors and no role-based reclassification (#72 follow-up).
+    is_management = eng.is_manager or eng.is_global
 
     grouped = classify_for_engineer(email, data.tickets, data.touches, data.pulse_sprint_ids)
 
@@ -179,7 +182,7 @@ def build_panel(
     #  * role rules (#86): BVG non-priority, Project non-ISDB (Project flagged yellow).
     focus_distractor_ids: set[str] = set()
     role_distractor_ids: set[str] = set()
-    for grp in (TicketGroup.WIP,):
+    for grp in () if is_management else (TicketGroup.WIP,):
         kept = []
         for t in grouped[grp]:
             if highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
@@ -192,8 +195,11 @@ def build_panel(
                 kept.append(t)
         grouped[grp] = kept
 
+    shown = (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS)
+    if not is_management:
+        shown = (*shown, TicketGroup.DISTRACTORS)
     out: dict[str, list[TicketVM]] = {}
-    for group in (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS, TicketGroup.DISTRACTORS):
+    for group in shown:
         vms: list[TicketVM] = []
         for t in grouped[group]:
             if t.id in focus_distractor_ids:
