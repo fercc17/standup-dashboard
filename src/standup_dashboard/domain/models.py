@@ -237,6 +237,7 @@ class TicketVM:
     is_bvg_review: bool = False
     url: str | None = None  # Jira browse / PagerDuty link
     touched_24h: bool = False  # touched in the last 24h (for the panel split, #17)
+    stale: bool = False  # Highest + open for more than one pulse (#18)
 
 
 @dataclass
