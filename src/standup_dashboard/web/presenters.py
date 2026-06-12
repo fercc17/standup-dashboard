@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..domain.coloring import ticket_color
+from ..domain.coloring import is_role_distractor, ticket_color
 from ..domain.models import (
     Alert,
     AlertState,
@@ -158,16 +158,6 @@ def build_counts(
     return _build_counts(selected_regions, data.tickets, data.alerts, data.pulses, now)
 
 
-def any_bvg_today(db: Database, selected_regions: list[str], now: datetime) -> bool:
-    """True iff any engineer in the selected regions is BVG today (FR-010/032)."""
-    for key in selected_regions:
-        region = config.REGIONS[key]
-        roles = resolve_roles(db, list(region.member_emails), region.timezone, now)
-        if any(r is Role.BVG for r in roles.values()):
-            return True
-    return False
-
-
 def build_panel(
     db: Database,
     email: str,
@@ -175,28 +165,44 @@ def build_panel(
     now: datetime,
     *,
     region_key: str,
-    strict_mode: bool,
 ) -> DetailPanelVM:
     eng = config.ENGINEERS_BY_EMAIL[email]
     region = config.REGIONS[region_key]
     role = resolve_roles(db, [email], region.timezone, now)[email]
 
     grouped = classify_for_engineer(email, data.tickets, data.touches, data.pulse_sprint_ids)
+
+    # Role-based reclassification (#86): assigned tickets the role treats as a
+    # distraction (BVG non-priority, Project non-ISDB) move to Distractors.
+    role_distractor_ids: set[str] = set()
+    for grp in (TicketGroup.TODO, TicketGroup.WIP):
+        kept = []
+        for t in grouped[grp]:
+            if is_role_distractor(role, t):
+                grouped[TicketGroup.DISTRACTORS].append(t)
+                role_distractor_ids.add(t.id)
+            else:
+                kept.append(t)
+        grouped[grp] = kept
+
     out: dict[str, list[TicketVM]] = {}
     for group in (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS, TicketGroup.DISTRACTORS):
-        assigned = group is not TicketGroup.DISTRACTORS
-        out[group.value] = [
-            TicketVM(
-                key=t.id,
-                title=t.title,
-                color=ticket_color(
-                    role, t, assigned=assigned, strict_mode=strict_mode, group=group
-                ),
-                is_bvg_review=t.is_bvg_review,
-                url=config.jira_browse_url(t.id),
+        vms: list[TicketVM] = []
+        for t in grouped[group]:
+            is_rd = t.id in role_distractor_ids
+            assigned = group is not TicketGroup.DISTRACTORS or is_rd
+            vms.append(
+                TicketVM(
+                    key=t.id,
+                    title=t.title,
+                    color=ticket_color(
+                        role, t, assigned=assigned, group=group, role_distractor=is_rd
+                    ),
+                    is_bvg_review=t.is_bvg_review,
+                    url=config.jira_browse_url(t.id),
+                )
             )
-            for t in grouped[group]
-        ]
+        out[group.value] = vms
 
     # Surface the engineer's own alerts (we already have them): resolved → green
     # under Success, acknowledged → yellow under WIP. Dedupe by incident.

@@ -1,4 +1,4 @@
-"""US2 integration: schedule persistence + strict-toggle recolor (T035)."""
+"""US2 integration: schedule persistence + role-based reclassification (T035, #86)."""
 
 from __future__ import annotations
 
@@ -27,14 +27,15 @@ def _scenario(now: datetime) -> Scenario:
         },
         sprint_issues={
             101: [],
-            # Non-Highest, non-ps5 ISReq assigned to Colin → strict-mode sensitive.
+            # Non-Highest, non-[PR/MP Review] ISReq assigned to Colin → for a BVG
+            # this becomes a Distractor (#86).
             201: [issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201)],
         },
         users=[{"id": "PU1", "email": COLIN, "name": "Colin Misare"}],
     )
 
 
-def test_us2_persistence_and_strict_recolor(client, app, respx_mock):
+def test_us2_persistence_and_role_reclassification(client, app, respx_mock):
     now = datetime.now(UTC)
     install(respx_mock, _scenario(now))
     slot = region_weekday(now, AMER_TZ)
@@ -46,18 +47,13 @@ def test_us2_persistence_and_strict_recolor(client, app, respx_mock):
     assert r.status_code == 200
     assert app.state.ctx.db.get_weekly_schedule()[(COLIN, slot)] == "BVG"
 
-    # The strict toggle is now visible (a BVG engineer exists today).
-    page = client.get("/", params={"regions": "AMER"}).text
-    assert "BVG strict" in page
-
     client.post("/refresh", data={"regions": "AMER"})
 
-    # Strict OFF (default): BVG ISReq non-priority → green.
-    before = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    assert "ISReq-5" in before and "c-green" in before
-
-    # Toggle strict ON → recolors to yellow.
-    toggled = client.post("/toggle/strict", data={"regions": "AMER", "value": "on"})
-    assert toggled.status_code == 200
-    after = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    assert "c-yellow" in after
+    # BVG: a non-Highest / non-[PR/MP Review] assigned ISReq is reclassified to a
+    # Distractor and colored red (#86) — no longer green.
+    panel = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
+    assert "ISReq-5" in panel
+    assert "c-red" in panel
+    assert "c-green" not in panel
+    # It lands under the Distractors group, not WIP.
+    assert "ISReq-5" in panel[panel.index("Distractors"):]

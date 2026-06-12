@@ -10,15 +10,6 @@
   </div>
   <button class="action" hx-post="/refresh" hx-include="#controls"
           hx-target="#dashboard" hx-swap="outerHTML">Refresh</button>
-  {% if strict_visible %}
-  <label class="toggle">
-    <input type="checkbox" name="value" {% if strict_mode %}checked{% endif %}
-           hx-post="/toggle/strict" hx-include="#controls"
-           hx-target="#dashboard" hx-swap="outerHTML"
-           hx-vals='js:{value: event.target.checked ? "on" : "off"}'>
-    BVG strict
-  </label>
-  {% endif %}
   <button class="action" hx-get="/schedule" hx-target="#modal-root">Schedule</button>
   <button class="action" data-toggle-theme title="Toggle dark mode">&#9789;</button>
   <div class="spacer"></div>

@@ -81,8 +81,6 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "regions": config.REGION_KEYS,
         "selected_regions": selected_regions,
         "region_links": _region_links(selected_regions),
-        "strict_mode": schedule.get_strict_mode(db),
-        "strict_visible": presenters.any_bvg_today(db, selected_regions, now),
         "counts_rows": [],
         "banner": None,
         "ready": True,            # the roster always renders, fetch or not
@@ -206,10 +204,7 @@ def _render_panel(request: Request, engineer_email: str, region_key: str) -> HTM
         if latest is not None
         else presenters.DashboardData(fetched_at=now)
     )
-    panel = presenters.build_panel(
-        db, engineer_email, data, now,
-        region_key=region_key, strict_mode=schedule.get_strict_mode(db),
-    )
+    panel = presenters.build_panel(db, engineer_email, data, now, region_key=region_key)
     return _templates(request).TemplateResponse(
         request, "_detail_panel.html",
         {"panel": panel, "region_key": region_key, "roles": [r.value for r in Role]},
@@ -244,7 +239,7 @@ async def chip_role(request: Request, engineer_email: str) -> HTMLResponse:
     return _render_panel(request, engineer_email, region_key)
 
 
-# --- US2: schedule modal + role/strict mutations ---------------------------
+# --- US2: schedule modal + role mutations ----------------------------------
 
 
 @router.get("/schedule", response_class=HTMLResponse)
@@ -304,24 +299,3 @@ async def schedule_override(request: Request) -> HTMLResponse:
     except (KeyError, ValueError) as exc:
         return PlainTextResponse(f"Invalid override: {exc}", status_code=400)
     return PlainTextResponse("ok")
-
-
-@router.post("/toggle/strict", response_class=HTMLResponse)
-async def toggle_strict(request: Request) -> HTMLResponse:
-    ctx = _ctx(request)
-    if ctx.setup_error is not None:
-        return render_setup(request)
-    form = await request.form()
-    try:
-        selected = _parse_regions(form.getlist("regions"))
-    except ValueError as exc:
-        return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
-
-    now = _now()
-    # The control is only rendered when a BVG engineer exists today (FR-010).
-    if not presenters.any_bvg_today(ctx.db, selected, now):
-        return PlainTextResponse("No BVG engineer today", status_code=404)
-
-    schedule.set_strict_mode(ctx.db, form.get("value") == "on", now)
-    context = _dashboard_context(request, selected, now)
-    return _templates(request).TemplateResponse(request, "_dashboard.html", context)

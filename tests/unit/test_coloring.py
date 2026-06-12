@@ -1,52 +1,53 @@
-"""Exhaustive color-matrix tests (FR-016/017) — T014."""
+"""Role-based color matrix + reclassification tests (FR-016/017, #86) — T014."""
 
 from __future__ import annotations
 
 import pytest
 
-from standup_dashboard.domain.coloring import ticket_color
+from standup_dashboard.domain.coloring import is_role_distractor, ticket_color
 from standup_dashboard.domain.models import Color, Role, Ticket
 
 
 def mk(project="ISReq", status="In Progress", priority=None, labels=None, title="x"):
     return Ticket(
-        id="ISReq-1", project_key=project, title=title, status=status,
+        id=f"{project}-1", project_key=project, title=title, status=status,
         priority=priority, labels=labels or [],
     )
 
 
-# (role, project, priority, labels, assigned, strict) -> expected color
+# Kept-assigned coloring (role_distractor=False) -> expected color.
 ASSIGNED_CASES = [
-    # PVG
-    (Role.PVG, "ISReq", None, [], True, False, Color.RED),
-    (Role.PVG, "ISDB", None, [], True, False, Color.RED),
-    # BVG non-strict: all assigned ISReq green; ISDB red
-    (Role.BVG, "ISReq", None, [], True, False, Color.GREEN),
-    (Role.BVG, "ISReq", "Highest", [], True, False, Color.GREEN),
-    (Role.BVG, "ISDB", None, [], True, False, Color.RED),
-    # BVG strict: green iff Highest or ps5-blockers, else yellow
-    (Role.BVG, "ISReq", None, [], True, True, Color.YELLOW),
-    (Role.BVG, "ISReq", "Highest", [], True, True, Color.GREEN),
-    (Role.BVG, "ISReq", None, ["ps5-blockers"], True, True, Color.GREEN),
-    (Role.BVG, "ISDB", None, [], True, True, Color.RED),
-    # GEN: green iff Highest or ps5; else red; ISDB red
-    (Role.GEN, "ISReq", None, [], True, False, Color.RED),
-    (Role.GEN, "ISReq", "Highest", [], True, False, Color.GREEN),
-    (Role.GEN, "ISReq", None, ["ps5-blockers"], True, False, Color.GREEN),
-    (Role.GEN, "ISDB", "Highest", [], True, False, Color.RED),
-    # Project: ISReq red, ISDB green
-    (Role.PROJECT, "ISReq", None, [], True, False, Color.RED),
-    (Role.PROJECT, "ISDB", None, [], True, False, Color.GREEN),
-    # OFF: everything red
-    (Role.OFF, "ISReq", "Highest", ["ps5-blockers"], True, False, Color.RED),
-    (Role.OFF, "ISDB", None, [], True, False, Color.RED),
+    # PVG: tickets are a distraction from alerts → red.
+    (Role.PVG, mk("ISReq", priority="Highest"), Color.RED),
+    (Role.PVG, mk("ISDB"), Color.RED),
+    # BVG: kept work (Highest / [PR/MP Review], any project) → green; else red.
+    (Role.BVG, mk("ISReq", priority="Highest"), Color.GREEN),
+    (Role.BVG, mk("ISReq", title="[PR/MP Review] x"), Color.GREEN),
+    (Role.BVG, mk("ISDB", priority="Highest"), Color.GREEN),
+    (Role.BVG, mk("ISReq"), Color.RED),
+    # GEN: green iff ISReq Highest/ps5; ISDB red.
+    (Role.GEN, mk("ISReq", priority="Highest"), Color.GREEN),
+    (Role.GEN, mk("ISReq", labels=["ps5-blockers"]), Color.GREEN),
+    (Role.GEN, mk("ISReq"), Color.RED),
+    (Role.GEN, mk("ISDB", priority="Highest"), Color.RED),
+    # Project: ISDB green, ISReq red.
+    (Role.PROJECT, mk("ISDB"), Color.GREEN),
+    (Role.PROJECT, mk("ISReq"), Color.RED),
+    # OFF: everything red.
+    (Role.OFF, mk("ISReq", priority="Highest", labels=["ps5-blockers"]), Color.RED),
+    (Role.OFF, mk("ISDB"), Color.RED),
 ]
 
 
-@pytest.mark.parametrize("role,project,priority,labels,assigned,strict,expected", ASSIGNED_CASES)
-def test_assigned_matrix(role, project, priority, labels, assigned, strict, expected):
-    t = mk(project=project, priority=priority, labels=labels)
-    assert ticket_color(role, t, assigned=assigned, strict_mode=strict) == expected
+@pytest.mark.parametrize("role,ticket,expected", ASSIGNED_CASES)
+def test_assigned_matrix(role, ticket, expected):
+    assert ticket_color(role, ticket, assigned=True) == expected
+
+
+# Role-based distractions (#86): Project flags yellow, everyone else red.
+@pytest.mark.parametrize("role,expected", [(Role.PROJECT, Color.YELLOW), (Role.BVG, Color.RED)])
+def test_role_distractor_color(role, expected):
+    assert ticket_color(role, mk("ISReq"), assigned=True, role_distractor=True) == expected
 
 
 NON_ASSIGNED_CASES = [
@@ -69,4 +70,30 @@ def test_non_assigned_touch(role, expected):
 def test_success_always_green(role, assigned):
     """FR-017: Done tickets are green for every role, assigned or not."""
     t = mk(project="ISReq", status="Done")
-    assert ticket_color(role, t, assigned=assigned, strict_mode=True) == Color.GREEN
+    assert ticket_color(role, t, assigned=assigned) == Color.GREEN
+
+
+# Role-based reclassification: which assigned tickets become Distractors (#86).
+RECLASSIFY_CASES = [
+    # BVG: not Highest and not [PR/MP Review] → distractor (ps5 alone is NOT kept).
+    (Role.BVG, mk("ISReq"), True),
+    (Role.BVG, mk("ISReq", labels=["ps5-blockers"]), True),
+    (Role.BVG, mk("ISDB"), True),
+    (Role.BVG, mk("ISReq", priority="Highest"), False),
+    (Role.BVG, mk("ISReq", title="[PR/MP Review] x"), False),
+    # Project: not ISDB → distractor.
+    (Role.PROJECT, mk("ISReq"), True),
+    (Role.PROJECT, mk("ISDB"), False),
+    # PVG / GEN / OFF: no role-based reclassification.
+    (Role.PVG, mk("ISReq"), False),
+    (Role.GEN, mk("ISReq"), False),
+    (Role.OFF, mk("ISReq"), False),
+    # Done is never a distraction, for any role.
+    (Role.BVG, mk("ISReq", status="Done"), False),
+    (Role.PROJECT, mk("ISReq", status="Done"), False),
+]
+
+
+@pytest.mark.parametrize("role,ticket,expected", RECLASSIFY_CASES)
+def test_is_role_distractor(role, ticket, expected):
+    assert is_role_distractor(role, ticket) is expected
