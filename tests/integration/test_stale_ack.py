@@ -58,4 +58,4 @@ async def test_stale_ack_is_red_recent_ack_is_yellow(app, respx_mock):
     stale = next(t for t in wip if "stale alert" in t.title)
     assert recent.color.value == "yellow"      # acked 2h ago
     assert stale.color.value == "red"          # acked 40h ago, still not resolved
-    assert recent.title.endswith("— ACK")      # line ends with the status
+    assert recent.title.startswith("ACK")       # line starts with the status
