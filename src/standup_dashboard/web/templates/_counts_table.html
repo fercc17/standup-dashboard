@@ -21,17 +21,17 @@
     {% for row in counts_rows %}
     <tr class="{% if row.is_previous %}previous-pulse{% elif row.is_total %}pulse-total{% elif row.is_weekend %}weekend{% endif %}">
       <td>{{ row.label }}</td>
-      <td title="{{ row.new_highest.tip }}">{{ row.new_highest.count }}</td>
-      <td title="{{ row.new_pr_mp.tip }}">{{ row.new_pr_mp.count }}</td>
-      <td title="{{ row.new_ps5.tip }}">{{ row.new_ps5.count }}</td>
-      <td title="{{ row.new_regular.tip }}">{{ row.new_regular.count }}</td>
-      <td class="sub" title="{{ row.new_total.tip }}">{{ row.new_total.count }}</td>
-      <td class="grp" title="{{ row.closed_highest.tip }}">{{ row.closed_highest.count }}</td>
-      <td title="{{ row.closed_ps5.tip }}">{{ row.closed_ps5.count }}</td>
-      <td class="sub" title="{{ row.closed_total.tip }}">{{ row.closed_total.count }}</td>
-      <td class="div" title="{{ row.alerts_ack.tip }}">{{ row.alerts_ack.count }}</td>
-      <td title="{{ row.alerts_resolved.tip }}">{{ row.alerts_resolved.count }}</td>
-      <td class="sub" title="{{ row.alerts_total.tip }}">{{ row.alerts_total.count }}</td>
+      <td data-tip="{{ row.new_highest.tip }}">{{ row.new_highest.count }}</td>
+      <td data-tip="{{ row.new_pr_mp.tip }}">{{ row.new_pr_mp.count }}</td>
+      <td data-tip="{{ row.new_ps5.tip }}">{{ row.new_ps5.count }}</td>
+      <td data-tip="{{ row.new_regular.tip }}">{{ row.new_regular.count }}</td>
+      <td class="sub" data-tip="{{ row.new_total.tip }}">{{ row.new_total.count }}</td>
+      <td class="grp" data-tip="{{ row.closed_highest.tip }}">{{ row.closed_highest.count }}</td>
+      <td data-tip="{{ row.closed_ps5.tip }}">{{ row.closed_ps5.count }}</td>
+      <td class="sub" data-tip="{{ row.closed_total.tip }}">{{ row.closed_total.count }}</td>
+      <td class="div" data-tip="{{ row.alerts_ack.tip }}">{{ row.alerts_ack.count }}</td>
+      <td data-tip="{{ row.alerts_resolved.tip }}">{{ row.alerts_resolved.count }}</td>
+      <td class="sub" data-tip="{{ row.alerts_total.tip }}">{{ row.alerts_total.count }}</td>
       <td>{% if row.region_alert_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_alert_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}
