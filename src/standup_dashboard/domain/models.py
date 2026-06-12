@@ -53,6 +53,9 @@ STATUS_CATEGORY_GROUP: dict[str, TicketGroup] = {
 }
 
 WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "WEEKEND")
+# Editable role slots in the schedule modal — the weekend has no role (#71); its
+# coverage is "who's around" (the on-call), resolved from the iCal feed.
+WEEKDAY_SLOTS = ("MON", "TUE", "WED", "THU", "FRI")
 ISREQ_REVIEW_PREFIX = "[PR/MP Review]"
 PS5_BLOCKERS_LABEL = "ps5-blockers"
 PRIORITY_HIGHEST = "Highest"
