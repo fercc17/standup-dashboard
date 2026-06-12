@@ -82,6 +82,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "selected_regions": selected_regions,
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
+        "oncall_name": None,
         "counts_rows": [],
         "banner": None,
         "ready": True,            # the roster always renders, fetch or not
@@ -109,10 +110,12 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         context["last_fetch_label"] = "No fetch yet — showing roster"
 
     chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
+    oncall_eng = config.ENGINEERS_BY_EMAIL.get(data.oncall_email) if data.oncall_email else None
     context.update(
         chip_groups=chip_groups,
         management_chips=management_chips,
         counts_rows=presenters.build_counts(data, selected_regions, now),
+        oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
     )
 
     if latest is not None:

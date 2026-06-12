@@ -23,8 +23,7 @@ body.dark {
 body.dark .region-btn,
 body.dark button.action { background: var(--panel); color: var(--fg); }
 body.dark .region-btn.active { background: #e6e8eb; color: #14171b; border-color: #e6e8eb; }
-body.dark button.action:hover,
-body.dark .chip:hover { background: #262b33; }
+body.dark button.action:hover { background: #262b33; }
 body.dark table.counts th { background: #262b33; }
 body.dark table.counts tr.weekend td { background: #20242b; }
 body.dark table.counts tr.pulse-total td { background: #2a2f37; }
@@ -155,15 +154,20 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
   flex-direction: column;
   gap: 2px;
 }
-.chip:hover { background: #fafbfc; }
+.chip:hover { filter: brightness(0.96); }
 .chip .name { font-weight: 600; font-size: 13px; }
-.chip .meta { color: var(--muted); font-size: 11px; display: flex; gap: 8px; }
-.chip.role-PVG { border-left-color: var(--green); }
-.chip.role-BVG { border-left-color: var(--green); }
-.chip.role-GEN { border-left-color: var(--yellow); }
-.chip.role-Project { border-left-color: #2d6cdf; }
-.chip.role-OFF { border-left-color: var(--muted); }
-.role-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.chip .meta { color: #3a3a3a; font-size: 11px; display: flex; gap: 8px; }
+/* Role colors from the Google Sheets palette (chip background + darker border). */
+.chip.role-PVG { background: #cfe2f3; border-left-color: #3d85c6; }   /* light blue 3 */
+.chip.role-BVG { background: #9fc5e8; border-left-color: #2b6cb0; }   /* light blue 2 */
+.chip.role-GEN { background: #93c47d; border-left-color: #38761d; }   /* light green 1 */
+.chip.role-Project { background: #f9cb9c; border-left-color: #b45f06; } /* light orange (unspecified) */
+.chip.role-OFF { background: #ea9999; border-left-color: #cc0000; }   /* light red 2 */
+.chip[class*="role-"] .name { color: #1c1f23; }
+.role-tag { font-size: 10px; font-weight: 700; letter-spacing: .04em; color: #1c1f23; }
+/* Operations / Project sub-group labels within a region. */
+.subgroup-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 8px 0 4px; }
+.oncall-line { font-size: 13px; color: var(--fg); margin: 4px 0 12px; }
 
 /* ---- Detail panels ---- */
 #panels { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
