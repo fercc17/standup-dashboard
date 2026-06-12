@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from standup_dashboard.domain.models import Pulse, Ticket
+from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
 from standup_dashboard.services import counts
 from standup_dashboard.storage.db import Database
 from standup_dashboard.web.presenters import DashboardData, build_pulse_history
@@ -27,7 +27,8 @@ def _data():
         Ticket("ISReq-C", "ISReq", "z", "Done", "Highest",
                assignee_email=MEMBER, is_done_date=date(2026, 6, 12)),
     ]
-    return DashboardData(fetched_at=utc(12), tickets=tickets, pulses=pulses)
+    alerts = [Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12))]
+    return DashboardData(fetched_at=utc(12), tickets=tickets, alerts=alerts, pulses=pulses)
 
 
 def test_history_attribution_requestor_vs_assignee(tmp_path):
@@ -42,6 +43,9 @@ def test_history_attribution_requestor_vs_assignee(tmp_path):
     assert cur["new_total"].breakdown == {"Jane Doe": 2}        # both new, by requestor
     # Closed breaks down by assignee.
     assert cur["closed_total"].breakdown == {"Alexandre Gomes": 1}
+    # Only-AMER alert → AMER is 100% of all alerts that pulse.
+    cur_row = {r.pulse_number: r for r in rows}[12]
+    assert cur_row.region_pct == 100.0
     db.close()
 
 

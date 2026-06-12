@@ -263,6 +263,7 @@ class PulseHistoryRow:
     label: str
     # metric name → Cell(count, breakdown) for the per-person hover tooltip (#80).
     cells: dict[str, Cell] = field(default_factory=dict)
+    region_pct: float | None = None  # selected regions' share of all alerts that pulse
 
 
 @dataclass
