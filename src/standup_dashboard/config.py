@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Jira / project configuration (Assumptions in spec.md)
@@ -29,6 +30,10 @@ PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
 # How far back a refresh collects activity (Jira "updated"/touches + PagerDuty
 # incidents). Small by default for fast test refreshes; raise for a full pulse.
 FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "1"))
+
+# Hard floor for the PagerDuty incidents window: never request incidents from
+# before this instant, regardless of the fetch window.
+PAGERDUTY_MIN_SINCE = datetime(2026, 6, 11, tzinfo=UTC)
 
 # PagerDuty team(s) whose incidents are relevant (the roster's "IS" squad).
 # Scopes the /incidents query so a refresh fetches this team's alerts, not the
