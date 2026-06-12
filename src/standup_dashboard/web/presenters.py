@@ -191,6 +191,7 @@ def build_panel(
                     role, t, assigned=assigned, strict_mode=strict_mode, group=group
                 ),
                 is_bvg_review=t.is_bvg_review,
+                url=config.jira_browse_url(t.id),
             )
             for t in grouped[group]
         ]

@@ -19,8 +19,13 @@
   {% if tickets %}
     {% for t in tickets %}
     <div class="ticket c-{{ t.color.value }}">
+      {% if t.url %}
+      <a class="key" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.key }}</a>
+      <a class="title" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.title }}</a>
+      {% else %}
       <span class="key">{{ t.key }}</span>
       <span class="title">{{ t.title }}</span>
+      {% endif %}
       {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
     </div>
     {% endfor %}

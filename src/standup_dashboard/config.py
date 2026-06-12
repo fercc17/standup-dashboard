@@ -134,6 +134,11 @@ REGIONS: dict[str, RegionConfig] = _build_regions()
 ENGINEERS_BY_EMAIL: dict[str, EngineerConfig] = {e.email: e for e in ROSTER}
 
 
+def jira_browse_url(issue_key: str) -> str:
+    """Public Jira URL that opens a single issue (FR: clickable ticket links)."""
+    return f"{JIRA_BASE_URL}/browse/{issue_key}"
+
+
 def region_timezone(region_key: str) -> str:
     return REGION_TIMEZONES[region_key]
 

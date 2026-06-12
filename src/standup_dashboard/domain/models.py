@@ -216,6 +216,7 @@ class TicketVM:
     title: str
     color: Color
     is_bvg_review: bool = False
+    url: str | None = None  # Jira browse link; None for non-Jira rows (e.g. alerts)
 
 
 @dataclass

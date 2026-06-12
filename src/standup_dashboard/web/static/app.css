@@ -179,6 +179,8 @@ table.counts tr:last-child td { border-bottom: none; }
 }
 .ticket .key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; white-space: nowrap; }
 .ticket .title { font-size: 12px; flex: 1; }
+.ticket a.key, .ticket a.title { color: inherit; text-decoration: none; }
+.ticket a.key:hover, .ticket a.title:hover { text-decoration: underline; }
 .ticket .badge { font-size: 10px; background: #ece9ff; color: #4b34c9; padding: 0 5px; border-radius: 4px; white-space: nowrap; }
 .c-green { background: var(--green-bg); border-color: var(--green); }
 .c-yellow { background: var(--yellow-bg); border-color: var(--yellow); }
