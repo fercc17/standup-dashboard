@@ -33,7 +33,7 @@ placeholders. Copy them in and fill each file with **only** the real value:
 cp -r secrets.example/. secrets/
 #   secrets/jira_token.txt        -> Jira API token
 #   secrets/pagerduty_token.txt   -> PagerDuty API token
-#   secrets/jira_ical_url.txt     -> PagerDuty weekend on-call iCal URL
+#   secrets/pagerduty_ical_url.txt     -> PagerDuty weekend on-call iCal URL
 ```
 
 Confirm nothing secret is tracked:

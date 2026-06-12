@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
+
 from .. import config
 from ..clients.pagerduty import PagerDutyClient, make_async_client
 from ..settings import Secrets, SetupError
@@ -22,8 +24,18 @@ async def _unmatched_emails(token: str) -> list[str]:
 
 
 def validate_identities(secrets: Secrets) -> None:
-    """Raise SetupError if any roster email has no PagerDuty match (FR-005a)."""
-    unmatched = asyncio.run(_unmatched_emails(secrets.pagerduty_token))
+    """Raise SetupError if any roster email has no PagerDuty match (FR-005a).
+
+    A PagerDuty request failure (bad token, network/outage) is also surfaced as
+    a blocking setup page rather than crashing startup.
+    """
+    try:
+        unmatched = asyncio.run(_unmatched_emails(secrets.pagerduty_token))
+    except httpx.HTTPError as exc:
+        raise SetupError(
+            "Could not validate engineer identities against PagerDuty — check that "
+            f"secrets/pagerduty_token.txt holds a valid token and PagerDuty is reachable. ({exc})"
+        ) from exc
     if unmatched:
         names = ", ".join(unmatched)
         raise SetupError(

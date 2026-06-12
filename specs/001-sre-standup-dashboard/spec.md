@@ -203,7 +203,7 @@ Every fetch of Jira and PagerDuty data is stored locally and timestamped, and hi
 
 #### Credentials
 
-- **FR-029**: System MUST read credentials only from individual plain-text files under a `secrets/` directory — `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/jira_ical_url.txt` — and MUST NOT store credentials in code or in committed files.
+- **FR-029**: System MUST read credentials only from individual plain-text files under a `secrets/` directory — `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/pagerduty_ical_url.txt` — and MUST NOT store credentials in code or in committed files.
 - **FR-030**: System MUST keep the `secrets/` directory out of version control, and MUST provide committed example placeholder files that show the required structure to anyone setting up the tool.
 
 #### Presentation

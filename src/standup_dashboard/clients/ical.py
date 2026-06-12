@@ -1,6 +1,6 @@
 """Read-only weekend on-call iCal client (contracts/pagerduty.md §3) — T048.
 
-Fetches the PagerDuty schedule iCal feed (URL from ``secrets/jira_ical_url.txt``)
+Fetches the PagerDuty schedule iCal feed (URL from ``secrets/pagerduty_ical_url.txt``)
 as text; parsing lives in ``services/oncall.py``. GET only (FR-027).
 """
 

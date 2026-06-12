@@ -21,7 +21,7 @@ cp -r secrets.example/. secrets/      # copy placeholder files into the gitignor
 # then edit each file to contain ONLY the real value:
 #   secrets/jira_token.txt        -> Jira API token
 #   secrets/pagerduty_token.txt   -> PagerDuty API token
-#   secrets/jira_ical_url.txt     -> PagerDuty weekend on-call iCal URL
+#   secrets/pagerduty_ical_url.txt     -> PagerDuty weekend on-call iCal URL
 ```
 
 `secrets/` and `data/` are gitignored. Confirm no secret is tracked:

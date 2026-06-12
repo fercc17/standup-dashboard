@@ -149,7 +149,7 @@ async def _fetch_ical(secrets: Secrets, now: datetime) -> ICalResult:
     res = ICalResult()
     try:
         async with ical_mod.make_async_client() as hc:
-            res.raw = await ical_mod.ICalClient(hc).fetch(secrets.jira_ical_url)
+            res.raw = await ical_mod.ICalClient(hc).fetch(secrets.pagerduty_ical_url)
         res.oncall = resolve_oncall(res.raw, now.date())
     except Exception:  # noqa: BLE001
         logger.exception("iCal fetch failed")

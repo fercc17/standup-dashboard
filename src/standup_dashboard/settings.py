@@ -14,7 +14,7 @@ DEFAULT_SECRETS_DIR = Path("secrets")
 
 JIRA_TOKEN_FILE = "jira_token.txt"
 PAGERDUTY_TOKEN_FILE = "pagerduty_token.txt"
-JIRA_ICAL_URL_FILE = "jira_ical_url.txt"
+PAGERDUTY_ICAL_URL_FILE = "pagerduty_ical_url.txt"
 
 
 class SetupError(Exception):
@@ -32,7 +32,7 @@ class SetupError(Exception):
 class Secrets:
     jira_token: str
     pagerduty_token: str
-    jira_ical_url: str
+    pagerduty_ical_url: str
 
 
 def _read_secret(secrets_dir: Path, filename: str) -> str:
@@ -58,5 +58,5 @@ def load_secrets(secrets_dir: str | Path = DEFAULT_SECRETS_DIR) -> Secrets:
     return Secrets(
         jira_token=_read_secret(d, JIRA_TOKEN_FILE),
         pagerduty_token=_read_secret(d, PAGERDUTY_TOKEN_FILE),
-        jira_ical_url=_read_secret(d, JIRA_ICAL_URL_FILE),
+        pagerduty_ical_url=_read_secret(d, PAGERDUTY_ICAL_URL_FILE),
     )

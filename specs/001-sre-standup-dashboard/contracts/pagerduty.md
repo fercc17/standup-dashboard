@@ -20,7 +20,7 @@ Auth: header `Authorization: Token token=<from secrets/pagerduty_token.txt>`, `A
 
 ### 3. Weekend on-call (iCal feed)
 
-- `GET {url from secrets/jira_ical_url.txt}` → an iCalendar document (PagerDuty schedule feed).
+- `GET {url from secrets/pagerduty_ical_url.txt}` → an iCalendar document (PagerDuty schedule feed).
 - Parse with `icalendar`; find the VEVENT covering the weekend; extract the on-call person (SUMMARY / ATTENDEE) and match to a roster engineer by name/email.
 
 **Consumed (FR-025)**: the single weekend on-call engineer and the Sat/Sun span. All other engineers are treated as OFF Sat/Sun; on Monday the on-call engineer's Sat+Sun activity is combined.
