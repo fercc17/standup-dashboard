@@ -1,0 +1,52 @@
+<div class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Roster</h2>
+      <button class="close" data-close-modal title="Close">&times;</button>
+    </div>
+
+    {% if error %}<div class="banner error">{{ error }}</div>{% endif %}
+
+    <details class="paste-box" open>
+      <summary>Add an SRE</summary>
+      <form class="roster-add" hx-post="/roster/add" hx-target="#modal-root" hx-swap="innerHTML">
+        <input name="name" placeholder="Full name" required>
+        <input name="email" type="email" placeholder="email@canonical.com" required>
+        <select name="region">
+          {% for r in region_keys %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
+        <button type="submit" class="action">Add</button>
+      </form>
+    </details>
+
+    {% for region in regions %}
+    <div class="sched-region">
+      <h3>{{ region.key }}</h3>
+      <table class="sched">
+        <tbody>
+          {% for eng in region.engineers %}
+          <tr>
+            <td>{{ eng.name }}</td>
+            <td class="roster-email">{{ eng.email }}</td>
+            <td>
+              <select hx-post="/roster/move" hx-target="#modal-root" hx-swap="innerHTML"
+                      name="region"
+                      hx-vals='{"email": "{{ eng.email }}"}'>
+                {% for r in region_keys %}
+                <option value="{{ r }}" {% if r == region.key %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+
+    <p class="override-note">
+      Added engineers and region moves are saved and applied across the dashboard.
+      Management is grouped separately and isn't moved here.
+    </p>
+  </div>
+</div>

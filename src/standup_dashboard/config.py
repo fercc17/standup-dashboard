@@ -8,7 +8,7 @@ dashboard reads from. Secrets (tokens, iCal URL) live only in ``secrets/*.txt``
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 
 # ---------------------------------------------------------------------------
@@ -97,9 +97,9 @@ class RegionConfig:
 # under a dedicated "Management" group and excluded from region counts (#72).
 # ---------------------------------------------------------------------------
 
-ROSTER: tuple[EngineerConfig, ...] = (
+_SEED_ROSTER: tuple[EngineerConfig, ...] = (
     # AMER
-    EngineerConfig("Fernando Carrillo Castro", "fernando.carrillo.castro@canonical.com",
+    EngineerConfig("Fernando Carrillo", "fernando.carrillo.castro@canonical.com",
                    ("AMER", "APAC"), is_manager=True),
     EngineerConfig("Alexandre Gomes", "alexandre.gomes@canonical.com", ("AMER",),
                    aliases=("Alejdg", "Alex G")),
@@ -131,7 +131,7 @@ ROSTER: tuple[EngineerConfig, ...] = (
 )
 
 
-def _build_regions() -> dict[str, RegionConfig]:
+def _build_regions(roster: tuple[EngineerConfig, ...]) -> dict[str, RegionConfig]:
     managers = {
         "AMER": "fernando.carrillo.castro@canonical.com",
         "APAC": "fernando.carrillo.castro@canonical.com",
@@ -142,7 +142,7 @@ def _build_regions() -> dict[str, RegionConfig]:
         # Managers are grouped under "Management", not their regions (#72), so
         # they're not region members and are excluded from region counts.
         members = tuple(
-            e.email for e in ROSTER if key in e.region_keys and not e.is_manager
+            e.email for e in roster if key in e.region_keys and not e.is_manager
         )
         regions[key] = RegionConfig(
             key=key, timezone=tz, manager_email=managers[key], member_emails=members
@@ -150,10 +150,49 @@ def _build_regions() -> dict[str, RegionConfig]:
     return regions
 
 
-REGIONS: dict[str, RegionConfig] = _build_regions()
+# The live roster + its derived indexes. Starts from the seed and is rebuilt at
+# runtime from DB overrides (added engineers / region moves, #16). Call sites use
+# config.ROSTER / REGIONS / ENGINEERS_BY_EMAIL (attribute access), so rebuilding
+# these module globals updates everyone.
+ROSTER: tuple[EngineerConfig, ...] = _SEED_ROSTER
+REGIONS: dict[str, RegionConfig] = {}
+ENGINEERS_BY_EMAIL: dict[str, EngineerConfig] = {}
 
-# Email → EngineerConfig index (canonical identity, FR-005a)
-ENGINEERS_BY_EMAIL: dict[str, EngineerConfig] = {e.email: e for e in ROSTER}
+
+def _set_roster(roster: tuple[EngineerConfig, ...]) -> None:
+    global ROSTER, REGIONS, ENGINEERS_BY_EMAIL
+    ROSTER = tuple(roster)
+    REGIONS = _build_regions(ROSTER)
+    ENGINEERS_BY_EMAIL = {e.email: e for e in ROSTER}
+
+
+def rebuild_roster(
+    additions: tuple[EngineerConfig, ...] = (),
+    region_overrides: dict[str, str] | None = None,
+) -> None:
+    """Rebuild the live roster from the seed plus DB-backed overrides (#16).
+
+    ``additions`` are engineers added via the UI; ``region_overrides`` moves an
+    engineer (by email) to a different region. Management members aren't moved.
+    """
+    region_overrides = region_overrides or {}
+
+    def _move(e: EngineerConfig) -> EngineerConfig:
+        new = region_overrides.get(e.email)
+        if new and new in REGION_TIMEZONES and not (e.is_manager or e.is_global):
+            return replace(e, region_keys=(new,))
+        return e
+
+    out = [_move(e) for e in _SEED_ROSTER]
+    seen = {e.email for e in out}
+    for a in additions:
+        if a.email not in seen:
+            out.append(_move(a))
+            seen.add(a.email)
+    _set_roster(tuple(out))
+
+
+_set_roster(_SEED_ROSTER)
 
 
 def jira_browse_url(issue_key: str) -> str:
@@ -189,6 +228,12 @@ def is_counted(engineer: EngineerConfig) -> bool:
 
 def all_roster_emails() -> list[str]:
     return [e.email for e in ROSTER]
+
+
+def seed_roster_emails() -> list[str]:
+    """The curated seed roster's emails — used for the hard PagerDuty identity
+    gate so ad-hoc UI additions (#16) can never block startup."""
+    return [e.email for e in _SEED_ROSTER]
 
 
 def primary_region_for(email: str) -> str | None:

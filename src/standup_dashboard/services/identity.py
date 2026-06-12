@@ -20,7 +20,9 @@ async def _unmatched_emails(token: str) -> list[str]:
     async with make_async_client(token) as hc:
         users = await PagerDutyClient(hc).list_users()
     known = {(u.get("email") or "").lower() for u in users}
-    return [e for e in config.all_roster_emails() if e.lower() not in known]
+    # Only the curated seed roster is a hard gate; UI-added engineers (#16) are
+    # best-effort and must not block startup.
+    return [e for e in config.seed_roster_emails() if e.lower() not in known]
 
 
 def validate_identities(secrets: Secrets) -> None:

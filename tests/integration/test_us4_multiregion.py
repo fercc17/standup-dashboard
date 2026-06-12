@@ -44,6 +44,6 @@ def test_us4_managers_grouped_under_management_not_regions(client, respx_mock):
     # Managers are no longer region members: Fernando shows once, under the
     # dedicated Management group (#72), not once per region.
     assert "Management" in page
-    assert page.count("Fernando Carrillo Castro") == 1
+    assert page.count("Fernando Carrillo") == 1
     # Global management is shown in the same group.
     assert "Kristofer Tingdahl" in page

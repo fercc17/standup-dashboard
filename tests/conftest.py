@@ -12,6 +12,15 @@ from fastapi.testclient import TestClient
 from standup_dashboard.app import create_app
 
 
+@pytest.fixture(autouse=True)
+def _reset_roster():
+    """Roster overrides mutate process-wide config; reset to the seed per test."""
+    from standup_dashboard import config
+    config.rebuild_roster()
+    yield
+    config.rebuild_roster()
+
+
 @pytest.fixture
 def secrets_dir(tmp_path: Path) -> Path:
     d = tmp_path / "secrets"
