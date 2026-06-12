@@ -19,7 +19,7 @@
   </thead>
   <tbody>
     {% for row in counts_rows %}
-    <tr class="{% if row.is_total %}pulse-total{% elif row.is_weekend %}weekend{% endif %}">
+    <tr class="{% if row.is_previous %}previous-pulse{% elif row.is_total %}pulse-total{% elif row.is_weekend %}weekend{% endif %}">
       <td>{{ row.label }}</td>
       <td title="{{ row.new_highest.tip }}">{{ row.new_highest.count }}</td>
       <td title="{{ row.new_pr_mp.tip }}">{{ row.new_pr_mp.count }}</td>

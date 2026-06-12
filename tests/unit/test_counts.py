@@ -54,11 +54,12 @@ def test_one_row_per_day_with_weekend_combined():
     rows = _build(utc(2026, 6, 15))  # Monday
     day_rows = [r for r in rows if not r.is_total]
     assert len(day_rows) == 4
-    assert rows[-1].is_total and rows[-1].label == "Pulse total"
     assert rows[0].label.startswith("Thu")
     assert rows[1].label.startswith("Fri")
     assert rows[2].is_weekend and "Sat–Sun" in rows[2].label
     assert rows[3].label.startswith("Mon")
+    assert any(r.label == "Pulse total" for r in rows)
+    assert any(r.is_previous for r in rows)  # previous-pulse comparison row (#80)
 
 
 def test_new_isreq_buckets_sum_to_total_on_created_day():
@@ -113,23 +114,29 @@ def test_weekend_row_combines_saturday_and_sunday_alerts():
     assert weekend.region_alert_pct == 100.0
 
 
+def _total(rows):
+    return next(r for r in rows if r.label == "Pulse total")
+
+
 def test_pulse_total_sums_new_closed_and_alerts():
     rows = _build(utc(2026, 6, 15))
-    total = rows[-1]
+    total = _total(rows)
     assert total.new_total.count == 4
     assert total.closed_total.count == 1
     assert total.alerts_total.count == 2
     assert total.region_alert_pct is None
 
 
-def test_closes_before_pulse_start_are_excluded():
-    # A ticket Done before the pulse-12 anchor (Jun 8) — rolled into this sprint
-    # by Jira — must NOT be counted as closed this pulse (#93).
+def test_closes_before_pulse_start_go_to_previous_pulse_row():
+    # A ticket Done before the pulse-12 anchor (Jun 8) is excluded from this
+    # pulse (#93) and instead counts in the Previous pulse row (#80).
     rolled = Ticket(id="ISReq-OLD", project_key="ISReq", title="old", status="Done",
                     priority="Highest", labels=[], is_done_date=date(2026, 6, 6),
                     assignee_email=MEMBER)
     rows = build_region_counts(AMER, [rolled], [], _pulses(), utc(2026, 6, 15))
-    assert rows[-1].closed_total.count == 0
+    assert _total(rows).closed_total.count == 0
+    prev = next(r for r in rows if r.is_previous)
+    assert prev.closed_total.count == 1
 
 
 def test_days_capped_at_today():
