@@ -57,7 +57,8 @@ WEEKDAYS = ("MON", "TUE", "WED", "THU", "FRI", "WEEKEND")
 # coverage is "who's around" (the on-call), resolved from the iCal feed.
 WEEKDAY_SLOTS = ("MON", "TUE", "WED", "THU", "FRI")
 ISREQ_REVIEW_PREFIX = "[PR/MP Review]"
-PS5_BLOCKERS_LABEL = "ps5-blockers"
+# The real Jira label is singular "ps5-blocker"; accept the plural too, defensively.
+PS5_BLOCKER_LABELS = ("ps5-blocker", "ps5-blockers")
 PRIORITY_HIGHEST = "Highest"
 
 
@@ -148,7 +149,7 @@ class Ticket:
 
     @property
     def has_ps5_blockers(self) -> bool:
-        return PS5_BLOCKERS_LABEL in self.labels
+        return any(label.lower() in PS5_BLOCKER_LABELS for label in self.labels)
 
     @property
     def is_bvg_review(self) -> bool:

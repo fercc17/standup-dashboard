@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 # ---------------------------------------------------------------------------
 # Jira / project configuration (Assumptions in spec.md)
@@ -31,6 +31,15 @@ PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
 # incidents). Defaults to a week so a refresh covers the current pulse week
 # (Mon→today); override with STANDUP_WINDOW_DAYS (e.g. "1" for fast test refreshes).
 FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "7"))
+
+# Pulse calendar (#93): a pulse is a 2-week cycle. Each anchor pins a Monday
+# (week 1, day 1) to its pulse number; the counts window is clamped to the
+# current pulse so closes rolled forward from a prior pulse aren't recounted.
+# Add a new anchor to renumber a year (e.g. 2027 Pulse 1, week 1).
+PULSE_LENGTH_DAYS = 14
+PULSE_ANCHORS: tuple[tuple[date, int], ...] = (
+    (date(2026, 6, 8), 12),  # Mon Jun 8 2026 = Pulse 12, week 1
+)
 
 # Hard floor for the PagerDuty incidents window: never request incidents from
 # before this instant, regardless of the fetch window. Set to Monday June 08 so

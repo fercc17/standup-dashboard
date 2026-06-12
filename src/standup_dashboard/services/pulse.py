@@ -6,11 +6,31 @@ sprint start/end define the per-day rows of the counts table (US3).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from .. import config
 from ..clients.jira import JiraClient
 from ..domain.models import Pulse
+
+
+def current_pulse(today: date) -> tuple[int, date, date]:
+    """Return (pulse_number, start_monday, end_exclusive) for the pulse calendar.
+
+    Anchored on ``config.PULSE_ANCHORS`` with a 2-week cadence (#93). Uses the
+    latest anchor on/before ``today`` so a new year's anchor renumbers cleanly.
+    """
+    anchor_date, anchor_num = max(
+        (a for a in config.PULSE_ANCHORS if a[0] <= today),
+        default=min(config.PULSE_ANCHORS, key=lambda a: a[0]),
+        key=lambda a: a[0],
+    )
+    k = (today - anchor_date).days // config.PULSE_LENGTH_DAYS
+    # Clamp k to 0 when today precedes the earliest anchor (no negative pulses).
+    k = max(k, 0)
+    start = anchor_date + timedelta(days=k * config.PULSE_LENGTH_DAYS)
+    end = start + timedelta(days=config.PULSE_LENGTH_DAYS)
+    return anchor_num + k, start, end
 
 
 def parse_jira_dt(value: str | None) -> datetime | None:
