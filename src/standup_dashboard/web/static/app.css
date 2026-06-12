@@ -208,8 +208,10 @@ table.sched { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.sched th, table.sched td { padding: 4px 5px; border-bottom: 1px solid var(--border); text-align: center; vertical-align: top; }
 table.sched td:first-child, table.sched th:first-child { text-align: left; white-space: nowrap; }
 table.sched select { font-size: 12px; padding: 1px; }
-table.sched th.stk span { display: block; line-height: 1.1; }
-table.sched th .sched-date { font-weight: 400; color: var(--muted); font-size: 11px; }
+table.sched .stk span { display: block; line-height: 1.1; }
+table.sched .sched-date { font-weight: 400; color: var(--muted); font-size: 11px; }
+.sched-scroll { overflow-x: auto; }
+table.sched tr.override-row td { border-top: 2px solid var(--border); font-weight: 600; }
 .day-note { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .override-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
 
