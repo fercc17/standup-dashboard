@@ -74,6 +74,8 @@ body {
   cursor: pointer;
   font-size: 13px;
 }
+button.region-btn { font: inherit; line-height: normal; }
+.region-btn.mgmt-tab { margin-left: 6px; }
 .region-btn.active { background: #1c1f23; color: #fff; border-color: #1c1f23; }
 .region-day { color: var(--muted); font-size: 12px; }
 .spacer { flex: 1 1 auto; }

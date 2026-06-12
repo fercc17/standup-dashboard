@@ -27,6 +27,18 @@ def set_weekly_role(db: Database, email: str, weekday: str, role: str, now: date
     db.set_weekly_role(email, weekday, role, now)
 
 
+HIGHEST_FOCUS_KEY = "highest_focus"
+
+
+def get_highest_focus(db: Database) -> bool:
+    """Whether the 'Highest only' focus toggle is on (#86 follow-up)."""
+    return db.get_ui_state(HIGHEST_FOCUS_KEY, "off") == "on"
+
+
+def set_highest_focus(db: Database, on: bool, now: datetime) -> None:
+    db.set_ui_state(HIGHEST_FOCUS_KEY, "on" if on else "off", now)
+
+
 def set_day_note(db: Database, email: str, weekday: str, note: str, now: datetime) -> None:
     if email not in config.ENGINEERS_BY_EMAIL:
         raise ValueError(f"unknown engineer: {email}")

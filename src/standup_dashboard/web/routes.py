@@ -81,6 +81,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "regions": config.REGION_KEYS,
         "selected_regions": selected_regions,
         "region_links": _region_links(selected_regions),
+        "highest_focus": schedule.get_highest_focus(db),
         "counts_rows": [],
         "banner": None,
         "ready": True,            # the roster always renders, fetch or not
@@ -204,7 +205,10 @@ def _render_panel(request: Request, engineer_email: str, region_key: str) -> HTM
         if latest is not None
         else presenters.DashboardData(fetched_at=now)
     )
-    panel = presenters.build_panel(db, engineer_email, data, now, region_key=region_key)
+    panel = presenters.build_panel(
+        db, engineer_email, data, now,
+        region_key=region_key, highest_focus=schedule.get_highest_focus(db),
+    )
     return _templates(request).TemplateResponse(
         request, "_detail_panel.html",
         {"panel": panel, "region_key": region_key, "roles": [r.value for r in Role]},
@@ -303,6 +307,17 @@ async def schedule_paste(request: Request) -> HTMLResponse:
     form = await request.form()
     summary = schedule.apply_schedule_paste(ctx.db, form.get("paste", ""), _now())
     return _render_schedule_modal(request, summary=summary)
+
+
+@router.post("/toggle/highest")
+async def toggle_highest(request: Request) -> Response:
+    """Persist the 'Highest only' focus toggle (#86 follow-up)."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    schedule.set_highest_focus(ctx.db, form.get("value") == "on", _now())
+    return Response(status_code=204)
 
 
 @router.post("/schedule/weekly", response_class=HTMLResponse)
