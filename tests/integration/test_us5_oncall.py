@@ -13,7 +13,8 @@ from standup_dashboard.services.fetch import run_fetch
 from standup_dashboard.web import presenters
 from tests.fixtures.jira_pd import Scenario, install
 
-FERNANDO = "fernando.carrillo.castro@canonical.com"  # AMER member
+# A counted AMER engineer (not management) so weekend alerts show in the row (#72).
+ONCALL = "alexandre.gomes@canonical.com"
 
 ICAL = """BEGIN:VCALENDAR
 VERSION:2.0
@@ -21,7 +22,7 @@ BEGIN:VEVENT
 UID:1
 DTSTART;VALUE=DATE:20260613
 DTEND;VALUE=DATE:20260615
-SUMMARY:On-call: Fernando Carrillo Castro
+SUMMARY:On-call: Alexandre Gomes
 END:VEVENT
 END:VCALENDAR
 """
@@ -46,7 +47,7 @@ def _scenario() -> Scenario:
                 "endDate": _jira_dt(end), "state": "active"},
         },
         sprint_issues={101: [], 201: []},
-        users=[{"id": "PU1", "email": FERNANDO, "name": "Fernando Carrillo Castro"}],
+        users=[{"id": "PU1", "email": ONCALL, "name": "Alexandre Gomes"}],
         incidents=[{"id": "INC1"}, {"id": "INC2"}],
         log_entries={
             "INC1": [{"type": "acknowledge_log_entry", "agent": {"id": "PU1"},
@@ -68,7 +69,7 @@ async def test_us5_monday_combined_weekend(app, respx_mock):
 
     # The single weekend on-call is resolved from the iCal feed and stored.
     oncall = ctx.db.get_weekend_oncall(fetch_id)
-    assert len(oncall) == 1 and oncall[0].engineer_email == FERNANDO
+    assert len(oncall) == 1 and oncall[0].engineer_email == ONCALL
 
     # The Monday weekend row combines Saturday + Sunday activity.
     data = presenters.load_fetch_data(ctx.db, now, fetch_id)

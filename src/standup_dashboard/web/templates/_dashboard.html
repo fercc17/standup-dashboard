@@ -23,11 +23,11 @@
   </div>
   {% endfor %}
 
-  {% if global_chips %}
+  {% if management_chips %}
   <div class="region-group">
-    <h3>Global</h3>
+    <h3>Management</h3>
     <div class="chips">
-      {% for chip in global_chips %}{% include "_chip.html" %}{% endfor %}
+      {% for chip in management_chips %}{% include "_chip.html" %}{% endfor %}
     </div>
   </div>
   {% endif %}

@@ -127,7 +127,7 @@ def build_chip(
 def build_chip_groups(
     db: Database, data: DashboardData, selected_regions: list[str], now: datetime
 ) -> tuple[list[ChipGroup], list[ChipVM]]:
-    """Per-region chip groups (manager once per owned region) + Global group."""
+    """Per-region chip groups + a separate Management group (#72)."""
     groups: list[ChipGroup] = []
     for key in selected_regions:
         region = config.REGIONS[key]
@@ -140,11 +140,13 @@ def build_chip_groups(
         chips = [build_chip(e, roles[e], key, data, now) for e in emails]
         groups.append(ChipGroup(key=key, label=key, local_day=local_day, chips=chips))
 
-    globals_ = [e.email for e in config.global_engineers()]
-    global_chips = [
-        build_chip(e, Role.OFF, "Global", data, now) for e in globals_
+    # Management (regional + global managers) is shown on its own, excluded from
+    # region counts and not tied to any region's daily role schedule (#72).
+    management = [e.email for e in config.management_engineers()]
+    management_chips = [
+        build_chip(e, Role.OFF, "Management", data, now) for e in management
     ]
-    return groups, global_chips
+    return groups, management_chips
 
 
 def build_counts(
