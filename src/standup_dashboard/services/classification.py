@@ -1,8 +1,9 @@
 """Ticket classification into To Do / WIP / Success / Distractors (FR-013) — T024.
 
 For an engineer E:
-  * To Do / WIP / Success = tickets assigned to E **and in pulse** (member of
-    its own project's active sprint), grouped by status.
+  * To Do / WIP / Success = tickets assigned to E that are in the active sprint
+    **or not in any sprint** (an unsprinted/backlog ticket assigned to E is
+    still their work), grouped by status.
   * Success also includes tickets E **touched** that are **Done and in the
     active pulse**, even if unassigned (#74) — finishing someone's ticket is a
     success, not a distraction.
@@ -40,7 +41,11 @@ def classify_for_engineer(
 
     assigned_ids: set[str] = set()
     for t in tickets:
-        if t.assignee_email == email and in_pulse(t, pulse_sprint_ids):
+        # A ticket assigned to E counts as their work when it's in the active
+        # sprint or sits in no sprint at all (backlog / untriaged intake); a
+        # ticket parked in a *different* sprint is not this pulse's work.
+        own = in_pulse(t, pulse_sprint_ids) or t.sprint_id is None
+        if t.assignee_email == email and own:
             group = t.group
             if group in (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS):
                 groups[group].append(t)

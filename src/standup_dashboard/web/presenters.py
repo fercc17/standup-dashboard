@@ -173,12 +173,13 @@ def build_panel(
 
     grouped = classify_for_engineer(email, data.tickets, data.touches, data.pulse_sprint_ids)
 
-    # Reclassify assigned To Do/WIP tickets into Distractors:
+    # Reclassify assigned *in-progress* tickets into Distractors (To Do / queued
+    # work is never a distraction, even when untriaged):
     #  * highest_focus toggle: any ISReq not Highest / not [PR/MP Review] → red.
     #  * role rules (#86): BVG non-priority, Project non-ISDB (Project flagged yellow).
     focus_distractor_ids: set[str] = set()
     role_distractor_ids: set[str] = set()
-    for grp in (TicketGroup.TODO, TicketGroup.WIP):
+    for grp in (TicketGroup.WIP,):
         kept = []
         for t in grouped[grp]:
             if highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):

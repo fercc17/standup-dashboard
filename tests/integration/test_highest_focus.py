@@ -27,7 +27,10 @@ def _scenario(now: datetime) -> Scenario:
         },
         sprint_issues={
             101: [],
-            201: [issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201)],
+            201: [
+                issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201),
+                issue("ISReq-6", assignee=COLIN, status="Untriaged", sprint_id=201),
+            ],
         },
         users=[{"id": "PU1", "email": COLIN, "name": "Colin Misare"}],
     )
@@ -44,8 +47,10 @@ def test_highest_toggle_recolors_isreq_distractor_red(client, app, respx_mock):
     off = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
     assert "ISReq-5" in off and "c-yellow" in off  # Project role-distractor
 
-    # Turn on "Highest only" → the non-Highest ISReq goes red.
+    # Turn on "Highest only" → the non-Highest in-progress ISReq goes red.
     assert client.post("/toggle/highest", data={"value": "on"}).status_code == 204
     on = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    assert "ISReq-5" in on and "c-red" in on and "c-yellow" not in on
+    assert "ISReq-5" in on and "c-red" in on
     assert "ISReq-5" in on[on.index("Distractors"):]
+    # But an untriaged To Do ticket is never a distraction — it stays in To Do.
+    assert "ISReq-6" in on[: on.index("Distractors")]

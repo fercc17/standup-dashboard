@@ -50,6 +50,17 @@ def test_touched_ticket_with_no_pulse_is_a_distractor():
     assert groups[TicketGroup.WIP] == []
 
 
+def test_assigned_unsprinted_untriaged_is_todo_not_distractor():
+    # Assigned to E, Untriaged (To Do), but in no sprint (sprint_id=None) — it is
+    # the engineer's queued work, so it belongs in To Do, not Distractors.
+    t = Ticket(id="ISREQ-2556", project_key="ISReq", title="x", status="Untriaged",
+               priority="Medium", labels=[], assignee_email=EMAIL, sprint_id=None,
+               status_category="To Do")
+    groups = classify_for_engineer(EMAIL, [t], [], pulse_sprint_ids={"ISReq": 34046})
+    assert groups[TicketGroup.TODO] == [t]
+    assert groups[TicketGroup.DISTRACTORS] == []
+
+
 def test_touched_unassigned_done_in_pulse_is_a_success():
     # Someone else's ticket, Done and in the active pulse, that E only touched →
     # counts as Success, not a Distractor (#74).
