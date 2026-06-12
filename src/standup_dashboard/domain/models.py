@@ -178,6 +178,7 @@ class Alert:
     at: datetime
     title: str | None = None     # PagerDuty incident title ("what went down")
     url: str | None = None       # PagerDuty incident link
+    number: int | None = None    # PagerDuty incident number (the alert code)
 
 
 @dataclass

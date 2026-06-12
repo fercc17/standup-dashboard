@@ -379,16 +379,20 @@ def build_panel(
     for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        label = a.title or ("alert — resolved" if resolved else "alert — acknowledged")
         if resolved:
             color = Color.GREEN
         elif recent:
             color = Color.YELLOW          # acked in the last 24h
         else:
             color = Color.RED             # acked >24h ago, still not resolved → stale
+        # Line: "Title — code — STATUS" (code = PagerDuty incident number).
+        parts = [a.title or "alert"]
+        if a.number is not None:
+            parts.append(f"#{a.number}")
+        parts.append("RES" if resolved else "ACK")
         vm = TicketVM(
-            key=f"⚠ {a.id}",
-            title=label,
+            key="⚠",
+            title=" — ".join(parts),
             color=color,
             url=a.url,
             touched_24h=recent,

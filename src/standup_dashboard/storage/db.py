@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS alert (
     at             TEXT NOT NULL,
     title          TEXT,
     url            TEXT,
+    number         INTEGER,
     PRIMARY KEY (fetch_id, id, handler_email, state)
 );
 
@@ -187,7 +188,7 @@ class Database:
             if name not in cols:
                 self._conn.execute(f"ALTER TABLE ticket ADD COLUMN {name} {decl}")
         alert_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(alert)")}
-        for name, decl in (("title", "TEXT"), ("url", "TEXT")):
+        for name, decl in (("title", "TEXT"), ("url", "TEXT"), ("number", "INTEGER")):
             if name not in alert_cols:
                 self._conn.execute(f"ALTER TABLE alert ADD COLUMN {name} {decl}")
 
@@ -270,10 +271,10 @@ class Database:
     def insert_alerts(self, fetch_id: int, alerts: Iterable[Alert]) -> None:
         self._conn.executemany(
             "INSERT OR IGNORE INTO alert"
-            " (fetch_id, id, handler_email, state, at, title, url)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            [(fetch_id, a.id, a.handler_email, a.state.value, a.at.isoformat(), a.title, a.url)
-             for a in alerts],
+            " (fetch_id, id, handler_email, state, at, title, url, number)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(fetch_id, a.id, a.handler_email, a.state.value, a.at.isoformat(),
+              a.title, a.url, a.number) for a in alerts],
         )
         self._conn.commit()
 
@@ -320,7 +321,8 @@ class Database:
         ).fetchall()
         return [
             Alert(r["id"], r["handler_email"], AlertState(r["state"]),
-                  datetime.fromisoformat(r["at"]), title=r["title"], url=r["url"])
+                  datetime.fromisoformat(r["at"]), title=r["title"], url=r["url"],
+                  number=r["number"])
             for r in rows
         ]
 

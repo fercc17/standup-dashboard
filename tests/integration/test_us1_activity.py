@@ -49,7 +49,8 @@ def _scenario(now: datetime) -> Scenario:
                   sprint_id=201, changelog=status_change),
         ],
         users=[{"id": "PU1", "email": EMAIL, "name": "Alexandre Gomes"}],
-        incidents=[{"id": "INC1", "title": "DB down", "html_url": "https://pd.test/INC1"}],
+        incidents=[{"id": "INC1", "title": "DB down", "html_url": "https://pd.test/INC1",
+                    "incident_number": 4242}],
         log_entries={
             "INC1": [{
                 "type": "acknowledge_log_entry",
@@ -93,5 +94,6 @@ def test_us1_refresh_and_detail(client, app, respx_mock):
     # Groups split into touched-24h | not-touched columns; alerts show the
     # incident title + a PagerDuty link (#17).
     assert "Touched 24h" in panel and "Not touched 24h" in panel
-    assert "DB down" in panel
     assert 'href="https://pd.test/INC1"' in panel
+    # Alert line is "Title — #code — STATUS" (#17 / alert-line-format).
+    assert "DB down — #4242 — ACK" in panel
