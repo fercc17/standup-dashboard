@@ -292,3 +292,4 @@ class CountsRow:
     alerts_resolved: Cell = field(default_factory=Cell)
     alerts_total: Cell = field(default_factory=Cell)
     region_alert_pct: float | None = None
+    is_previous: bool = False  # the previous-pulse comparison row (#80)

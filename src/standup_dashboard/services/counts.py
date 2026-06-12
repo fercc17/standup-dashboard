@@ -37,7 +37,7 @@ from ..domain.models import (
     Pulse,
     Ticket,
 )
-from .pulse import current_pulse
+from .pulse import current_pulse, previous_pulse
 
 # Project whose tickets feed the counts table's New/Closed columns. Highest,
 # [PR/MP Review] and ps5-blocker work all live in ISReq (#91); switch here to
@@ -174,6 +174,7 @@ def build_counts(
         return []
 
     axis_zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
+    today = now.astimezone(axis_zone).date()
     days = pulse_dates(pulses, axis_zone, now)
     groups = _group_days(days)
 
@@ -239,6 +240,19 @@ def build_counts(
         total = _row("Pulse total", all_dates, is_weekend=False, is_total=True)
         total.region_alert_pct = None  # a pulse-wide region share isn't meaningful here
         rows.append(total)
+
+        # Previous-pulse comparison (#80): same buckets over the prior pulse's
+        # window. Ticket data comes from a dedicated fetch; alerts that far back
+        # usually aren't collected, so they read 0.
+        prev_num, prev_start, prev_end = previous_pulse(today)
+        prev_dates = {
+            prev_start + timedelta(days=i) for i in range((prev_end - prev_start).days)
+        }
+        prev = _row(f"Previous pulse (P{prev_num})", prev_dates,
+                    is_weekend=False, is_total=True)
+        prev.is_previous = True
+        prev.region_alert_pct = None
+        rows.append(prev)
     return rows
 
 

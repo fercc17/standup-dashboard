@@ -33,6 +33,12 @@ def current_pulse(today: date) -> tuple[int, date, date]:
     return anchor_num + k, start, end
 
 
+def previous_pulse(today: date) -> tuple[int, date, date]:
+    """(pulse_number, start, end_exclusive) for the pulse before the current one."""
+    num, start, _ = current_pulse(today)
+    return num - 1, start - timedelta(days=config.PULSE_LENGTH_DAYS), start
+
+
 def parse_jira_dt(value: str | None) -> datetime | None:
     """Parse a Jira ISO-8601 timestamp into an aware UTC datetime."""
     if not value:

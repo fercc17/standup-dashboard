@@ -24,7 +24,7 @@ from ..settings import Secrets
 from ..storage.db import Database
 from ..storage.snapshots import SnapshotWriter
 from .oncall import resolve_oncall
-from .pulse import parse_jira_dt, resolve_pulses
+from .pulse import parse_jira_dt, previous_pulse, resolve_pulses
 from .touches import extract_touches, parse_ticket
 
 logger = logging.getLogger("standup_dashboard.fetch")
@@ -81,6 +81,23 @@ async def _fetch_jira(
                     issues_by_key.setdefault(issue["key"], issue)
             except Exception:  # noqa: BLE001
                 logger.exception("Jira candidate search failed; using sprint issues only")
+
+            # Previous-pulse tickets (created or resolved in the prior pulse) so
+            # the counts table can show a previous-pulse comparison (#80). Jira
+            # retains these even after they roll out of the active sprint.
+            _, prev_start, prev_end = previous_pulse(now.date())
+            prev_jql = (
+                f"project in ({', '.join(config.PROJECT_KEYS)}) AND ("
+                f'(created >= "{prev_start}" AND created < "{prev_end}") OR '
+                f'(resolved >= "{prev_start}" AND resolved < "{prev_end}"))'
+            )
+            try:
+                prev_issues = await jira.search(prev_jql)
+                res.raw["jira_prev_pulse.json"] = prev_issues
+                for issue in prev_issues:
+                    issues_by_key.setdefault(issue["key"], issue)
+            except Exception:  # noqa: BLE001
+                logger.exception("Jira previous-pulse search failed")
 
             res.tickets = [parse_ticket(issue) for issue in issues_by_key.values()]
 
