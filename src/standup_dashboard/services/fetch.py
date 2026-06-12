@@ -225,8 +225,17 @@ async def run_fetch(
 ) -> int:
     """Perform one refresh; persist a snapshot; return its fetch_id."""
     now = now or datetime.now(UTC)
-    days = window_days if window_days is not None else config.FETCH_WINDOW_DAYS
-    window_start = now - timedelta(days=days)
+    if window_days is not None:
+        window_start = now - timedelta(days=window_days)
+    else:
+        # Incremental (#88): query only since the last good fetch (with a small
+        # overlap); earlier data is preserved by merging the pulse's snapshots.
+        last_good = db.latest_good_fetch()
+        window_start = (
+            last_good.fetched_at - timedelta(hours=1)
+            if last_good is not None
+            else now - timedelta(days=config.FETCH_WINDOW_DAYS)
+        )
     roster = set(config.all_roster_emails())
 
     jira_res, pd_res, ical_res = await asyncio.gather(
