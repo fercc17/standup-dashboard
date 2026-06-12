@@ -1,4 +1,4 @@
-"""PagerDuty incidents window never starts before the hard floor (June 11)."""
+"""PagerDuty incidents window never starts before the hard floor (June 08)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ SECRETS = Secrets(jira_token="j", pagerduty_token="p", pagerduty_ical_url="u")
 
 
 @respx.mock
-async def test_since_is_floored_to_june_11():
+async def test_since_is_floored_to_june_08():
     respx.get("https://api.pagerduty.com/users").mock(
         return_value=httpx.Response(200, json={"users": [], "more": False})
     )
@@ -28,4 +28,4 @@ async def test_since_is_floored_to_june_11():
 
     assert incidents.called
     sent_since = incidents.calls[0].request.url.params["since"]
-    assert sent_since.startswith("2026-06-11"), sent_since
+    assert sent_since.startswith("2026-06-08"), sent_since
