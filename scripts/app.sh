@@ -8,16 +8,26 @@
 #   scripts/app.sh status
 #
 # The server binds 127.0.0.1:8765 (see src/standup_dashboard/config.py).
-# For a foreground run (e.g. PyCharm's Run button) use run.py instead.
+# For a foreground run (e.g. PyCharm's Run button) use main.py instead.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-HOST="127.0.0.1"
-PORT="8765"
-URL="http://${HOST}:${PORT}"
+# Bind host/port (override with STANDUP_HOST / STANDUP_PORT; default loopback).
+# Use STANDUP_HOST=0.0.0.0 to reach the dashboard from other devices on the LAN.
+HOST="${STANDUP_HOST:-127.0.0.1}"
+PORT="${STANDUP_PORT:-8765}"
+export STANDUP_HOST="$HOST" STANDUP_PORT="$PORT"
+
+PROBE_HOST="127.0.0.1"   # loopback always works, even when bound to 0.0.0.0
+if [[ "$HOST" == "0.0.0.0" ]]; then
+  LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  URL="http://${LAN_IP:-$HOST}:${PORT}"
+else
+  URL="http://${HOST}:${PORT}"
+fi
 RUN_DIR="$ROOT/.run"
 PID_FILE="$RUN_DIR/app.pid"
 LOG_FILE="$RUN_DIR/app.log"
@@ -30,7 +40,7 @@ is_running() {
 
 wait_for_port() {
   for _ in $(seq 1 50); do
-    if (exec 3<>"/dev/tcp/${HOST}/${PORT}") 2>/dev/null; then
+    if (exec 3<>"/dev/tcp/${PROBE_HOST}/${PORT}") 2>/dev/null; then
       exec 3>&- 3<&- 2>/dev/null || true
       return 0
     fi

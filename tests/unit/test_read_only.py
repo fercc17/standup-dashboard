@@ -37,7 +37,6 @@ async def test_jira_client_only_gets():
         jira = JiraClient(hc)
         await jira.active_sprint("ISDB")
         await jira.search('project = ISDB')
-        await jira.search_count('project = ISDB')
         await jira.comments("ISDB-1")
         await jira.worklogs("ISDB-1")
 

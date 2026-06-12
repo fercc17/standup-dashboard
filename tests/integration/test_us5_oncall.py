@@ -63,7 +63,8 @@ async def test_us5_monday_combined_weekend(app, respx_mock):
     ctx = app.state.ctx
     now = _utc(2026, 6, 15, 18)  # Monday
 
-    fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now)
+    # Widen the window so the weekend (Sat/Sun before Monday) is collected.
+    fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now, window_days=7)
 
     # The single weekend on-call is resolved from the iCal feed and stored.
     oncall = ctx.db.get_weekend_oncall(fetch_id)

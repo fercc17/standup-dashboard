@@ -93,12 +93,9 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
         issues = scenario.sprint_issues.get(int(m.group(1)), [])
         return httpx.Response(200, json={"issues": issues, "total": len(issues)})
 
-    if path == "/rest/api/3/search":
-        if params.get("maxResults") == "0":
-            return httpx.Response(200, json={"total": len(scenario.search_issues), "issues": []})
-        return httpx.Response(
-            200, json={"issues": scenario.search_issues, "total": len(scenario.search_issues)}
-        )
+    if path == "/rest/api/3/search/jql":
+        # Enhanced search: single page, no nextPageToken (matches client paging).
+        return httpx.Response(200, json={"issues": scenario.search_issues})
 
     if m := _ISSUE_COMMENT.match(path):
         return httpx.Response(200, json={"comments": scenario.comments.get(m.group(1), [])})
