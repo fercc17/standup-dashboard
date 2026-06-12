@@ -2,10 +2,20 @@
      data-engineer="{{ chip.email }}"
      hx-get="/chip/{{ chip.email }}/detail?regions={{ chip.region_key }}"
      hx-target="#panels" hx-swap="innerHTML">
-  <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}</span>
-  <span class="meta">
-    <span class="role-tag">{{ chip.role.value }}</span>
-    <span title="tickets touched (24h)">&#9998; {{ chip.touched_24h }}</span>
-    <span title="alerts ack/resolved (24h)">&#128276; {{ chip.alerts_ack_24h }}/{{ chip.alerts_resolved_24h }}</span>
+  <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}
+    <span class="role-tag">{{ chip.role.value }}</span></span>
+  <span class="meta" title="Last 24h — touched / assigned-open / completed · alerts ack/resolved">
+    <span class="win">24h</span>
+    <span>&#9998;{{ chip.touched_24h }}</span>
+    <span>&#128203;{{ chip.assigned_open }}</span>
+    <span>&#10003;{{ chip.completed_24h }}</span>
+    <span>&#128276;{{ chip.alerts_ack_24h }}/{{ chip.alerts_resolved_24h }}</span>
+  </span>
+  <span class="meta" title="This pulse — touched / assigned-open / completed · alerts ack/resolved">
+    <span class="win">Pulse</span>
+    <span>&#9998;{{ chip.touched_pulse }}</span>
+    <span>&#128203;{{ chip.assigned_open }}</span>
+    <span>&#10003;{{ chip.completed_pulse }}</span>
+    <span>&#128276;{{ chip.alerts_ack_pulse }}/{{ chip.alerts_resolved_pulse }}</span>
   </span>
 </div>

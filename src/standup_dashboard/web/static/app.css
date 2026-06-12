@@ -156,7 +156,9 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 }
 .chip:hover { filter: brightness(0.96); }
 .chip .name { font-weight: 600; font-size: 13px; }
-.chip .meta { color: #3a3a3a; font-size: 11px; display: flex; gap: 8px; }
+.chip .meta { color: #3a3a3a; font-size: 11px; display: flex; gap: 7px; align-items: baseline; }
+.chip .meta .win { font-weight: 700; color: var(--muted); min-width: 30px; font-size: 10px; text-transform: uppercase; }
+.chip .name .role-tag { margin-left: 6px; }
 /* Role colors from the Google Sheets palette (chip background + darker border). */
 .chip.role-PVG { background: #cfe2f3; border-left-color: #3d85c6; }   /* light blue 3 */
 .chip.role-BVG { background: #9fc5e8; border-left-color: #2b6cb0; }   /* light blue 2 */
