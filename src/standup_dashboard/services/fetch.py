@@ -142,6 +142,7 @@ def _alerts_from_logs(
     roster: set[str],
     title: str | None = None,
     url: str | None = None,
+    number: int | None = None,
 ) -> list[Alert]:
     out: list[Alert] = []
     state_for = {
@@ -157,7 +158,7 @@ def _alerts_from_logs(
         at = parse_jira_dt(entry.get("created_at"))
         if email and email in roster and at is not None:
             out.append(Alert(id=incident_id, handler_email=email, state=state, at=at,
-                             title=title, url=url))
+                             title=title, url=url, number=number))
     return out
 
 
@@ -178,7 +179,8 @@ async def _fetch_pagerduty(
             res.raw["pagerduty_incidents.json"] = incidents
             # Incident id → (title, link) so alerts carry "what went down" + a link.
             inc_meta = {
-                i["id"]: (i.get("title") or i.get("summary"), i.get("html_url"))
+                i["id"]: (i.get("title") or i.get("summary"), i.get("html_url"),
+                          i.get("incident_number"))
                 for i in incidents
             }
 
@@ -192,9 +194,9 @@ async def _fetch_pagerduty(
             all_logs: dict[str, Any] = {}
             for incident_id, logs in await asyncio.gather(*(_logs(i) for i in incidents)):
                 all_logs[incident_id] = logs
-                title, url = inc_meta.get(incident_id, (None, None))
+                title, url, number = inc_meta.get(incident_id, (None, None, None))
                 res.alerts.extend(
-                    _alerts_from_logs(incident_id, logs, id_to_email, roster, title, url)
+                    _alerts_from_logs(incident_id, logs, id_to_email, roster, title, url, number)
                 )
             res.raw["pagerduty_log_entries.json"] = all_logs
     except Exception:  # noqa: BLE001

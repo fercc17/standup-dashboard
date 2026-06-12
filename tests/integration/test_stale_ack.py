@@ -33,7 +33,10 @@ def _scenario(now: datetime) -> Scenario:
         },
         sprint_issues={101: [], 201: []},
         users=[{"id": "PU1", "email": PVG, "name": "Alexandre Gomes"}],
-        incidents=[{"id": "INC-NEW"}, {"id": "INC-OLD"}],
+        incidents=[
+            {"id": "INC-NEW", "title": "recent alert", "incident_number": 1},
+            {"id": "INC-OLD", "title": "stale alert", "incident_number": 2},
+        ],
         log_entries={
             "INC-NEW": [{"type": "acknowledge_log_entry", "agent": {"id": "PU1"},
                          "created_at": recent}],
@@ -50,6 +53,9 @@ async def test_stale_ack_is_red_recent_ack_is_yellow(app, respx_mock):
     fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now, window_days=3)
     data = presenters.load_fetch_data(ctx.db, now, fetch_id)
     panel = presenters.build_panel(ctx.db, PVG, data, now, region_key="AMER")
-    wip = {t.key: t.color.value for t in panel.groups["WIP"]}
-    assert wip["⚠ INC-NEW"] == "yellow"   # acked 2h ago
-    assert wip["⚠ INC-OLD"] == "red"      # acked 40h ago, still not resolved
+    wip = panel.groups["WIP"]
+    recent = next(t for t in wip if "recent alert" in t.title)
+    stale = next(t for t in wip if "stale alert" in t.title)
+    assert recent.color.value == "yellow"      # acked 2h ago
+    assert stale.color.value == "red"          # acked 40h ago, still not resolved
+    assert recent.title.endswith("— ACK")      # line ends with the status
