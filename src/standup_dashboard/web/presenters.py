@@ -165,6 +165,7 @@ def build_panel(
     now: datetime,
     *,
     region_key: str,
+    highest_focus: bool = False,
 ) -> DetailPanelVM:
     eng = config.ENGINEERS_BY_EMAIL[email]
     region = config.REGIONS[region_key]
@@ -172,13 +173,18 @@ def build_panel(
 
     grouped = classify_for_engineer(email, data.tickets, data.touches, data.pulse_sprint_ids)
 
-    # Role-based reclassification (#86): assigned tickets the role treats as a
-    # distraction (BVG non-priority, Project non-ISDB) move to Distractors.
+    # Reclassify assigned To Do/WIP tickets into Distractors:
+    #  * highest_focus toggle: any ISReq not Highest / not [PR/MP Review] → red.
+    #  * role rules (#86): BVG non-priority, Project non-ISDB (Project flagged yellow).
+    focus_distractor_ids: set[str] = set()
     role_distractor_ids: set[str] = set()
     for grp in (TicketGroup.TODO, TicketGroup.WIP):
         kept = []
         for t in grouped[grp]:
-            if is_role_distractor(role, t):
+            if highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
+                grouped[TicketGroup.DISTRACTORS].append(t)
+                focus_distractor_ids.add(t.id)
+            elif is_role_distractor(role, t):
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 role_distractor_ids.add(t.id)
             else:
@@ -189,15 +195,19 @@ def build_panel(
     for group in (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS, TicketGroup.DISTRACTORS):
         vms: list[TicketVM] = []
         for t in grouped[group]:
-            is_rd = t.id in role_distractor_ids
-            assigned = group is not TicketGroup.DISTRACTORS or is_rd
+            if t.id in focus_distractor_ids:
+                color = Color.RED
+            else:
+                is_rd = t.id in role_distractor_ids
+                assigned = group is not TicketGroup.DISTRACTORS or is_rd
+                color = ticket_color(
+                    role, t, assigned=assigned, group=group, role_distractor=is_rd
+                )
             vms.append(
                 TicketVM(
                     key=t.id,
                     title=t.title,
-                    color=ticket_color(
-                        role, t, assigned=assigned, group=group, role_distractor=is_rd
-                    ),
+                    color=color,
                     is_bvg_review=t.is_bvg_review,
                     url=config.jira_browse_url(t.id),
                 )

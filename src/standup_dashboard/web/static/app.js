@@ -27,6 +27,40 @@ document.addEventListener('click', function (e) {
   }
 });
 
+// Management tab: show/hide the Management chip group (persisted; default shown).
+function applyManagementTab() {
+  const on = localStorage.getItem('showManagement') !== 'off';
+  const grp = document.getElementById('management-group');
+  if (grp) grp.style.display = on ? '' : 'none';
+  document.querySelectorAll('[data-toggle-management]').forEach(function (b) {
+    b.classList.toggle('active', on);
+  });
+}
+document.addEventListener('DOMContentLoaded', applyManagementTab);
+// #dashboard (with the Management group) is re-rendered on refresh — re-apply.
+document.body.addEventListener('htmx:afterSettle', applyManagementTab);
+document.addEventListener('click', function (e) {
+  if (e.target.closest('[data-toggle-management]')) {
+    const on = localStorage.getItem('showManagement') !== 'off';
+    localStorage.setItem('showManagement', on ? 'off' : 'on');
+    applyManagementTab();
+  }
+});
+
+// Highest-only toggle: after it persists, recolor any open detail panel.
+document.body.addEventListener('htmx:afterRequest', function (e) {
+  if (e.detail.elt && e.detail.elt.id === 'highest-toggle') {
+    const panel = document.querySelector('#panels .panel');
+    if (panel && window.htmx) {
+      const email = panel.getAttribute('data-engineer');
+      const region = panel.getAttribute('data-region') || '';
+      htmx.ajax('GET',
+        '/chip/' + encodeURIComponent(email) + '/detail?regions=' + encodeURIComponent(region),
+        { target: '#panels', swap: 'innerHTML' });
+    }
+  }
+});
+
 // One detail panel at a time: clicking a chip replaces #panels (hx-swap=innerHTML).
 // Clicking the already-open person's chip again closes the panel (toggle off).
 document.body.addEventListener('htmx:beforeRequest', function (e) {
