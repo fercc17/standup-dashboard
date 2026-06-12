@@ -95,5 +95,5 @@ def test_us1_refresh_and_detail(client, app, respx_mock):
     # incident title + a PagerDuty link (#17).
     assert "Touched 24h" in panel and "Not touched 24h" in panel
     assert 'href="https://pd.test/INC1"' in panel
-    # Alert line is "Title — #code — STATUS" (#17 / alert-line-format).
-    assert "DB down — #4242 — ACK" in panel
+    # Alert line is "STATUS — #code — Title".
+    assert "ACK — #4242 — DB down" in panel

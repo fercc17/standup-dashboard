@@ -385,11 +385,11 @@ def build_panel(
             color = Color.YELLOW          # acked in the last 24h
         else:
             color = Color.RED             # acked >24h ago, still not resolved → stale
-        # Line: "Title — code — STATUS" (code = PagerDuty incident number).
-        parts = [a.title or "alert"]
+        # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
+        parts = ["RES" if resolved else "ACK"]
         if a.number is not None:
             parts.append(f"#{a.number}")
-        parts.append("RES" if resolved else "ACK")
+        parts.append(a.title or "alert")
         vm = TicketVM(
             key="⚠",
             title=" — ".join(parts),
