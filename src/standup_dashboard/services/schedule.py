@@ -1,8 +1,8 @@
-"""Role schedule service (FR-007/008/010) — T031.
+"""Role schedule service (FR-007/008) — T031.
 
-Set weekly default roles, set a today-only override that expires at the
-engineer's region-local midnight, and read/write the BVG strict-mode flag in
-``ui_state``. All persistence is history-preserving (latest row wins on read).
+Set weekly default roles and a today-only override that expires at the
+engineer's region-local midnight. All persistence is history-preserving
+(latest row wins on read).
 """
 
 from __future__ import annotations
@@ -13,8 +13,6 @@ from zoneinfo import ZoneInfo
 from .. import config
 from ..domain.models import WEEKDAYS, Role
 from ..storage.db import Database
-
-STRICT_KEY = "bvg_strict_mode"
 
 
 def set_weekly_role(db: Database, email: str, weekday: str, role: str, now: datetime) -> None:
@@ -45,11 +43,3 @@ def set_today_override(db: Database, email: str, role: str, now: datetime) -> No
     tz = config.REGIONS[region_key].timezone
     expires_at, effective_date = _next_region_midnight(tz, now)
     db.set_override(email, role, effective_date, expires_at, now)
-
-
-def get_strict_mode(db: Database) -> bool:
-    return db.get_ui_state(STRICT_KEY, "off") == "on"
-
-
-def set_strict_mode(db: Database, on: bool, now: datetime) -> None:
-    db.set_ui_state(STRICT_KEY, "on" if on else "off", now)

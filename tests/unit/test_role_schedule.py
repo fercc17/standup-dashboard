@@ -1,4 +1,4 @@
-"""US2 unit tests: override expiry, weekly fallback, strict-mode effect (T030)."""
+"""US2 unit tests: override expiry, weekly fallback (T030)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from standup_dashboard.domain.coloring import ticket_color
-from standup_dashboard.domain.models import Color, Role, Ticket
 from standup_dashboard.services import schedule
 from standup_dashboard.storage.db import Database
 
@@ -52,20 +50,3 @@ def test_set_weekly_role_validates(db):
         schedule.set_weekly_role(db, EMAIL, "FUNDAY", "GEN", now)
     with pytest.raises(ValueError):
         schedule.set_weekly_role(db, EMAIL, "MON", "NOPE", now)
-
-
-def test_strict_mode_roundtrip(db):
-    now = utc(2026, 6, 11)
-    assert schedule.get_strict_mode(db) is False
-    schedule.set_strict_mode(db, True, now)
-    assert schedule.get_strict_mode(db) is True
-    schedule.set_strict_mode(db, False, utc(2026, 6, 11, 13))
-    assert schedule.get_strict_mode(db) is False
-
-
-def test_strict_mode_flips_bvg_isreq_coloring():
-    """A BVG non-Highest/non-ps5 ISReq flips green↔yellow with strict mode."""
-    t = Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
-               priority=None, labels=[])
-    assert ticket_color(Role.BVG, t, assigned=True, strict_mode=False) == Color.GREEN
-    assert ticket_color(Role.BVG, t, assigned=True, strict_mode=True) == Color.YELLOW
