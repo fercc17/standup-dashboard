@@ -248,6 +248,31 @@ class DetailPanelVM:
     groups: dict[str, list[TicketVM]] = field(default_factory=dict)
 
 
+# Per-pulse summary metrics persisted for the growing pulse-history table (#80).
+PULSE_SUMMARY_FIELDS = (
+    "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
+    "closed_highest", "closed_ps5", "closed_total",
+    "alerts_ack", "alerts_resolved", "alerts_total",
+)
+
+
+@dataclass
+class PulseHistoryRow:
+    pulse_number: int
+    label: str
+    new_highest: int = 0
+    new_pr_mp: int = 0
+    new_ps5: int = 0
+    new_regular: int = 0
+    new_total: int = 0
+    closed_highest: int = 0
+    closed_ps5: int = 0
+    closed_total: int = 0
+    alerts_ack: int = 0
+    alerts_resolved: int = 0
+    alerts_total: int = 0
+
+
 @dataclass
 class Cell:
     """One counts-table number plus a per-person breakdown for its tooltip (#91).

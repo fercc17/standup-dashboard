@@ -14,6 +14,10 @@
   <div class="oncall-line">&#127958; Weekend on-call: <strong>{{ oncall_name }}</strong></div>
   {% endif %}
 
+  {% if pulse_history %}
+  {% include "_pulse_history.html" %}
+  {% endif %}
+
   {% if counts_rows %}
   {% include "_counts_table.html" %}
   {% endif %}

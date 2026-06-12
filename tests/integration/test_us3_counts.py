@@ -53,6 +53,7 @@ def test_us3_counts_table_renders(client, respx_mock):
                    "Closed", "Alerts", "Ack", "Res", "Region %"):
         assert header in page
     assert "Pulse total" in page  # the pulse summary row
+    assert "Pulse history" in page  # growing per-pulse history table (#80)
     # New ISReq Highest ticket reported by the member → tooltip breaks down by person.
     assert "Alexandre Gomes ×1" in page
     # Today's row: region share of its own alert that day.

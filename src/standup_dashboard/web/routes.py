@@ -84,6 +84,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "highest_focus": schedule.get_highest_focus(db),
         "oncall_name": None,
         "counts_rows": [],
+        "pulse_history": [],
         "banner": None,
         "ready": True,            # the roster always renders, fetch or not
         "refreshing": ctx.refresh.running,
@@ -104,10 +105,13 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
 
     chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
     oncall_eng = config.ENGINEERS_BY_EMAIL.get(data.oncall_email) if data.oncall_email else None
+    counts_full = presenters.build_counts(data, selected_regions, now)
     context.update(
         chip_groups=chip_groups,
         management_chips=management_chips,
-        counts_rows=presenters.build_counts(data, selected_regions, now),
+        # The previous-pulse row moves to its own growing history table (#80).
+        counts_rows=[r for r in counts_full if not r.is_previous],
+        pulse_history=presenters.build_pulse_history(db, counts_full, selected_regions, now),
         oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
     )
 

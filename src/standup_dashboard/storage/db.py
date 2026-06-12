@@ -15,6 +15,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from ..domain.models import (
+    PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
     FetchSnapshot,
@@ -132,6 +133,24 @@ CREATE TABLE IF NOT EXISTS region_override (
     email      TEXT NOT NULL,
     region     TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pulse_summary (
+    pulse_number    INTEGER NOT NULL,
+    region          TEXT NOT NULL,
+    new_highest     INTEGER NOT NULL,
+    new_pr_mp       INTEGER NOT NULL,
+    new_ps5         INTEGER NOT NULL,
+    new_regular     INTEGER NOT NULL,
+    new_total       INTEGER NOT NULL,
+    closed_highest  INTEGER NOT NULL,
+    closed_ps5      INTEGER NOT NULL,
+    closed_total    INTEGER NOT NULL,
+    alerts_ack      INTEGER NOT NULL,
+    alerts_resolved INTEGER NOT NULL,
+    alerts_total    INTEGER NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (pulse_number, region)
 );
 
 CREATE INDEX IF NOT EXISTS idx_role_schedule_latest
@@ -438,6 +457,28 @@ class Database:
             "  SELECT MAX(updated_at) FROM region_override WHERE email = ro.email)"
         ).fetchall()
         return {r["email"]: r["region"] for r in rows}
+
+    # -- pulse summaries (growing per-pulse history, #80) --------------------
+
+    def upsert_pulse_summary(self, pulse_number: int, region: str,
+                             metrics: dict[str, int], now: datetime) -> None:
+        cols = ", ".join(PULSE_SUMMARY_FIELDS)
+        placeholders = ", ".join("?" for _ in PULSE_SUMMARY_FIELDS)
+        values = [int(metrics.get(f, 0)) for f in PULSE_SUMMARY_FIELDS]
+        self._conn.execute(
+            f"INSERT OR REPLACE INTO pulse_summary"
+            f" (pulse_number, region, {cols}, updated_at)"
+            f" VALUES (?, ?, {placeholders}, ?)",
+            (pulse_number, region, *values, now.isoformat()),
+        )
+        self._conn.commit()
+
+    def get_pulse_summaries(self) -> list[tuple[int, str, dict[str, int]]]:
+        rows = self._conn.execute("SELECT * FROM pulse_summary").fetchall()
+        return [
+            (r["pulse_number"], r["region"], {f: r[f] for f in PULSE_SUMMARY_FIELDS})
+            for r in rows
+        ]
 
 
 def _row_to_snapshot(row: sqlite3.Row) -> FetchSnapshot:
