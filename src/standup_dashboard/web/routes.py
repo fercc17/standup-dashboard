@@ -191,6 +191,31 @@ async def refresh_status(request: Request) -> Response:
     return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 
+def _resolve_region(engineer_email: str, requested: list[str]) -> str:
+    region_key = next((r for r in requested if r in config.REGIONS), None)
+    return region_key or config.primary_region_for(engineer_email) or config.REGION_KEYS[0]
+
+
+def _render_panel(request: Request, engineer_email: str, region_key: str) -> HTMLResponse:
+    ctx = _ctx(request)
+    db = ctx.db
+    now = _now()
+    latest = db.latest_fetch()
+    data = (
+        presenters.load_fetch_data(db, latest.fetched_at, latest.id)
+        if latest is not None
+        else presenters.DashboardData(fetched_at=now)
+    )
+    panel = presenters.build_panel(
+        db, engineer_email, data, now,
+        region_key=region_key, strict_mode=schedule.get_strict_mode(db),
+    )
+    return _templates(request).TemplateResponse(
+        request, "_detail_panel.html",
+        {"panel": panel, "region_key": region_key, "roles": [r.value for r in Role]},
+    )
+
+
 @router.get("/chip/{engineer_email}/detail", response_class=HTMLResponse)
 async def chip_detail(request: Request, engineer_email: str) -> HTMLResponse:
     ctx = _ctx(request)
@@ -198,26 +223,25 @@ async def chip_detail(request: Request, engineer_email: str) -> HTMLResponse:
         return render_setup(request)
     if engineer_email not in config.ENGINEERS_BY_EMAIL:
         return PlainTextResponse("Unknown engineer", status_code=404)
+    region_key = _resolve_region(engineer_email, request.query_params.getlist("regions"))
+    return _render_panel(request, engineer_email, region_key)
 
-    now = _now()
-    requested = request.query_params.getlist("regions")
-    region_key = next((r for r in requested if r in config.REGIONS), None)
-    if region_key is None:
-        region_key = config.primary_region_for(engineer_email) or config.REGION_KEYS[0]
 
-    db = ctx.db
-    latest = db.latest_fetch()
-    if latest is None:
-        return PlainTextResponse("No data yet", status_code=404)
-
-    strict_mode = db.get_ui_state("bvg_strict_mode", "off") == "on"
-    data = presenters.load_fetch_data(db, latest.fetched_at, latest.id)
-    panel = presenters.build_panel(
-        db, engineer_email, data, now, region_key=region_key, strict_mode=strict_mode
-    )
-    return _templates(request).TemplateResponse(
-        request, "_detail_panel.html", {"panel": panel}
-    )
+@router.post("/chip/{engineer_email}/role", response_class=HTMLResponse)
+async def chip_role(request: Request, engineer_email: str) -> HTMLResponse:
+    """Set a today-only role override from the panel and re-render it recolored."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    if engineer_email not in config.ENGINEERS_BY_EMAIL:
+        return PlainTextResponse("Unknown engineer", status_code=404)
+    form = await request.form()
+    region_key = _resolve_region(engineer_email, form.getlist("regions"))
+    try:
+        schedule.set_today_override(ctx.db, engineer_email, form["role"], _now())
+    except (KeyError, ValueError) as exc:
+        return PlainTextResponse(f"Invalid role: {exc}", status_code=400)
+    return _render_panel(request, engineer_email, region_key)
 
 
 # --- US2: schedule modal + role/strict mutations ---------------------------
