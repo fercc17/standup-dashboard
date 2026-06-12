@@ -1,9 +1,7 @@
 <div class="chip role-{{ chip.role.value }}"
      data-engineer="{{ chip.email }}"
-     {% if chip.region_key != "Management" %}
      hx-get="/chip/{{ chip.email }}/detail?regions={{ chip.region_key }}"
-     hx-target="#panels" hx-swap="innerHTML"
-     {% endif %}>
+     hx-target="#panels" hx-swap="innerHTML">
   <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}</span>
   <span class="meta">
     <span class="role-tag">{{ chip.role.value }}</span>
