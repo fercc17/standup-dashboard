@@ -243,6 +243,16 @@ def build_panel(
         tc.ticket_id for tc in data.touches
         if tc.engineer_email == email and tc.at >= now - _24H
     }
+    # A Highest ticket still open more than a pulse after creation is stale (#18).
+    stale_cutoff = now - timedelta(days=config.PULSE_LENGTH_DAYS)
+
+    def _is_stale(t: Ticket, group: TicketGroup) -> bool:
+        return (
+            t.is_highest
+            and group in (TicketGroup.TODO, TicketGroup.WIP)
+            and t.created is not None
+            and t.created < stale_cutoff
+        )
 
     shown = (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS)
     if not is_management:
@@ -267,6 +277,7 @@ def build_panel(
                     is_bvg_review=t.is_bvg_review,
                     url=config.jira_browse_url(t.id),
                     touched_24h=t.id in touched_24h_ids,
+                    stale=_is_stale(t, group),
                 )
             )
         out[group.value] = vms
