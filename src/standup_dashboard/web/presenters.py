@@ -56,12 +56,25 @@ class DashboardData:
         return self.weekend_oncall[0].engineer_email if self.weekend_oncall else None
 
 
+_OPERATIONS_ROLES = (Role.PVG, Role.BVG, Role.GEN)
+
+
 @dataclass
 class ChipGroup:
     key: str
     label: str
     local_day: str
     chips: list[ChipVM]
+
+    @property
+    def ops_chips(self) -> list[ChipVM]:
+        """Operations sub-group: PVG / BVG / GEN."""
+        return [c for c in self.chips if c.role in _OPERATIONS_ROLES]
+
+    @property
+    def project_chips(self) -> list[ChipVM]:
+        """Project sub-group: Project / OFF."""
+        return [c for c in self.chips if c.role not in _OPERATIONS_ROLES]
 
 
 def load_fetch_data(db: Database, fetched_at: datetime, fetch_id: int) -> DashboardData:

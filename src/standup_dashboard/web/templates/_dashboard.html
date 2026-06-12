@@ -10,6 +10,10 @@
   <div class="banner {{ banner.kind }}">{{ banner.text }}</div>
   {% endif %}
 
+  {% if oncall_name %}
+  <div class="oncall-line">&#127958; Weekend on-call: <strong>{{ oncall_name }}</strong></div>
+  {% endif %}
+
   {% if counts_rows %}
   {% include "_counts_table.html" %}
   {% endif %}
@@ -17,9 +21,18 @@
   {% for group in chip_groups %}
   <div class="region-group">
     <h3>{{ group.label }} <span class="region-day">{{ group.local_day }}</span></h3>
+    {% if group.ops_chips %}
+    <div class="subgroup-title">Operations</div>
     <div class="chips">
-      {% for chip in group.chips %}{% include "_chip.html" %}{% endfor %}
+      {% for chip in group.ops_chips %}{% include "_chip.html" %}{% endfor %}
     </div>
+    {% endif %}
+    {% if group.project_chips %}
+    <div class="subgroup-title">Project</div>
+    <div class="chips">
+      {% for chip in group.project_chips %}{% include "_chip.html" %}{% endfor %}
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 
