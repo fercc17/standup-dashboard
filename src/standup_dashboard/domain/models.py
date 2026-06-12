@@ -224,3 +224,5 @@ class CountsRow:
     alerts_resolved: int
     alerts_total: int
     region_alert_pct: float | None
+    open_pr_mp_review: int = 0
+    is_total: bool = False

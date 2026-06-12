@@ -47,9 +47,10 @@ def test_us3_counts_table_renders(client, respx_mock):
 
     assert "Pulse counts" in page
     assert "<table class=\"counts\">" in page
-    # Nine metric columns present.
-    for header in ("Open Hi", "New Hi", "ISDB done", "Open ps5", "New ps5",
+    # Metric columns present (headers are stacked two-line spans).
+    for header in ("Highest", "ISDB", "ps5", "PR/MP", "Review",
                    "Ack", "Res", "Total", "Region %"):
         assert header in page
+    assert "Pulse total" in page  # the pulse summary row
     # Today's row carries the open-Highest snapshot.
     assert "100%" in page  # region share of its own alert that day

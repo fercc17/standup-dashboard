@@ -40,8 +40,9 @@ def _rows(selected):
 
 def test_alert_dedup_and_manager_counted_once():
     rows = _rows(["AMER", "APAC"])
-    assert len(rows) == 1
-    row = rows[0]
+    day_rows = [r for r in rows if not r.is_total]
+    assert len(day_rows) == 1
+    row = day_rows[0]
     # INC1 (two handlers) deduped to one; INC9 once → ack = 2, not 3.
     assert row.alerts_ack == 2
     assert row.alerts_total == 2
