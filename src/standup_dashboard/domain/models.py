@@ -260,17 +260,8 @@ PULSE_SUMMARY_FIELDS = (
 class PulseHistoryRow:
     pulse_number: int
     label: str
-    new_highest: int = 0
-    new_pr_mp: int = 0
-    new_ps5: int = 0
-    new_regular: int = 0
-    new_total: int = 0
-    closed_highest: int = 0
-    closed_ps5: int = 0
-    closed_total: int = 0
-    alerts_ack: int = 0
-    alerts_resolved: int = 0
-    alerts_total: int = 0
+    # metric name → Cell(count, breakdown) for the per-person hover tooltip (#80).
+    cells: dict[str, Cell] = field(default_factory=dict)
 
 
 @dataclass

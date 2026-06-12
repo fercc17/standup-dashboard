@@ -115,7 +115,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         management_chips=management_chips,
         # The previous-pulse row moves to its own growing history table (#80).
         counts_rows=[r for r in counts_full if not r.is_previous],
-        pulse_history=presenters.build_pulse_history(db, counts_full, selected_regions, now),
+        pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
         oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
     )
 

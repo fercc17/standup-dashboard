@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     alerts_ack      INTEGER NOT NULL,
     alerts_resolved INTEGER NOT NULL,
     alerts_total    INTEGER NOT NULL,
+    breakdowns_json TEXT,
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (pulse_number, region)
 );
@@ -461,24 +462,29 @@ class Database:
     # -- pulse summaries (growing per-pulse history, #80) --------------------
 
     def upsert_pulse_summary(self, pulse_number: int, region: str,
-                             metrics: dict[str, int], now: datetime) -> None:
+                             metrics: dict[str, int], breakdowns: dict[str, dict[str, int]],
+                             now: datetime) -> None:
         cols = ", ".join(PULSE_SUMMARY_FIELDS)
         placeholders = ", ".join("?" for _ in PULSE_SUMMARY_FIELDS)
         values = [int(metrics.get(f, 0)) for f in PULSE_SUMMARY_FIELDS]
         self._conn.execute(
             f"INSERT OR REPLACE INTO pulse_summary"
-            f" (pulse_number, region, {cols}, updated_at)"
-            f" VALUES (?, ?, {placeholders}, ?)",
-            (pulse_number, region, *values, now.isoformat()),
+            f" (pulse_number, region, {cols}, breakdowns_json, updated_at)"
+            f" VALUES (?, ?, {placeholders}, ?, ?)",
+            (pulse_number, region, *values, json.dumps(breakdowns), now.isoformat()),
         )
         self._conn.commit()
 
-    def get_pulse_summaries(self) -> list[tuple[int, str, dict[str, int]]]:
+    def get_pulse_summaries(
+        self,
+    ) -> list[tuple[int, str, dict[str, int], dict[str, dict[str, int]]]]:
         rows = self._conn.execute("SELECT * FROM pulse_summary").fetchall()
-        return [
-            (r["pulse_number"], r["region"], {f: r[f] for f in PULSE_SUMMARY_FIELDS})
-            for r in rows
-        ]
+        out = []
+        for r in rows:
+            counts = {f: r[f] for f in PULSE_SUMMARY_FIELDS}
+            breakdowns = json.loads(r["breakdowns_json"]) if r["breakdowns_json"] else {}
+            out.append((r["pulse_number"], r["region"], counts, breakdowns))
+        return out
 
 
 def _row_to_snapshot(row: sqlite3.Row) -> FetchSnapshot:
