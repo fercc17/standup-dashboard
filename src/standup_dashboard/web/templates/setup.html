@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+{% block content %}
+<div class="setup">
+  <h2>Setup required</h2>
+  <p>{{ error.message }}</p>
+
+  {% if error.missing_file %}
+  <p>Expected secret file: <code>{{ error.missing_file }}</code></p>
+  <p>To fix:</p>
+  <ul>
+    <li>Copy the placeholders: <code>cp -r secrets.example/. secrets/</code></li>
+    <li>Edit <code>{{ error.missing_file }}</code> to contain only the real value.</li>
+    <li>Reload this page.</li>
+  </ul>
+  {% endif %}
+
+  {% if error.unmatched_engineers %}
+  <p>These roster engineers have no matching PagerDuty identity (FR-005a):</p>
+  <ul>
+    {% for email in error.unmatched_engineers %}
+    <li><code>{{ email }}</code></li>
+    {% endfor %}
+  </ul>
+  <p>Fix the email in <code>config.py</code> or ensure the user exists in PagerDuty, then reload.</p>
+  {% endif %}
+</div>
+{% endblock %}

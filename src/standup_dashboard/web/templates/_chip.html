@@ -1,0 +1,13 @@
+<div class="chip role-{{ chip.role.value }}"
+     data-engineer="{{ chip.email }}"
+     {% if chip.region_key != "Global" %}
+     hx-get="/chip/{{ chip.email }}/detail?regions={{ chip.region_key }}"
+     hx-target="#panels" hx-swap="beforeend"
+     {% endif %}>
+  <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}</span>
+  <span class="meta">
+    <span class="role-tag">{{ chip.role.value }}</span>
+    <span title="tickets touched (24h)">&#9998; {{ chip.touched_24h }}</span>
+    <span title="alerts ack/resolved (24h)">&#128276; {{ chip.alerts_ack_24h }}/{{ chip.alerts_resolved_24h }}</span>
+  </span>
+</div>

@@ -8,6 +8,11 @@
             <ToolEntry />
           </value>
         </entry>
+        <entry key="pyrefly">
+          <value>
+            <ToolEntry />
+          </value>
+        </entry>
         <entry key="pyright">
           <value>
             <ToolEntry />

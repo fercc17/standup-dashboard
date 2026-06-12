@@ -1,0 +1,21 @@
+<div class="panel" data-engineer="{{ panel.email }}">
+  <div class="panel-head">
+    <span class="name">{{ panel.name }}</span>
+    <span class="role-tag">{{ panel.role.value }}</span>
+    <button class="close" data-close-panel title="Close">&times;</button>
+  </div>
+  {% for group, tickets in panel.groups.items() %}
+  <div class="group-title">{{ group }}</div>
+  {% if tickets %}
+    {% for t in tickets %}
+    <div class="ticket c-{{ t.color.value }}">
+      <span class="key">{{ t.key }}</span>
+      <span class="title">{{ t.title }}</span>
+      {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty">none</p>
+  {% endif %}
+  {% endfor %}
+</div>
