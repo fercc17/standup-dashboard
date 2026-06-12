@@ -296,10 +296,16 @@ def build_panel(
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
         label = a.title or ("alert — resolved" if resolved else "alert — acknowledged")
+        if resolved:
+            color = Color.GREEN
+        elif recent:
+            color = Color.YELLOW          # acked in the last 24h
+        else:
+            color = Color.RED             # acked >24h ago, still not resolved → stale
         vm = TicketVM(
             key=f"⚠ {a.id}",
             title=label,
-            color=Color.GREEN if resolved else Color.YELLOW,
+            color=color,
             url=a.url,
             touched_24h=recent,
         )
