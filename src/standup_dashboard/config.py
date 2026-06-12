@@ -28,12 +28,14 @@ PROJECT_KEYS = (PROJECT_ISDB, PROJECT_ISREQ)
 PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
 
 # How far back a refresh collects activity (Jira "updated"/touches + PagerDuty
-# incidents). Small by default for fast test refreshes; raise for a full pulse.
-FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "1"))
+# incidents). Defaults to a week so a refresh covers the current pulse week
+# (Mon→today); override with STANDUP_WINDOW_DAYS (e.g. "1" for fast test refreshes).
+FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "7"))
 
 # Hard floor for the PagerDuty incidents window: never request incidents from
-# before this instant, regardless of the fetch window.
-PAGERDUTY_MIN_SINCE = datetime(2026, 6, 11, tzinfo=UTC)
+# before this instant, regardless of the fetch window. Set to Monday June 08 so
+# the week-starting-Mon-08 numbers are collected in full (#90).
+PAGERDUTY_MIN_SINCE = datetime(2026, 6, 8, tzinfo=UTC)
 
 # PagerDuty team(s) whose incidents are relevant (the roster's "IS" squad).
 # Scopes the /incidents query so a refresh fetches this team's alerts, not the
