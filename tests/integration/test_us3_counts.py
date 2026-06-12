@@ -25,7 +25,8 @@ def _scenario(now: datetime) -> Scenario:
                 "endDate": _jira_dt(end), "state": "active"},
         },
         sprint_issues={
-            101: [],
+            101: [issue("ISDB-1", assignee=MEMBER, reporter=MEMBER, status="To Do",
+                        priority="Highest", sprint_id=101, created=_jira_dt(now))],
             201: [issue("ISReq-1", assignee=MEMBER, status="In Progress",
                         priority="Highest", sprint_id=201)],
         },
@@ -47,10 +48,12 @@ def test_us3_counts_table_renders(client, respx_mock):
 
     assert "Pulse counts" in page
     assert "<table class=\"counts\">" in page
-    # Metric columns present (headers are stacked two-line spans).
-    for header in ("Highest", "ISDB", "ps5", "PR/MP", "Review",
-                   "Ack", "Res", "Total", "Region %"):
+    # Redesigned columns: ISDB new/closed groups + relabelled alert columns (#91).
+    for header in ("New", "Highest", "PR/MP", "Review", "ps5", "Regular",
+                   "Closed", "Alerts", "Ack", "Res", "Region %"):
         assert header in page
     assert "Pulse total" in page  # the pulse summary row
-    # Today's row carries the open-Highest snapshot.
-    assert "100%" in page  # region share of its own alert that day
+    # New ISDB Highest ticket reported by the member → tooltip breaks down by person.
+    assert "Alexandre Gomes ×1" in page
+    # Today's row: region share of its own alert that day.
+    assert "100%" in page

@@ -127,6 +127,15 @@ table.counts tr.weekend td { background: #f9f6ef; font-style: italic; }
 table.counts th.stk span { display: block; line-height: 1.05; }
 table.counts tr.pulse-total td { font-weight: 600; background: #eef1f4; border-top: 2px solid var(--border); }
 table.counts tr:last-child td { border-bottom: none; }
+/* Strong divider between the ticket columns and the alert columns (#91). */
+table.counts th.div, table.counts td.div { border-left: 2px solid var(--muted); }
+/* Subtle separator between the "new" and "closed" ticket groups. */
+table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border); }
+/* Per-group subtotal columns (new total / closed total / alerts total). */
+table.counts td.sub { font-weight: 600; }
+/* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
+table.counts td[title]:not([title=""]) { cursor: help; }
+body.dark table.counts th.div, body.dark table.counts td.div { border-left-color: var(--muted); }
 
 /* ---- Chips ---- */
 .region-group { margin-top: 16px; }

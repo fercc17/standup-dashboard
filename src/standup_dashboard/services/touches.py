@@ -43,6 +43,7 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
     status_category = (status_obj.get("statusCategory") or {}).get("name")
     priority = (fields.get("priority") or {}).get("name")
     assignee = fields.get("assignee") or {}
+    reporter = fields.get("reporter") or {}
     sprint = fields.get("sprint") or {}
     return Ticket(
         id=issue["key"],
@@ -56,6 +57,7 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
         is_done_date=_done_date(issue),
         created=parse_jira_dt(fields.get("created")),
         status_category=status_category,
+        reporter_email=reporter.get("emailAddress"),
     )
 
 

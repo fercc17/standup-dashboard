@@ -26,8 +26,9 @@ def _pulses(now):
 def _rows(selected):
     now = utc(2026, 6, 15, 12)
     at = utc(2026, 6, 15, 10)  # date 2026-06-15 in AMER, APAC and EMEA tz
-    tickets = [Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
-                      priority="Highest", labels=[], created=now - timedelta(hours=1))]
+    tickets = [Ticket(id="ISDB-1", project_key="ISDB", title="x", status="In Progress",
+                      priority="Highest", labels=[], created=now - timedelta(hours=1),
+                      reporter_email=JAMES)]
     alerts = [
         Alert("INC1", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager → excluded,
         Alert("INC1", JAMES, AlertState.ACKNOWLEDGED, at),     # but James (APAC) counts it
@@ -45,8 +46,8 @@ def test_alert_dedup_and_managers_excluded_from_counts():
     row = day_rows[0]
     # INC1 has two handlers — Fernando (manager, excluded) + James (APAC). It is
     # counted once via James. INC9 is Fernando-only (manager) → excluded (#72).
-    assert row.alerts_ack == 1
-    assert row.alerts_total == 1
+    assert row.alerts_ack.count == 1
+    assert row.alerts_total.count == 1
 
 
 def test_denominator_excludes_management_and_uses_three_region_total():
@@ -60,5 +61,5 @@ def test_tickets_not_double_counted_across_regions():
     one = _rows(["AMER"])[0]
     two = _rows(["AMER", "APAC"])[0]
     # Ticket columns are project-wide; selecting more regions doesn't multiply them.
-    assert one.open_highest_isreq == 1
-    assert two.open_highest_isreq == 1
+    assert one.new_highest.count == 1
+    assert two.new_highest.count == 1
