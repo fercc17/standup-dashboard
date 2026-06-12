@@ -12,7 +12,7 @@ def test_schedule_modal_is_per_region_and_excludes_management(client):
     assert "AMER" in page and "APAC" in page and "EMEA" in page
     # Engineers are now column headers; management is excluded (#72/#71).
     assert "Colin Misare" in page
-    assert "Fernando Carrillo Castro" not in page
+    assert "Fernando Carrillo" not in page
     # Paste box, the transposed override row, and the weekend note are present.
     assert "Paste from spreadsheet" in page
     assert "Today override" in page

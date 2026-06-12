@@ -121,6 +121,19 @@ CREATE TABLE IF NOT EXISTS ui_state (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS roster_addition (
+    email      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    region     TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS region_override (
+    email      TEXT NOT NULL,
+    region     TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_role_schedule_latest
     ON role_schedule (engineer_email, weekday, updated_at);
 CREATE INDEX IF NOT EXISTS idx_day_note_latest
@@ -385,6 +398,38 @@ class Database:
             (key,),
         ).fetchone()
         return row["value"] if row else default
+
+    # -- roster overrides (added engineers + region moves, #16) --------------
+
+    def add_roster_engineer(self, name: str, email: str, region: str, now: datetime) -> None:
+        self._conn.execute(
+            "INSERT INTO roster_addition (email, name, region, created_at) VALUES (?, ?, ?, ?)",
+            (email, name, region, now.isoformat()),
+        )
+        self._conn.commit()
+
+    def get_roster_additions(self) -> list[tuple[str, str, str]]:
+        """Latest (name, email, region) per added engineer."""
+        rows = self._conn.execute(
+            "SELECT name, email, region FROM roster_addition ra WHERE created_at = ("
+            "  SELECT MAX(created_at) FROM roster_addition WHERE email = ra.email)"
+        ).fetchall()
+        return [(r["name"], r["email"], r["region"]) for r in rows]
+
+    def set_region_override(self, email: str, region: str, now: datetime) -> None:
+        self._conn.execute(
+            "INSERT INTO region_override (email, region, updated_at) VALUES (?, ?, ?)",
+            (email, region, now.isoformat()),
+        )
+        self._conn.commit()
+
+    def get_region_overrides(self) -> dict[str, str]:
+        """Latest region per engineer that has been moved."""
+        rows = self._conn.execute(
+            "SELECT email, region FROM region_override ro WHERE updated_at = ("
+            "  SELECT MAX(updated_at) FROM region_override WHERE email = ro.email)"
+        ).fetchall()
+        return {r["email"]: r["region"] for r in rows}
 
 
 def _row_to_snapshot(row: sqlite3.Row) -> FetchSnapshot:

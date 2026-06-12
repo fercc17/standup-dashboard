@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .. import config
 from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
-from ..services import schedule
+from ..services import roster, schedule
 from ..services.fetch import run_fetch
 from . import presenters
 
@@ -310,6 +310,62 @@ async def schedule_paste(request: Request) -> HTMLResponse:
     form = await request.form()
     summary = schedule.apply_schedule_paste(ctx.db, form.get("paste", ""), _now())
     return _render_schedule_modal(request, summary=summary)
+
+
+# --- Roster editing: add SREs + move between regions (#16) -----------------
+
+
+def _render_roster_modal(request: Request, *, error: str | None = None) -> HTMLResponse:
+    regions = [
+        {
+            "key": key,
+            "engineers": [
+                e for e in config.engineers_in_region(key)
+                if not (e.is_manager or e.is_global)
+            ],
+        }
+        for key in config.REGION_KEYS
+    ]
+    return _templates(request).TemplateResponse(
+        request,
+        "_roster_modal.html",
+        {"regions": regions, "region_keys": config.REGION_KEYS, "error": error},
+    )
+
+
+@router.get("/roster", response_class=HTMLResponse)
+async def roster_modal(request: Request) -> HTMLResponse:
+    if _ctx(request).setup_error is not None:
+        return render_setup(request)
+    return _render_roster_modal(request)
+
+
+@router.post("/roster/add", response_class=HTMLResponse)
+async def roster_add(request: Request) -> HTMLResponse:
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    try:
+        roster.add_engineer(
+            ctx.db, form.get("name", ""), form.get("email", ""), form.get("region", ""), _now()
+        )
+    except ValueError as exc:
+        return _render_roster_modal(request, error=str(exc))
+    return _render_roster_modal(request)
+
+
+@router.post("/roster/move", response_class=HTMLResponse)
+async def roster_move(request: Request) -> HTMLResponse:
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    try:
+        roster.move_engineer(ctx.db, form.get("email", ""), form.get("region", ""), _now())
+    except ValueError as exc:
+        return _render_roster_modal(request, error=str(exc))
+    return _render_roster_modal(request)
 
 
 @router.post("/toggle/highest")

@@ -238,6 +238,11 @@ table.sched tr.override-row td { border-top: 2px solid var(--border); font-weigh
 .paste-hint { font-size: 11px; color: var(--muted); margin: 6px 0; }
 .paste-box textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
 .paste-box form button { margin-top: 6px; }
+.roster-add { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.roster-add input { padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; font-size: 12px; }
+.roster-add input[name="name"] { flex: 1 1 120px; }
+.roster-add input[name="email"] { flex: 2 1 180px; }
+.roster-email { color: var(--muted); font-size: 11px; }
 .banner.ok { background: var(--green-bg); border: 1px solid var(--green); color: var(--green); }
 .paste-summary ul { margin: 6px 0 0; padding-left: 18px; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }

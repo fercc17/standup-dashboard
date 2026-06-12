@@ -79,6 +79,10 @@ def create_app(
     db = Database(db_path)
     snapshots = SnapshotWriter(snapshots_dir)
 
+    # Apply any saved roster overrides (added engineers / region moves, #16).
+    from .services import roster
+    roster.load(db)
+
     secrets: Secrets | None = None
     setup_error: SetupError | None = None
     try:
