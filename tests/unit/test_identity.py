@@ -10,7 +10,7 @@ from standup_dashboard import config
 from standup_dashboard.services.identity import validate_identities
 from standup_dashboard.settings import Secrets, SetupError
 
-SECRETS = Secrets(jira_token="j", pagerduty_token="p", jira_ical_url="http://x/o.ics")
+SECRETS = Secrets(jira_token="j", pagerduty_token="p", pagerduty_ical_url="http://x/o.ics")
 
 
 def _users(emails):
@@ -36,3 +36,14 @@ def test_unmatched_engineer_raises_setup_error():
     with pytest.raises(SetupError) as exc:
         validate_identities(SECRETS)
     assert missing in exc.value.unmatched_engineers
+
+
+@respx.mock
+def test_pagerduty_auth_failure_becomes_setup_error():
+    # A bad token / outage must surface a setup page, not crash startup.
+    respx.get("https://api.pagerduty.com/users").mock(
+        return_value=httpx.Response(401, json={"error": "Unauthorized"})
+    )
+    with pytest.raises(SetupError) as exc:
+        validate_identities(SECRETS)
+    assert "PagerDuty" in exc.value.message

@@ -32,7 +32,7 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 - [X] T002 [P] Create package skeleton: `src/standup_dashboard/{__init__.py,domain/__init__.py,clients/__init__.py,services/__init__.py,storage/__init__.py,web/__init__.py}`, `src/standup_dashboard/web/templates/`, `src/standup_dashboard/web/static/`, and `tests/{unit,integration,fixtures}/`
 - [X] T003 [P] Configure ruff + pytest (incl. pytest-asyncio mode) in `pyproject.toml`
 - [X] T004 [P] Create `.gitignore` at repo root excluding `secrets/`, `data/`, `.venv/`, `__pycache__/`
-- [X] T005 [P] Create committed placeholders `secrets.example/jira_token.txt`, `secrets.example/pagerduty_token.txt`, `secrets.example/jira_ical_url.txt` (FR-030)
+- [X] T005 [P] Create committed placeholders `secrets.example/jira_token.txt`, `secrets.example/pagerduty_token.txt`, `secrets.example/pagerduty_ical_url.txt` (FR-030)
 - [X] T006 [P] Vendor `htmx.min.js` and create base `app.css` + `app.js` in `src/standup_dashboard/web/static/`
 
 ---
@@ -47,7 +47,7 @@ Single Python project: package at `src/standup_dashboard/`, tests at `tests/`, p
 - [X] T008 [P] Implement domain dataclasses in `src/standup_dashboard/domain/models.py`: Region, Engineer, Role enum, Ticket, TouchEvent, Alert, Pulse, WeekendOnCall, FetchSnapshot, and view models (ChipVM, CountsRow, DetailPanelVM) per data-model.md
 - [X] T009 Implement SQLite schema + history-preserving access in `src/standup_dashboard/storage/db.py`: tables `fetch_snapshot, ticket, touch_event, alert, pulse, weekend_oncall, role_schedule, role_override, ui_state`; append-only writes keyed by `fetch_id`; never update/delete fetched rows (FR-028)
 - [X] T010 [P] Implement append-only raw JSON snapshot writer in `src/standup_dashboard/storage/snapshots.py` (writes `data/snapshots/<fetched_at>/`)
-- [X] T011 [P] Implement secrets loading + validation in `src/standup_dashboard/settings.py`: read `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/jira_ical_url.txt`; missing/empty file → structured blocking setup error naming the file (FR-029)
+- [X] T011 [P] Implement secrets loading + validation in `src/standup_dashboard/settings.py`: read `secrets/jira_token.txt`, `secrets/pagerduty_token.txt`, `secrets/pagerduty_ical_url.txt`; missing/empty file → structured blocking setup error naming the file (FR-029)
 - [X] T012 Implement FastAPI app factory + startup checks + Jinja2/static mounts in `src/standup_dashboard/app.py` and entrypoint `src/standup_dashboard/__main__.py` (uvicorn bound to `localhost:8765`; single-user, no authentication layer per FR-011)
 - [X] T013 Implement setup-page renderer + structured logging/error-handling scaffold in `src/standup_dashboard/web/routes.py` (serves blocking setup page when startup validation fails) and wire logging in `app.py`
 

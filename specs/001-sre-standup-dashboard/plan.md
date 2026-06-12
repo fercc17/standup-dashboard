@@ -107,7 +107,7 @@ secrets/                     # gitignored — real tokens live here at runtime
 secrets.example/             # COMMITTED placeholders showing required files
 ├── jira_token.txt
 ├── pagerduty_token.txt
-└── jira_ical_url.txt
+└── pagerduty_ical_url.txt
 
 tests/
 ├── unit/                    # coloring matrix, role resolution, tz bucketing/dedup, touch attribution

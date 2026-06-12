@@ -18,7 +18,7 @@ def secrets_dir(tmp_path: Path) -> Path:
     d.mkdir()
     (d / "jira_token.txt").write_text("jira-test-token", encoding="utf-8")
     (d / "pagerduty_token.txt").write_text("pd-test-token", encoding="utf-8")
-    (d / "jira_ical_url.txt").write_text("https://example.test/oncall.ics", encoding="utf-8")
+    (d / "pagerduty_ical_url.txt").write_text("https://example.test/oncall.ics", encoding="utf-8")
     return d
 
 
