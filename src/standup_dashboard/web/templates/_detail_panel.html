@@ -1,7 +1,17 @@
 <div class="panel" data-engineer="{{ panel.email }}">
   <div class="panel-head">
     <span class="name">{{ panel.name }}</span>
-    <span class="role-tag">{{ panel.role.value }}</span>
+    <label class="role-pick" title="Set today's role">
+      Role:
+      <select name="role"
+              hx-post="/chip/{{ panel.email }}/role"
+              hx-vals='{"regions": "{{ region_key }}"}'
+              hx-target="closest .panel" hx-swap="outerHTML">
+        {% for r in roles %}
+        <option value="{{ r }}" {% if panel.role.value == r %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <button class="close" data-close-panel title="Close">&times;</button>
   </div>
   {% for group, tickets in panel.groups.items() %}
