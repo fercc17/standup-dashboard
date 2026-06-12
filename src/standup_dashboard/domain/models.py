@@ -32,13 +32,23 @@ class TicketGroup(StrEnum):
     DISTRACTORS = "Distractors"
 
 
-# Status name → group (FR-013)
+# Status name → group (FR-013). Real Jira workflows use many custom status
+# names, so grouping primarily keys off Jira's statusCategory (below) and uses
+# these explicit names only as a fallback when no category is present.
 STATUS_GROUP: dict[str, TicketGroup] = {
     "To Do": TicketGroup.TODO,
     "Untriaged": TicketGroup.TODO,
+    "Triaged": TicketGroup.TODO,
     "Blocked": TicketGroup.TODO,
     "In Progress": TicketGroup.WIP,
     "In Review": TicketGroup.WIP,
+    "Done": TicketGroup.SUCCESS,
+}
+
+# Jira statusCategory name → group (robust across custom status names).
+STATUS_CATEGORY_GROUP: dict[str, TicketGroup] = {
+    "To Do": TicketGroup.TODO,
+    "In Progress": TicketGroup.WIP,
     "Done": TicketGroup.SUCCESS,
 }
 
@@ -110,9 +120,14 @@ class Ticket:
     sprint_id: int | None = None
     is_done_date: date | None = None
     created: datetime | None = None
+    status_category: str | None = None
 
     @property
     def group(self) -> TicketGroup | None:
+        # Prefer Jira's statusCategory (covers custom status names); fall back
+        # to explicit status-name mapping when no category is available.
+        if self.status_category and self.status_category in STATUS_CATEGORY_GROUP:
+            return STATUS_CATEGORY_GROUP[self.status_category]
         return STATUS_GROUP.get(self.status)
 
     @property

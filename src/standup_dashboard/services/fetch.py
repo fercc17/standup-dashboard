@@ -88,9 +88,16 @@ async def _fetch_jira(
             sem = asyncio.Semaphore(10)
 
             async def _touches_for(key: str, issue: dict[str, Any]) -> list[TouchEvent]:
-                async with sem:
-                    comments = await jira.comments(key)
-                    worklogs = await jira.worklogs(key)
+                # Skip the extra comment/worklog calls for issues not updated in
+                # the window — they can't have touches we'd count (big speedup).
+                updated = parse_jira_dt((issue.get("fields") or {}).get("updated"))
+                if updated is not None and updated < window_start:
+                    comments: list[dict[str, Any]] = []
+                    worklogs: list[dict[str, Any]] = []
+                else:
+                    async with sem:
+                        comments = await jira.comments(key)
+                        worklogs = await jira.worklogs(key)
                 return extract_touches(
                     issue,
                     comments=comments,

@@ -28,3 +28,14 @@ document.addEventListener('click', function (e) {
 });
 
 // One detail panel at a time: clicking a chip replaces #panels (hx-swap=innerHTML).
+// Clicking the already-open person's chip again closes the panel (toggle off).
+document.body.addEventListener('htmx:beforeRequest', function (e) {
+  const el = e.detail.elt;
+  const email = el && el.getAttribute('data-engineer');
+  if (!email) return;
+  const open = document.querySelector('#panels .panel[data-engineer="' + CSS.escape(email) + '"]');
+  if (open) {
+    document.getElementById('panels').innerHTML = '';
+    e.preventDefault();
+  }
+});
