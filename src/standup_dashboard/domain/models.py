@@ -218,6 +218,13 @@ class ChipVM:
     alerts_ack_24h: int
     alerts_resolved_24h: int
     region_key: str
+    # Two-row metrics: last 24h and since the start of the pulse (#chip-metrics).
+    assigned_open: int = 0          # current open assigned work (To Do + WIP), in pulse
+    completed_24h: int = 0
+    touched_pulse: int = 0
+    completed_pulse: int = 0
+    alerts_ack_pulse: int = 0
+    alerts_resolved_pulse: int = 0
 
 
 @dataclass

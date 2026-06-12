@@ -9,7 +9,7 @@ counts table (US3) extend this module in later phases.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
@@ -30,9 +30,10 @@ from ..domain.models import (
     WeekendOnCall,
 )
 from ..domain.roles import effective_role, is_weekend
-from ..services.classification import classify_for_engineer
+from ..services.classification import classify_for_engineer, in_scope
 from ..services.counts import build_counts as _build_counts
 from ..services.oncall import others_off
+from ..services.pulse import current_pulse
 from ..storage.db import Database
 
 _24H = timedelta(hours=24)
@@ -99,19 +100,23 @@ def resolve_roles(
     }
 
 
-def _touched_24h(email: str, data: DashboardData, now: datetime) -> int:
-    cutoff = now - _24H
+def _pulse_start(now: datetime) -> datetime:
+    """Start of the current pulse (anchored Monday) as a UTC datetime (#93)."""
+    _, start, _ = current_pulse(now.astimezone(UTC).date())
+    return datetime(start.year, start.month, start.day, tzinfo=UTC)
+
+
+def _touched_since(email: str, data: DashboardData, since: datetime) -> int:
     return len({
         tc.ticket_id for tc in data.touches
-        if tc.engineer_email == email and tc.at >= cutoff
+        if tc.engineer_email == email and tc.at >= since
     })
 
 
-def _alerts_24h(email: str, data: DashboardData, now: datetime) -> tuple[int, int]:
-    cutoff = now - _24H
+def _alerts_since(email: str, data: DashboardData, since: datetime) -> tuple[int, int]:
     ack = resolved = 0
     for a in data.alerts:
-        if a.handler_email != email or a.at < cutoff:
+        if a.handler_email != email or a.at < since:
             continue
         if a.state is AlertState.ACKNOWLEDGED:
             ack += 1
@@ -120,20 +125,46 @@ def _alerts_24h(email: str, data: DashboardData, now: datetime) -> tuple[int, in
     return ack, resolved
 
 
+def _completed_since(email: str, data: DashboardData, since: date) -> int:
+    return sum(
+        1 for t in data.tickets
+        if t.assignee_email == email and t.is_done_date is not None and t.is_done_date >= since
+    )
+
+
+def _assigned_open(email: str, data: DashboardData) -> int:
+    """Open assigned work (To Do + WIP) that is in this pulse's scope."""
+    psids = data.pulse_sprint_ids
+    return sum(
+        1 for t in data.tickets
+        if t.assignee_email == email and in_scope(t, psids)
+        and t.group in (TicketGroup.TODO, TicketGroup.WIP)
+    )
+
+
 def build_chip(
     email: str, role: Role, region_key: str, data: DashboardData, now: datetime
 ) -> ChipVM:
     eng = config.ENGINEERS_BY_EMAIL[email]
-    ack, resolved = _alerts_24h(email, data, now)
+    cutoff = now - _24H
+    pstart = _pulse_start(now)
+    ack24, res24 = _alerts_since(email, data, cutoff)
+    ackp, resp = _alerts_since(email, data, pstart)
     return ChipVM(
         email=email,
         name=eng.name,
         role=role,
         is_manager=eng.is_manager,
-        touched_24h=_touched_24h(email, data, now),
-        alerts_ack_24h=ack,
-        alerts_resolved_24h=resolved,
         region_key=region_key,
+        assigned_open=_assigned_open(email, data),
+        touched_24h=_touched_since(email, data, cutoff),
+        completed_24h=_completed_since(email, data, cutoff.date()),
+        alerts_ack_24h=ack24,
+        alerts_resolved_24h=res24,
+        touched_pulse=_touched_since(email, data, pstart),
+        completed_pulse=_completed_since(email, data, pstart.date()),
+        alerts_ack_pulse=ackp,
+        alerts_resolved_pulse=resp,
     )
 
 
