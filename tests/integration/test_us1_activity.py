@@ -43,10 +43,10 @@ def _scenario(now: datetime) -> Scenario:
             101: [issue("ISDB-1", assignee=EMAIL, status="In Progress", sprint_id=101)],
             201: [issue("ISReq-1", assignee=EMAIL, status="In Progress", sprint_id=201)],
         },
-        # A distractor: engineer touched it but it isn't assigned to them.
+        # A distractor: engineer touched an in-pulse ticket assigned to someone else.
         search_issues=[
             issue("ISReq-9", assignee="someone.else@canonical.com", status="In Progress",
-                  changelog=status_change),
+                  sprint_id=201, changelog=status_change),
         ],
         users=[{"id": "PU1", "email": EMAIL, "name": "Alexandre Gomes"}],
         incidents=[{"id": "INC1"}],
