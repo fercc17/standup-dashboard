@@ -50,6 +50,26 @@ def test_touched_ticket_with_no_pulse_is_a_distractor():
     assert groups[TicketGroup.WIP] == []
 
 
+def test_touched_unassigned_done_in_pulse_is_a_success():
+    # Someone else's ticket, Done and in the active pulse, that E only touched →
+    # counts as Success, not a Distractor (#74).
+    t = Ticket(id="ISDB-7", project_key="ISDB", title="x", status="Done",
+               priority=None, labels=[], assignee_email="other@example.com", sprint_id=101)
+    touches = [TouchEvent("ISDB-7", EMAIL, TouchKind.STATUS, utc())]
+    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISDB": 101})
+    assert groups[TicketGroup.SUCCESS] == [t]
+    assert groups[TicketGroup.DISTRACTORS] == []
+
+
+def test_touched_unassigned_done_outside_pulse_stays_a_distractor():
+    t = Ticket(id="ISDB-8", project_key="ISDB", title="x", status="Done",
+               priority=None, labels=[], assignee_email="other@example.com", sprint_id=999)
+    touches = [TouchEvent("ISDB-8", EMAIL, TouchKind.STATUS, utc())]
+    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISDB": 101})
+    assert groups[TicketGroup.DISTRACTORS] == [t]
+    assert groups[TicketGroup.SUCCESS] == []
+
+
 def test_pr_mp_review_prefix_detection():
     review = Ticket(id="ISReq-5", project_key="ISReq", title="[PR/MP Review] fix things",
                     status="In Progress", priority=None, labels=[])

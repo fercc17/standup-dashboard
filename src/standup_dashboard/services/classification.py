@@ -3,8 +3,11 @@
 For an engineer E:
   * To Do / WIP / Success = tickets assigned to E **and in pulse** (member of
     its own project's active sprint), grouped by status.
-  * Distractors = tickets E touched during the pulse but is not assigned to in
-    this sprint, or that belong to a different sprint.
+  * Success also includes tickets E **touched** that are **Done and in the
+    active pulse**, even if unassigned (#74) — finishing someone's ticket is a
+    success, not a distraction.
+  * Distractors = other tickets E touched during the pulse but is not assigned
+    to in this sprint, or that belong to a different sprint.
 
 The ``[PR/MP Review]`` ISReq prefix is already surfaced on ``Ticket`` via
 ``is_bvg_review`` (FR-015); detection lives on the model.
@@ -48,7 +51,14 @@ def classify_for_engineer(
         if tid in assigned_ids:
             continue
         ticket = by_id.get(tid)
-        if ticket is not None:
+        if ticket is None:
+            continue
+        # A ticket E touched that is Done and in the active pulse counts as a
+        # Success even when it isn't assigned to E (#74); everything else they
+        # only touched is a Distractor.
+        if ticket.group is TicketGroup.SUCCESS and in_pulse(ticket, pulse_sprint_ids):
+            groups[TicketGroup.SUCCESS].append(ticket)
+        else:
             groups[TicketGroup.DISTRACTORS].append(ticket)
 
     return groups
