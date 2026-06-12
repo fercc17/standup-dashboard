@@ -8,8 +8,8 @@ from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
 from standup_dashboard.services.counts import build_region_counts
 
 AMER = "AMER"
-MEMBER = "alexandre.gomes@canonical.com"   # roster → "Alexandre Gomes"
-OTHER = "casey.partner@example.com"        # non-roster → derived "Casey Partner"
+MEMBER = "alexandre.gomes@canonical.com"   # AMER → "Alexandre Gomes"
+OTHER = "colin.misare@canonical.com"       # AMER → "Colin Misare"
 
 
 def utc(y, m, d, h=18):
@@ -96,8 +96,8 @@ def test_closed_isreq_buckets_to_done_day():
 def test_tooltips_break_down_by_reporter_and_assignee():
     rows = _build(utc(2026, 6, 15))
     fri = rows[1]
-    # New tickets attribute to the reporter (roster name + derived name).
-    assert fri.new_total.breakdown == {"Alexandre Gomes": 3, "Casey Partner": 1}
+    # New tickets attribute to the reporter (region members only).
+    assert fri.new_total.breakdown == {"Alexandre Gomes": 3, "Colin Misare": 1}
     assert "Alexandre Gomes ×3" in fri.new_total.tip
     # Closed tickets attribute to the assignee.
     assert fri.closed_total.breakdown == {"Alexandre Gomes": 1}
