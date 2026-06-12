@@ -225,22 +225,26 @@ async def run_fetch(
 ) -> int:
     """Perform one refresh; persist a snapshot; return its fetch_id."""
     now = now or datetime.now(UTC)
+    full_window_start = now - timedelta(days=config.FETCH_WINDOW_DAYS)
     if window_days is not None:
-        window_start = now - timedelta(days=window_days)
+        jira_window_start = pd_window_start = now - timedelta(days=window_days)
     else:
-        # Incremental (#88): query only since the last good fetch (with a small
-        # overlap); earlier data is preserved by merging the pulse's snapshots.
+        # Incremental (#88) only for the heavy Jira comment/worklog calls: query
+        # since the last good fetch; earlier data is preserved by merging the
+        # pulse's snapshots. PagerDuty re-fetches the whole pulse window each time
+        # (bounded + cheap) so alert titles/links stay populated for every alert.
         last_good = db.latest_good_fetch()
-        window_start = (
+        jira_window_start = (
             last_good.fetched_at - timedelta(hours=1)
             if last_good is not None
-            else now - timedelta(days=config.FETCH_WINDOW_DAYS)
+            else full_window_start
         )
+        pd_window_start = full_window_start
     roster = set(config.all_roster_emails())
 
     jira_res, pd_res, ical_res = await asyncio.gather(
-        _fetch_jira(secrets, now, window_start, roster),
-        _fetch_pagerduty(secrets, now, window_start, roster),
+        _fetch_jira(secrets, now, jira_window_start, roster),
+        _fetch_pagerduty(secrets, now, pd_window_start, roster),
         _fetch_ical(secrets, now),
     )
 
