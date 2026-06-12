@@ -1,4 +1,4 @@
-"""US4 integration: AMER+APAC combined view + Global group (T046)."""
+"""US4 integration: AMER+APAC combined view + Management group (T046, #72)."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _scenario(now: datetime) -> Scenario:
     )
 
 
-def test_us4_manager_appears_under_each_region_plus_global(client, respx_mock):
+def test_us4_managers_grouped_under_management_not_regions(client, respx_mock):
     now = datetime.now(UTC)
     install(respx_mock, _scenario(now))
 
@@ -41,8 +41,9 @@ def test_us4_manager_appears_under_each_region_plus_global(client, respx_mock):
     # Both region group headers render.
     assert ">AMER " in page or ">AMER<" in page
     assert "APAC" in page
-    # Fernando (AMER+APAC manager) appears once under each selected region → twice.
-    assert page.count("Fernando Carrillo Castro") >= 2
-    # Global group with its managers is shown alongside.
-    assert "Global" in page
+    # Managers are no longer region members: Fernando shows once, under the
+    # dedicated Management group (#72), not once per region.
+    assert "Management" in page
+    assert page.count("Fernando Carrillo Castro") == 1
+    # Global management is shown in the same group.
     assert "Kristofer Tingdahl" in page

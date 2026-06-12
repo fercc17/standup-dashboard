@@ -79,8 +79,8 @@ class RegionConfig:
 
 # ---------------------------------------------------------------------------
 # Roster (FR-003/004/005). Fernando manages AMER + APAC; Javier manages EMEA.
-# Kristofer and Alexandre Micouleau are global management (shown under
-# "Global", excluded from all counts — FR-004).
+# All four managers (Fernando, Javier, Kristofer, Alexandre Micouleau) are shown
+# under a dedicated "Management" group and excluded from region counts (#72).
 # ---------------------------------------------------------------------------
 
 ROSTER: tuple[EngineerConfig, ...] = (
@@ -121,7 +121,11 @@ def _build_regions() -> dict[str, RegionConfig]:
     }
     regions: dict[str, RegionConfig] = {}
     for key, tz in REGION_TIMEZONES.items():
-        members = tuple(e.email for e in ROSTER if key in e.region_keys)
+        # Managers are grouped under "Management", not their regions (#72), so
+        # they're not region members and are excluded from region counts.
+        members = tuple(
+            e.email for e in ROSTER if key in e.region_keys and not e.is_manager
+        )
         regions[key] = RegionConfig(
             key=key, timezone=tz, manager_email=managers[key], member_emails=members
         )
@@ -149,6 +153,20 @@ def engineers_in_region(region_key: str) -> list[EngineerConfig]:
 
 def global_engineers() -> list[EngineerConfig]:
     return [e for e in ROSTER if e.is_global]
+
+
+def management_engineers() -> list[EngineerConfig]:
+    """Regional managers + global management, shown under one 'Management' group.
+
+    Treated like the old Global group (#72): excluded from every region's member
+    list and from all counts; displayed separately for visibility.
+    """
+    return [e for e in ROSTER if e.is_manager or e.is_global]
+
+
+def is_counted(engineer: EngineerConfig) -> bool:
+    """True for engineers who contribute to region/alert counts (not management)."""
+    return not engineer.is_manager and not engineer.is_global
 
 
 def all_roster_emails() -> list[str]:

@@ -12,8 +12,8 @@ recent (today) row only. Ticket columns are project-wide (not region-scoped);
 alert columns are scoped to the selected regions' members. When multiple
 regions are selected, alerts are deduplicated by incident id, each handler is
 bucketed in their own region's timezone (FR-022/024), and the percentage
-denominator is the deduplicated three-region total (excluding Global managers,
-FR-004).
+denominator is the deduplicated three-region total (excluding management —
+regional + global managers — FR-004 / #72).
 """
 
 from __future__ import annotations
@@ -123,8 +123,9 @@ def build_counts(
     selected_members: set[str] = set()
     for key in selected_regions:
         selected_members.update(config.REGIONS[key].member_emails)
-    # Global denominator = all non-Global roster members (FR-004).
-    counted_members = {e.email for e in config.ROSTER if not e.is_global}
+    # Global denominator = all counted roster members, i.e. excluding management
+    # (regional + global managers, FR-004 / #72).
+    counted_members = {e.email for e in config.ROSTER if config.is_counted(e)}
 
     # Fetch-time snapshot / 24h figures (FR-021 *), attached to today's row.
     open_highest = sum(

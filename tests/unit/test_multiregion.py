@@ -1,4 +1,4 @@
-"""US4 unit tests: cross-region dedup, manager-once, Global exclusion (T042)."""
+"""US4 unit tests: cross-region dedup, management exclusion from counts (T042, #72)."""
 
 from __future__ import annotations
 
@@ -29,30 +29,31 @@ def _rows(selected):
     tickets = [Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
                       priority="Highest", labels=[], created=now - timedelta(hours=1))]
     alerts = [
-        Alert("INC1", FERNANDO, AlertState.ACKNOWLEDGED, at),  # same incident,
-        Alert("INC1", JAMES, AlertState.ACKNOWLEDGED, at),     # two handlers → dedup
-        Alert("INC9", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager's own
+        Alert("INC1", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager → excluded,
+        Alert("INC1", JAMES, AlertState.ACKNOWLEDGED, at),     # but James (APAC) counts it
+        Alert("INC9", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager-only → excluded
         Alert("INC2", BENJAMIN, AlertState.ACKNOWLEDGED, at),  # EMEA (not selected)
         Alert("INC3", KRISTOFER, AlertState.ACKNOWLEDGED, at),  # Global → excluded
     ]
     return build_counts(selected, tickets, alerts, _pulses(now), now)
 
 
-def test_alert_dedup_and_manager_counted_once():
+def test_alert_dedup_and_managers_excluded_from_counts():
     rows = _rows(["AMER", "APAC"])
     day_rows = [r for r in rows if not r.is_total]
     assert len(day_rows) == 1
     row = day_rows[0]
-    # INC1 (two handlers) deduped to one; INC9 once → ack = 2, not 3.
-    assert row.alerts_ack == 2
-    assert row.alerts_total == 2
+    # INC1 has two handlers — Fernando (manager, excluded) + James (APAC). It is
+    # counted once via James. INC9 is Fernando-only (manager) → excluded (#72).
+    assert row.alerts_ack == 1
+    assert row.alerts_total == 1
 
 
-def test_denominator_excludes_global_and_uses_three_region_total():
+def test_denominator_excludes_management_and_uses_three_region_total():
     row = _rows(["AMER", "APAC"])[0]
-    # Region acked {INC1, INC9} = 2; global non-Global total {INC1, INC9, INC2} = 3.
+    # Region acked {INC1} = 1; counted (non-management) total {INC1, INC2} = 2.
     assert row.region_alert_pct is not None
-    assert round(row.region_alert_pct) == 67
+    assert round(row.region_alert_pct) == 50
 
 
 def test_tickets_not_double_counted_across_regions():

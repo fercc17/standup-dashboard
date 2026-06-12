@@ -88,7 +88,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "ready": True,            # the roster always renders, fetch or not
         "refreshing": ctx.refresh.running,
         "chip_groups": [],
-        "global_chips": [],
+        "management_chips": [],
         "last_fetch_label": "No fetch yet",
     }
 
@@ -109,10 +109,10 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         data = presenters.DashboardData(fetched_at=now)
         context["last_fetch_label"] = "No fetch yet — showing roster"
 
-    chip_groups, global_chips = presenters.build_chip_groups(db, data, selected_regions, now)
+    chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
     context.update(
         chip_groups=chip_groups,
-        global_chips=global_chips,
+        management_chips=management_chips,
         counts_rows=presenters.build_counts(data, selected_regions, now),
     )
 
