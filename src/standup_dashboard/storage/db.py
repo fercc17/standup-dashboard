@@ -208,6 +208,14 @@ class Database:
     def count_fetch_snapshots(self) -> int:
         return int(self._conn.execute("SELECT COUNT(*) FROM fetch_snapshot").fetchone()[0])
 
+    def fetches_since(self, since: datetime) -> list[FetchSnapshot]:
+        """All snapshots fetched at/after ``since``, oldest first (for merging, #88)."""
+        rows = self._conn.execute(
+            "SELECT * FROM fetch_snapshot WHERE fetched_at >= ? ORDER BY id ASC",
+            (since.isoformat(),),
+        ).fetchall()
+        return [_row_to_snapshot(r) for r in rows]
+
     # -- append-only writes of fetched data ----------------------------------
 
     def insert_tickets(self, fetch_id: int, tickets: Iterable[Ticket]) -> None:

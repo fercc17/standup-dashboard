@@ -93,20 +93,13 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
     }
 
     latest = db.latest_fetch()
-    # Last-good fallback (US6/FR-028): if the latest fetch's primary source
-    # (Jira) failed, render the most recent fetch where it succeeded.
-    display = latest
-    if latest is not None and not latest.jira_ok:
-        good = db.latest_good_fetch()
-        if good is not None:
-            display = good
-
-    if display is not None:
-        data = presenters.load_fetch_data(db, display.fetched_at, display.id)
-        context["last_fetch_label"] = _fmt_fetch(display, selected_regions, now)
+    # Accumulate the pulse's fetch layers (#88): merging gives the current state
+    # without dropping earlier data and transparently falls back over a failed
+    # latest fetch (US6/FR-028).
+    data = presenters.load_merged_data(db, now)
+    if latest is not None:
+        context["last_fetch_label"] = _fmt_fetch(latest, selected_regions, now)
     else:
-        # No fetch yet — still show the team (zero activity).
-        data = presenters.DashboardData(fetched_at=now)
         context["last_fetch_label"] = "No fetch yet — showing roster"
 
     chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
@@ -127,7 +120,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
             ) if not ok
         ]
         if failed:
-            stale = " Showing last good data." if display is not latest else ""
+            stale = " Showing accumulated data." if not latest.jira_ok else ""
             context["banner"] = {
                 "kind": "error" if not latest.jira_ok else "warn",
                 "text": f"Latest refresh failed for: {', '.join(failed)}.{stale}",
@@ -202,12 +195,7 @@ def _render_panel(request: Request, engineer_email: str, region_key: str) -> HTM
     ctx = _ctx(request)
     db = ctx.db
     now = _now()
-    latest = db.latest_fetch()
-    data = (
-        presenters.load_fetch_data(db, latest.fetched_at, latest.id)
-        if latest is not None
-        else presenters.DashboardData(fetched_at=now)
-    )
+    data = presenters.load_merged_data(db, now)
     panel = presenters.build_panel(
         db, engineer_email, data, now,
         region_key=region_key, highest_focus=schedule.get_highest_focus(db),
