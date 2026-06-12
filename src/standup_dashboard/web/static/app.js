@@ -1,5 +1,49 @@
 // Minimal vanilla helpers. Most interactivity is handled by HTMX attributes in templates.
 
+// Custom tooltip for [data-tip] elements: works on hover AND tap (native title
+// tooltips don't fire on touch devices and are slow on desktop).
+(function () {
+  let pop = null;
+  function el() {
+    if (!pop) {
+      pop = document.createElement('div');
+      pop.className = 'tip-pop';
+      pop.style.display = 'none';
+      document.body.appendChild(pop);
+    }
+    return pop;
+  }
+  function show(target) {
+    const text = target.getAttribute('data-tip');
+    if (!text) return;
+    const t = el();
+    t.textContent = text;
+    t.style.display = 'block';
+    const r = target.getBoundingClientRect();
+    let left = window.scrollX + r.left;
+    left = Math.min(left, window.scrollX + document.documentElement.clientWidth - t.offsetWidth - 8);
+    t.style.left = Math.max(window.scrollX + 4, left) + 'px';
+    t.style.top = (window.scrollY + r.bottom + 4) + 'px';
+  }
+  function hide() { if (pop) pop.style.display = 'none'; }
+  document.addEventListener('pointerover', function (e) {
+    const t = e.target.closest('[data-tip]');
+    if (t && t.getAttribute('data-tip')) show(t);
+  });
+  document.addEventListener('pointerout', function (e) {
+    if (e.target.closest('[data-tip]')) hide();
+  });
+  document.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-tip]');
+    if (t && t.getAttribute('data-tip')) {
+      if (pop && pop.style.display === 'block') hide(); else show(t);
+    } else {
+      hide();
+    }
+  });
+  document.addEventListener('scroll', hide, true);
+})();
+
 // Dark mode: apply the saved preference on load, toggle + persist on click.
 (function () {
   if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');

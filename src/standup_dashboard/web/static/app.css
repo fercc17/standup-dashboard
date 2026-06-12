@@ -137,7 +137,23 @@ table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border);
 /* Per-group subtotal columns (new total / closed total / alerts total). */
 table.counts td.sub { font-weight: 600; }
 /* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
-table.counts td[title]:not([title=""]) { cursor: help; }
+table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
+
+/* Custom hover/tap tooltip (native title tooltips don't fire on touch). */
+.tip-pop {
+  position: absolute;
+  z-index: 200;
+  background: #1c1f23;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 5px 8px;
+  border-radius: 6px;
+  white-space: pre-line;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+  pointer-events: none;
+  max-width: 260px;
+}
 body.dark table.counts th.div, body.dark table.counts td.div { border-left-color: var(--muted); }
 
 /* ---- Chips ---- */
