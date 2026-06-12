@@ -26,22 +26,22 @@ def _pulses():
 def _build(now):
     fri = utc(2026, 6, 12)  # a pulse weekday (Friday)
     tickets = [
-        # New ISReq tickets created Friday — one per bucket.
+        # New ISReq tickets created Friday — one per bucket (counted by assignee).
         Ticket(id="ISReq-H", project_key="ISReq", title="boom", status="To Do",
-               priority="Highest", labels=[], created=fri, reporter_email=MEMBER),
+               priority="Highest", labels=[], created=fri, assignee_email=MEMBER),
         Ticket(id="ISReq-PR", project_key="ISReq", title="[PR/MP Review] x", status="To Do",
-               priority="Medium", labels=[], created=fri, reporter_email=MEMBER),
+               priority="Medium", labels=[], created=fri, assignee_email=MEMBER),
         Ticket(id="ISReq-P5", project_key="ISReq", title="blk", status="To Do",
-               priority="Medium", labels=["ps5-blocker"], created=fri, reporter_email=OTHER),
+               priority="Medium", labels=["ps5-blocker"], created=fri, assignee_email=OTHER),
         Ticket(id="ISReq-R", project_key="ISReq", title="reg", status="To Do",
-               priority="Medium", labels=[], created=fri, reporter_email=MEMBER),
+               priority="Medium", labels=[], created=fri, assignee_email=MEMBER),
         # Closed ISReq Highest on Friday.
         Ticket(id="ISReq-C", project_key="ISReq", title="done", status="Done",
                priority="Highest", labels=[], is_done_date=date(2026, 6, 12),
                assignee_email=MEMBER),
         # Non-ISReq (ISDB) ticket is ignored by the counts table.
         Ticket(id="ISDB-1", project_key="ISDB", title="x", status="To Do",
-               priority="Highest", labels=[], created=fri, reporter_email=MEMBER),
+               priority="Highest", labels=[], created=fri, assignee_email=MEMBER),
     ]
     alerts = [
         Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 13)),   # Saturday
@@ -76,7 +76,7 @@ def test_new_bucket_precedence_highest_wins():
     fri = utc(2026, 6, 12)
     # Highest + [PR/MP Review] + ps5 → counted once, in the Highest bucket only.
     t = Ticket(id="ISReq-X", project_key="ISReq", title="[PR/MP Review] hot", status="To Do",
-               priority="Highest", labels=["ps5-blocker"], created=fri, reporter_email=MEMBER)
+               priority="Highest", labels=["ps5-blocker"], created=fri, assignee_email=MEMBER)
     fri_row = build_region_counts(AMER, [t], [], _pulses(), utc(2026, 6, 15))[1]
     assert fri_row.new_highest.count == 1
     assert fri_row.new_pr_mp.count == 0
@@ -96,7 +96,7 @@ def test_closed_isreq_buckets_to_done_day():
 def test_tooltips_break_down_by_reporter_and_assignee():
     rows = _build(utc(2026, 6, 15))
     fri = rows[1]
-    # New tickets attribute to the reporter (region members only).
+    # New tickets attribute to the assignee (region members only).
     assert fri.new_total.breakdown == {"Alexandre Gomes": 3, "Colin Misare": 1}
     assert "Alexandre Gomes ×3" in fri.new_total.tip
     # Closed tickets attribute to the assignee.

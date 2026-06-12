@@ -5,9 +5,8 @@ into a single weekend row (shown on Monday), plus a trailing "Pulse total" row.
 
 Ticket columns are scoped to one project (``COUNTS_PROJECT`` — ISReq, where
 Highest / [PR/MP Review] / ps5-blocker work lives, #91) AND to the selected
-region(s), just like alerts: a "new" ticket counts for the region of its
-reporter, a "closed" ticket for the region of its assignee. Split into two
-groups (#91):
+region(s), just like alerts: both "new" and "closed" tickets count for the
+region of their **assignee**. Split into two groups (#91):
 
   * New that day, four mutually exclusive buckets (precedence
     Highest → [PR/MP Review] → ps5-blocker → regular) that sum to "New total".
@@ -160,10 +159,6 @@ def _new_bucket(ticket: Ticket) -> str:
     return "regular"
 
 
-def _reporter(t: Ticket) -> str | None:
-    return t.reporter_email
-
-
 def _assignee(t: Ticket) -> str | None:
     return t.assignee_email
 
@@ -192,10 +187,10 @@ def build_counts(
 
     def _new_on(t: Ticket, dates: set[date]) -> bool:
         # Region-scoped like alerts: a "new" ticket belongs to the selected
-        # region(s) when its reporter is a member, bucketed in the reporter's tz.
-        if t.reporter_email not in selected_members or t.created is None:
+        # region(s) when its assignee is a member, bucketed in the assignee's tz.
+        if t.assignee_email not in selected_members or t.created is None:
             return False
-        zone = _handler_zone(t.reporter_email)
+        zone = _handler_zone(t.assignee_email)
         return zone is not None and _local_date(t.created, zone) in dates
 
     def _closed_on(t: Ticket, dates: set[date]) -> bool:
@@ -219,11 +214,11 @@ def build_counts(
             label=label,
             is_weekend=is_weekend,
             is_total=is_total,
-            new_highest=_ticket_cell(buckets["highest"], _reporter),
-            new_pr_mp=_ticket_cell(buckets["pr_mp"], _reporter),
-            new_ps5=_ticket_cell(buckets["ps5"], _reporter),
-            new_regular=_ticket_cell(buckets["regular"], _reporter),
-            new_total=_ticket_cell(new_tickets, _reporter),
+            new_highest=_ticket_cell(buckets["highest"], _assignee),
+            new_pr_mp=_ticket_cell(buckets["pr_mp"], _assignee),
+            new_ps5=_ticket_cell(buckets["ps5"], _assignee),
+            new_regular=_ticket_cell(buckets["regular"], _assignee),
+            new_total=_ticket_cell(new_tickets, _assignee),
             closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
             closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
             closed_total=_ticket_cell(closed, _assignee),
