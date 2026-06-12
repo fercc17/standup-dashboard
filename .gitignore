@@ -19,3 +19,6 @@ build/
 .idea/
 *.swp
 .DS_Store
+
+# App runtime (PID + logs from scripts/app.sh)
+.run/
