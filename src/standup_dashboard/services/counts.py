@@ -219,6 +219,13 @@ def build_counts(
         for t in new_tickets:
             buckets[_new_bucket(t)].append(t)
         closed = [t for t in scoped if _closed_on(t, dset)]
+        # Closed [PR/MP Review] is credited to the ASSIGNEE's region (the owner
+        # who did the review), not the ticket's creation region.
+        closed_pr_mp = [
+            t for t in scoped
+            if t.is_pr_mp_review and t.assignee_email in selected_members
+            and t.is_done_date in dset
+        ]
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
@@ -254,6 +261,7 @@ def build_counts(
             new_regular=_ticket_cell(buckets["regular"], _assignee),
             new_total=_ticket_cell(new_tickets, _assignee),
             closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
+            closed_pr_mp=_ticket_cell(closed_pr_mp, _assignee),
             closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
             closed_total=_ticket_cell(closed, _assignee),
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
@@ -339,6 +347,11 @@ def region_pulse_summary(
     closed = [
         t for t in scoped if _creation_region(t) == region and t.is_done_date in dates
     ]
+    # Closed [PR/MP Review] credited to the assignee's (owner's) region.
+    closed_pr_mp = [
+        t for t in scoped
+        if t.is_pr_mp_review and t.assignee_email in members and t.is_done_date in dates
+    ]
     isdb_closed = [
         t for t in tickets
         if t.is_isdb and _creation_region(t) == region and t.is_done_date in dates
@@ -352,6 +365,7 @@ def region_pulse_summary(
         "new_regular": _ticket_cell(buckets["regular"], _reporter),
         "new_total": _ticket_cell(new_tickets, _reporter),
         "closed_highest": _ticket_cell([t for t in closed if t.is_highest], _assignee),
+        "closed_pr_mp": _ticket_cell(closed_pr_mp, _assignee),
         "closed_ps5": _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
         "closed_total": _ticket_cell(closed, _assignee),
         "isdb_closed": _ticket_cell(isdb_closed, _assignee),
