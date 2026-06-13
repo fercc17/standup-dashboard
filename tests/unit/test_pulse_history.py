@@ -24,10 +24,11 @@ def _data():
                assignee_email=MEMBER, reporter_email=REQ, created=utc(12)),
         Ticket("ISReq-PR", "ISReq", "[PR/MP Review] y", "To Do", "Medium",
                assignee_email=MEMBER, reporter_email=REQ, created=utc(12)),
+        # Closed-not-new: created before the pulse, in the AMER window → AMER.
         Ticket("ISReq-C", "ISReq", "z", "Done", "Highest",
-               assignee_email=MEMBER, is_done_date=date(2026, 6, 12)),
+               assignee_email=MEMBER, created=utc(2), is_done_date=date(2026, 6, 12)),
         Ticket("ISDB-C", "ISDB", "d", "Done", None,
-               assignee_email=MEMBER, is_done_date=date(2026, 6, 12)),
+               assignee_email=MEMBER, created=utc(2), is_done_date=date(2026, 6, 12)),
     ]
     alerts = [Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12))]
     return DashboardData(fetched_at=utc(12), tickets=tickets, alerts=alerts, pulses=pulses)

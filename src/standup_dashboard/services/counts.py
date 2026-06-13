@@ -5,8 +5,10 @@ into a single weekend row (shown on Monday), plus a trailing "Pulse total" row.
 
 Ticket columns are scoped to one project (``COUNTS_PROJECT`` — ISReq, where
 Highest / [PR/MP Review] / ps5-blocker work lives, #91) AND to the selected
-region(s), just like alerts: both "new" and "closed" tickets count for the
-region of their **assignee**. Split into two groups (#91):
+region(s). A ticket's region is fixed at **creation** by a follow-the-sun
+UTC-hour window (``config.region_for_creation``), independent of who later takes
+it; both its "new" and "closed" counts follow that region. Split into two groups
+(#91):
 
   * New that day, four mutually exclusive buckets (precedence
     Highest → [PR/MP Review] → ps5-blocker → regular) that sum to "New total".
@@ -53,6 +55,11 @@ def _local_date(dt: datetime, zone: ZoneInfo) -> date:
 def _handler_zone(email: str) -> ZoneInfo | None:
     region_key = config.primary_region_for(email)
     return ZoneInfo(config.REGIONS[region_key].timezone) if region_key else None
+
+
+def _creation_region(t: Ticket) -> str | None:
+    """Region a ticket belongs to, fixed at creation (follow-the-sun)."""
+    return config.region_for_creation(t.created) if t.created is not None else None
 
 
 def _display_name(email: str | None) -> str:
@@ -183,6 +190,7 @@ def build_counts(
     days = pulse_dates(pulses, axis_zone, now)
     groups = _group_days(days)
 
+    selected_set = set(selected_regions)
     selected_members: set[str] = set()
     for key in selected_regions:
         selected_members.update(config.REGIONS[key].member_emails)
@@ -192,16 +200,18 @@ def build_counts(
     scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
 
     def _new_on(t: Ticket, dates: set[date]) -> bool:
-        # Region-scoped like alerts: a "new" ticket belongs to the selected
-        # region(s) when its assignee is a member, bucketed in the assignee's tz.
-        if t.assignee_email not in selected_members or t.created is None:
+        # A "new" ticket belongs to the region its creation-time falls in
+        # (follow-the-sun), bucketed on that region's local creation day.
+        region = _creation_region(t)
+        if region is None or region not in selected_set:
             return False
-        zone = _handler_zone(t.assignee_email)
-        return zone is not None and _local_date(t.created, zone) in dates
+        zone = ZoneInfo(config.REGIONS[region].timezone)
+        return _local_date(t.created, zone) in dates
 
     def _closed_on(t: Ticket, dates: set[date]) -> bool:
-        # Closes belong to the region of the engineer who owned (was assigned) them.
-        return t.assignee_email in selected_members and t.is_done_date in dates
+        # Closes credit the ticket's creation-time region (fixed at creation).
+        region = _creation_region(t)
+        return region in selected_set and t.is_done_date in dates
 
     def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
         new_tickets = [t for t in scoped if _new_on(t, dset)]
@@ -215,19 +225,20 @@ def build_counts(
         region_distinct = _alert_cell(alerts, selected_members, dset, None).count
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
-        # Closed %: the selected region's share of all ISReq closed tickets that day.
+        # Closed %: the selected region's share of all ISReq closed that day
+        # (denominator = every closed ticket, each owned by its creation region).
         global_closed = sum(
-            1 for t in scoped if t.assignee_email in counted_members and t.is_done_date in dset
+            1 for t in scoped if _creation_region(t) is not None and t.is_done_date in dset
         )
         closed_pct = (100.0 * len(closed) / global_closed) if global_closed else None
         # ISDB closed (count + region share) — separate project column.
         isdb_closed_tickets = [
             t for t in tickets
-            if t.is_isdb and t.assignee_email in selected_members and t.is_done_date in dset
+            if t.is_isdb and _creation_region(t) in selected_set and t.is_done_date in dset
         ]
         global_isdb_closed = sum(
             1 for t in tickets
-            if t.is_isdb and t.assignee_email in counted_members and t.is_done_date in dset
+            if t.is_isdb and _creation_region(t) is not None and t.is_done_date in dset
         )
         isdb_closed_pct = (
             100.0 * len(isdb_closed_tickets) / global_isdb_closed if global_isdb_closed else None
@@ -315,19 +326,22 @@ def region_pulse_summary(
     scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
 
     def _new(t: Ticket) -> bool:
-        if t.assignee_email not in members or t.created is None:
+        # Region by creation-time window (follow-the-sun), bucketed on the
+        # region's local creation day.
+        if _creation_region(t) != region:
             return False
-        z = _handler_zone(t.assignee_email)
-        return z is not None and _local_date(t.created, z) in dates
+        return _local_date(t.created, zone) in dates
 
     new_tickets = [t for t in scoped if _new(t)]
     buckets: dict[str, list[Ticket]] = {"highest": [], "pr_mp": [], "ps5": [], "regular": []}
     for t in new_tickets:
         buckets[_new_bucket(t)].append(t)
-    closed = [t for t in scoped if t.assignee_email in members and t.is_done_date in dates]
+    closed = [
+        t for t in scoped if _creation_region(t) == region and t.is_done_date in dates
+    ]
     isdb_closed = [
         t for t in tickets
-        if t.is_isdb and t.assignee_email in members and t.is_done_date in dates
+        if t.is_isdb and _creation_region(t) == region and t.is_done_date in dates
     ]
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)

@@ -35,16 +35,18 @@ def _build(now):
                priority="Medium", labels=["ps5-blocker"], created=fri, assignee_email=OTHER),
         Ticket(id="ISReq-R", project_key="ISReq", title="reg", status="To Do",
                priority="Medium", labels=[], created=fri, assignee_email=MEMBER),
-        # Closed ISReq Highest on Friday.
+        # Closed ISReq Highest on Friday. Created before the pulse, in the AMER
+        # window (15–23 UTC) → owned by AMER, closed-not-new this pulse.
         Ticket(id="ISReq-C", project_key="ISReq", title="done", status="Done",
-               priority="Highest", labels=[], is_done_date=date(2026, 6, 12),
-               assignee_email=MEMBER),
+               priority="Highest", labels=[], created=utc(2026, 6, 5),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
         # Non-ISReq (ISDB) new ticket is ignored by the ISReq columns.
         Ticket(id="ISDB-1", project_key="ISDB", title="x", status="To Do",
                priority="Highest", labels=[], created=fri, assignee_email=MEMBER),
         # A closed ISDB ticket → counted in the ISDB Closed column.
         Ticket(id="ISDB-C", project_key="ISDB", title="d", status="Done",
-               priority=None, labels=[], is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
+               priority=None, labels=[], created=utc(2026, 6, 5),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
     ]
     alerts = [
         Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 13)),   # Saturday
@@ -137,8 +139,8 @@ def test_closes_before_pulse_start_go_to_previous_pulse_row():
     # A ticket Done before the pulse-12 anchor (Jun 8) is excluded from this
     # pulse (#93) and instead counts in the Previous pulse row (#80).
     rolled = Ticket(id="ISReq-OLD", project_key="ISReq", title="old", status="Done",
-                    priority="Highest", labels=[], is_done_date=date(2026, 6, 6),
-                    assignee_email=MEMBER)
+                    priority="Highest", labels=[], created=utc(2026, 6, 5),
+                    is_done_date=date(2026, 6, 6), assignee_email=MEMBER)
     rows = build_region_counts(AMER, [rolled], [], _pulses(), utc(2026, 6, 15))
     assert _total(rows).closed_total.count == 0
     prev = next(r for r in rows if r.is_previous)
@@ -151,3 +153,23 @@ def test_days_capped_at_today():
     day_rows = [r for r in rows if not r.is_total]
     assert len(day_rows) == 1
     assert day_rows[0].label.startswith("Thu")
+
+
+def test_region_follows_creation_time_not_assignee():
+    # Ticket created at 10:00 UTC (EMEA window) but assigned to an AMER engineer:
+    # it belongs to EMEA (creation time), not AMER (assignee).
+    fri_emea = utc(2026, 6, 12, 10)   # 10:00 UTC → EMEA window (07–15)
+    t_new = Ticket(id="ISReq-E", project_key="ISReq", title="x", status="To Do",
+                   priority="Highest", labels=[], created=fri_emea, assignee_email=MEMBER)
+    t_closed = Ticket(id="ISReq-EC", project_key="ISReq", title="y", status="Done",
+                      priority="Highest", labels=[], created=utc(2026, 6, 5, 10),
+                      is_done_date=date(2026, 6, 12), assignee_email=MEMBER)
+    tickets = [t_new, t_closed]
+    amer = build_region_counts("AMER", tickets, [], _pulses(), utc(2026, 6, 15))
+    emea = build_region_counts("EMEA", tickets, [], _pulses(), utc(2026, 6, 15))
+    # AMER sees neither, despite the AMER assignee.
+    assert next(r for r in amer if r.is_total and not r.is_previous).new_total.count == 0
+    # EMEA owns both the new and the closed ticket (bucketed in Paris-local days).
+    emea_fri = emea[1]
+    assert emea_fri.new_highest.count == 1
+    assert emea_fri.closed_total.count == 1
