@@ -41,9 +41,10 @@ def test_merge_accumulates_across_fetches(tmp_path):
     db.insert_pulses(f2, pulse)
 
     merged = presenters.load_merged_data(db, _dt(12, 18))
-    # The delta fetch dropped ISReq-1, but the merge keeps it.
+    # Tickets/touches accumulate: the delta fetch dropped ISReq-1, merge keeps it.
     assert {t.id for t in merged.tickets} == {"ISReq-1", "ISReq-2"}
     assert len(merged.touches) == 2
-    states = {a.state for a in merged.alerts if a.id == "INC1"}
-    assert states == {AlertState.ACKNOWLEDGED, AlertState.RESOLVED}
+    # Alerts come from the latest successful fetch only (PD is re-fetched in full),
+    # so the older ACK doesn't linger — only fetch 2's RESOLVED is present.
+    assert {a.state for a in merged.alerts} == {AlertState.RESOLVED}
     db.close()

@@ -96,10 +96,12 @@ def load_fetch_data(db: Database, fetched_at: datetime, fetch_id: int) -> Dashbo
 def load_merged_data(db: Database, now: datetime) -> DashboardData:
     """Accumulate state across every fetch in the current pulse (#88).
 
-    Each refresh stores an append-only layer, possibly from an incremental
-    window. Merging the pulse's layers — latest-wins per ticket, union of
-    touches/alerts — means a small delta fetch never drops earlier data, and a
-    failed latest fetch transparently falls back to the accumulated good data.
+    Each refresh stores an append-only layer, possibly from an incremental Jira
+    window. Tickets (latest-wins per id) and touches (union) accumulate so a
+    small delta fetch never drops earlier data. Alerts, however, come only from
+    the latest successful fetch: PagerDuty is re-fetched in full each refresh, so
+    accumulating would just resurface stale, pre-enrichment alerts from old
+    fetches (e.g. "ACK — alert" rows with no incident title/number).
     """
     snaps = db.fetches_since(_pulse_start(now))
     if not snaps:
@@ -110,7 +112,6 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
 
     tickets: dict[str, Ticket] = {}
     touches: dict[tuple, TouchEvent] = {}
-    alerts: dict[tuple, Alert] = {}
     pulses: list[Pulse] = []
     oncall: list[WeekendOnCall] = []
     for snap in snaps:  # oldest → newest, so later layers win
@@ -118,19 +119,23 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
             tickets[t.id] = t
         for tc in db.get_touches(snap.id):
             touches[(tc.ticket_id, tc.engineer_email, tc.kind, tc.at)] = tc
-        for a in db.get_alerts(snap.id):
-            alerts[(a.id, a.handler_email, a.state)] = a
         snap_pulses = db.get_pulses(snap.id)
         if snap_pulses:
             pulses = snap_pulses
         snap_oncall = db.get_weekend_oncall(snap.id)
         if snap_oncall:
             oncall = snap_oncall
+
+    # Alerts: latest successful (PagerDuty-ok) fetch only — it already holds the
+    # whole pulse, so no accumulation of stale alerts.
+    alert_snaps = [s for s in snaps if s.pagerduty_ok]
+    alerts = db.get_alerts(alert_snaps[-1].id) if alert_snaps else []
+
     return DashboardData(
         fetched_at=snaps[-1].fetched_at,
         tickets=list(tickets.values()),
         touches=list(touches.values()),
-        alerts=list(alerts.values()),
+        alerts=alerts,
         pulses=pulses,
         weekend_oncall=oncall,
     )
