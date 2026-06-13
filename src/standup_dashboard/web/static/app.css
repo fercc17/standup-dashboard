@@ -112,6 +112,8 @@ button.action.htmx-request { opacity: .6; pointer-events: none; }
 
 /* ---- Counts table ---- */
 .section-title { font-size: 13px; font-weight: 600; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.counts-title { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.pulse-range { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); }
 table.counts {
   width: 100%;
   border-collapse: collapse;

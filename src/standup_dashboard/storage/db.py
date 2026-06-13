@@ -152,6 +152,8 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     alerts_ack      INTEGER NOT NULL,
     alerts_resolved INTEGER NOT NULL,
     alerts_total    INTEGER NOT NULL,
+    alert_mttr_sum  INTEGER NOT NULL DEFAULT 0,
+    alert_mttr_n    INTEGER NOT NULL DEFAULT 0,
     breakdowns_json TEXT,
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (pulse_number, region)
@@ -206,6 +208,13 @@ class Database:
             # Older DBs predate the per-person tooltip breakdowns; without this
             # column upsert_pulse_summary fails and pulse history never persists.
             self._conn.execute("ALTER TABLE pulse_summary ADD COLUMN breakdowns_json TEXT")
+        for col in ("alert_mttr_sum", "alert_mttr_n"):
+            # Mean time-to-resolve accumulators; older rows default to 0 (shown as
+            # "—" until a refresh / backfill re-run populates them).
+            if "pulse_number" in ps_cols and col not in ps_cols:
+                self._conn.execute(
+                    f"ALTER TABLE pulse_summary ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                )
 
     def close(self) -> None:
         self._conn.close()

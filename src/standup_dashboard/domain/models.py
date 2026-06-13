@@ -255,7 +255,22 @@ PULSE_SUMMARY_FIELDS = (
     "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
     "closed_highest", "closed_pr_mp", "closed_ps5", "closed_total", "isdb_closed",
     "alerts_ack", "alerts_resolved", "alerts_total",
+    "alert_mttr_sum", "alert_mttr_n",   # sum-of-seconds / count → mean time to resolve
 )
+
+
+def format_duration(seconds: float | None) -> str:
+    """Human-friendly duration ('45m', '2h 15m', '1d 3h'); em dash when None."""
+    if seconds is None:
+        return "—"
+    minutes = int(round(seconds / 60))
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    days, hours = divmod(hours, 24)
+    return f"{days}d {hours}h" if hours else f"{days}d"
 
 
 @dataclass
@@ -268,6 +283,11 @@ class PulseHistoryRow:
     closed_pct: float | None = None        # selected regions' share of all ISReq closed
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
     alert_fatigue: bool = False            # pulse alert load over the 2-per-12h standard (red)
+    alert_mttr_seconds: float | None = None  # mean ack→resolve time this pulse, None if no data
+
+    @property
+    def mttr_label(self) -> str:
+        return format_duration(self.alert_mttr_seconds)
 
 
 @dataclass
