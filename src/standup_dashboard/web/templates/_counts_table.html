@@ -1,4 +1,7 @@
-<div class="section-title">Pulse {{ pulse_number }} counts</div>
+<div class="section-title counts-title">
+  <span>Pulse {{ pulse_number }} counts</span>
+  {% if pulse_range %}<span class="pulse-range" title="Pulse span: Monday (week 1) through Friday (week 2)">{{ pulse_range }}</span>{% endif %}
+</div>
 <table class="counts">
   <thead>
     <tr>

@@ -79,11 +79,16 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
     ctx = _ctx(request)
     db = ctx.db
     axis_tz = config.REGIONS[selected_regions[0]].timezone if selected_regions else "UTC"
-    pulse_number, _, _ = current_pulse(now.astimezone(ZoneInfo(axis_tz)).date())
+    pulse_number, pulse_start, _ = current_pulse(now.astimezone(ZoneInfo(axis_tz)).date())
+    # Canonical pulse span is two work-weeks: Monday (wk1) → Friday (wk2). The
+    # 14-day sprint's trailing weekend is non-working, so the label ends on the
+    # Friday (start + 11 days), per "pulses start Monday, end Friday" (#142).
+    pulse_range = f"{pulse_start:%a %d %b} – {pulse_start + timedelta(days=11):%a %d %b}"
     context: dict = {
         "regions": config.REGION_KEYS,
         "selected_regions": selected_regions,
         "pulse_number": pulse_number,
+        "pulse_range": pulse_range,
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
         "oncall_name": None,
