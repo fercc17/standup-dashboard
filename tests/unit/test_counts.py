@@ -39,9 +39,12 @@ def _build(now):
         Ticket(id="ISReq-C", project_key="ISReq", title="done", status="Done",
                priority="Highest", labels=[], is_done_date=date(2026, 6, 12),
                assignee_email=MEMBER),
-        # Non-ISReq (ISDB) ticket is ignored by the counts table.
+        # Non-ISReq (ISDB) new ticket is ignored by the ISReq columns.
         Ticket(id="ISDB-1", project_key="ISDB", title="x", status="To Do",
                priority="Highest", labels=[], created=fri, assignee_email=MEMBER),
+        # A closed ISDB ticket → counted in the ISDB Closed column.
+        Ticket(id="ISDB-C", project_key="ISDB", title="d", status="Done",
+               priority=None, labels=[], is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
     ]
     alerts = [
         Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 13)),   # Saturday
@@ -91,7 +94,9 @@ def test_closed_isreq_buckets_to_done_day():
     assert fri.closed_total.count == 1
     assert fri.closed_highest.count == 1
     assert fri.closed_ps5.count == 0
-    assert fri.closed_pct == 100.0   # AMER closed the only closed ticket that day
+    assert fri.closed_pct == 100.0   # AMER closed the only ISReq closed ticket that day
+    assert fri.isdb_closed.count == 1        # the ISDB closed ticket counts separately
+    assert fri.isdb_closed_pct == 100.0
     assert rows[0].closed_total.count == 0
 
 

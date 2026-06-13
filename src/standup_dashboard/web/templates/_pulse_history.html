@@ -3,15 +3,17 @@
   <thead>
     <tr>
       <th>Pulse</th>
-      <th class="stk"><span>New</span><span>Highest</span></th>
-      <th class="stk"><span>PR/MP</span><span>Review</span></th>
-      <th class="stk"><span>New</span><span>ps5</span></th>
-      <th class="stk"><span>New</span><span>Regular</span></th>
-      <th class="stk"><span>New</span><span>Total</span></th>
-      <th class="stk grp"><span>Closed</span><span>Highest</span></th>
-      <th class="stk"><span>Closed</span><span>ps5</span></th>
-      <th class="stk"><span>Closed</span><span>Total</span></th>
-      <th class="stk"><span>Closed</span><span>%</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>New</span><span>Highest</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>PR/MP</span><span>Review</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>New</span><span>ps5</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>New</span><span>Regular</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>New</span><span>Total</span></th>
+      <th class="stk grp"><span class="proj">ISReq</span><span>Closed</span><span>Highest</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>ps5</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>Total</span></th>
+      <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>%</span></th>
+      <th class="stk grp"><span class="proj">ISDB</span><span>Closed</span><span>Total</span></th>
+      <th class="stk"><span class="proj">ISDB</span><span>Closed</span><span>%</span></th>
       <th class="stk div"><span>Alerts</span><span>Ack</span></th>
       <th class="stk"><span>Alert</span><span>Res</span></th>
       <th class="stk"><span>Alerts</span><span>Total</span></th>
@@ -32,6 +34,8 @@
       <td data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
       <td class="sub" data-tip="{{ c.closed_total.tip }}">{{ c.closed_total.count }}</td>
       <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>
+      <td class="sub grp" data-tip="{{ c.isdb_closed.tip }}">{{ c.isdb_closed.count }}</td>
+      <td>{% if row.isdb_closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.isdb_closed_pct) }}{% endif %}</td>
       <td class="div" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
       <td data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
       <td class="sub" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>

@@ -126,6 +126,7 @@ table.counts th { background: #f0f2f4; font-weight: 600; text-align: right; posi
 table.counts td:first-child, table.counts th:first-child { text-align: left; white-space: nowrap; }
 table.counts tr.weekend td { background: #f9f6ef; font-style: italic; }
 table.counts th.stk span { display: block; line-height: 1.05; }
+table.counts th .proj { font-size: 9px; font-weight: 400; color: var(--muted); letter-spacing: .02em; }
 table.counts tr.pulse-total td { font-weight: 600; background: #eef1f4; border-top: 2px solid var(--border); }
 table.counts tr.previous-pulse td { color: var(--muted); font-style: italic; background: #f4f6f8; }
 body.dark table.counts tr.previous-pulse td { background: #20242b; }

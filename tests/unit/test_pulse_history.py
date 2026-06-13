@@ -26,6 +26,8 @@ def _data():
                assignee_email=MEMBER, reporter_email=REQ, created=utc(12)),
         Ticket("ISReq-C", "ISReq", "z", "Done", "Highest",
                assignee_email=MEMBER, is_done_date=date(2026, 6, 12)),
+        Ticket("ISDB-C", "ISDB", "d", "Done", None,
+               assignee_email=MEMBER, is_done_date=date(2026, 6, 12)),
     ]
     alerts = [Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12))]
     return DashboardData(fetched_at=utc(12), tickets=tickets, alerts=alerts, pulses=pulses)
@@ -47,6 +49,8 @@ def test_history_attribution_requestor_vs_assignee(tmp_path):
     cur_row = {r.pulse_number: r for r in rows}[12]
     assert cur_row.region_pct == 100.0
     assert cur_row.closed_pct == 100.0
+    assert cur["isdb_closed"].count == 1          # the closed ISDB ticket
+    assert cur_row.isdb_closed_pct == 100.0
     db.close()
 
 
@@ -56,7 +60,7 @@ def test_history_persists_counts_and_breakdowns(tmp_path):
     counts.persist_pulse_summaries(db, data.tickets, [], data.pulses, utc(12))
     stored = {(p, r): (c, b) for p, r, c, b in db.get_pulse_summaries()}
     c12, b12 = stored[(12, "AMER")]
-    assert c12["new_total"] == 2 and c12["closed_total"] == 1
+    assert c12["new_total"] == 2 and c12["closed_total"] == 1 and c12["isdb_closed"] == 1
     assert b12["new_highest"] == {"Jane Doe": 1}        # requestor persisted
     assert b12["closed_total"] == {"Alexandre Gomes": 1}
     assert (11, "AMER") in stored                        # previous pulse stored too

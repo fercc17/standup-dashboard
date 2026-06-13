@@ -253,7 +253,7 @@ class DetailPanelVM:
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).
 PULSE_SUMMARY_FIELDS = (
     "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
-    "closed_highest", "closed_ps5", "closed_total",
+    "closed_highest", "closed_ps5", "closed_total", "isdb_closed",
     "alerts_ack", "alerts_resolved", "alerts_total",
 )
 
@@ -264,8 +264,9 @@ class PulseHistoryRow:
     label: str
     # metric name → Cell(count, breakdown) for the per-person hover tooltip (#80).
     cells: dict[str, Cell] = field(default_factory=dict)
-    region_pct: float | None = None      # selected regions' share of all alerts that pulse
-    closed_pct: float | None = None      # selected regions' share of all closed that pulse
+    region_pct: float | None = None        # selected regions' share of all alerts that pulse
+    closed_pct: float | None = None        # selected regions' share of all ISReq closed
+    isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
 
 
 @dataclass
@@ -308,9 +309,11 @@ class CountsRow:
     closed_highest: Cell = field(default_factory=Cell)
     closed_ps5: Cell = field(default_factory=Cell)
     closed_total: Cell = field(default_factory=Cell)
+    isdb_closed: Cell = field(default_factory=Cell)
     alerts_ack: Cell = field(default_factory=Cell)
     alerts_resolved: Cell = field(default_factory=Cell)
     alerts_total: Cell = field(default_factory=Cell)
     region_alert_pct: float | None = None
-    closed_pct: float | None = None  # region's share of all closed tickets
+    closed_pct: float | None = None  # region's share of all ISReq closed tickets
+    isdb_closed_pct: float | None = None  # region's share of all ISDB closed tickets
     is_previous: bool = False  # the previous-pulse comparison row (#80)
