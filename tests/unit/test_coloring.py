@@ -44,12 +44,19 @@ def test_assigned_matrix(role, ticket, expected):
     assert ticket_color(role, ticket, assigned=True) == expected
 
 
-# Role-based distractions (#86): Project / PVG flag yellow, everyone else red.
+# Role-based distractions (#86): PVG flags yellow, Project / BVG flag red.
 @pytest.mark.parametrize("role,expected", [
-    (Role.PROJECT, Color.YELLOW), (Role.PVG, Color.YELLOW), (Role.BVG, Color.RED),
+    (Role.PROJECT, Color.RED), (Role.PVG, Color.YELLOW), (Role.BVG, Color.RED),
 ])
 def test_role_distractor_color(role, expected):
     assert ticket_color(role, mk("ISReq"), assigned=True, role_distractor=True) == expected
+
+
+def test_project_completed_isreq_is_red_distractor():
+    # A Project engineer's finished ISReq is still off-task → red, overriding the
+    # Success-green rule (this is the distractor path build_panel uses).
+    done = mk(project="ISReq", status="Done")
+    assert ticket_color(Role.PROJECT, done, assigned=True, role_distractor=True) == Color.RED
 
 
 NON_ASSIGNED_CASES = [
@@ -93,9 +100,12 @@ RECLASSIFY_CASES = [
     (Role.PVG, mk("ISReq"), False),
     (Role.GEN, mk("ISReq"), False),
     (Role.OFF, mk("ISReq"), False),
-    # Done is never a distraction, for any role.
+    # Done is not a distraction for BVG/PVG — but a Project engineer's finished
+    # non-ISDB work is still off-task, so it stays a distractor even when Done.
     (Role.BVG, mk("ISReq", status="Done"), False),
-    (Role.PROJECT, mk("ISReq", status="Done"), False),
+    (Role.PVG, mk("ISReq", status="Done"), False),
+    (Role.PROJECT, mk("ISReq", status="Done"), True),
+    (Role.PROJECT, mk("ISDB", status="Done"), False),
 ]
 
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
 from standup_dashboard.domain.roles import region_weekday
@@ -43,6 +43,26 @@ def test_pvg_in_review_is_yellow_distractor(tmp_path):
     dist = {t.key: t.color.value for t in panel.groups["Distractors"]}
     assert dist.get("ISReq-1") == "yellow"
     assert all(t.key != "ISReq-1" for t in panel.groups["WIP"])
+    db.close()
+
+
+def test_project_completed_isreq_is_red_distractor(tmp_path):
+    # A Project engineer should only work ISDB: a completed ISReq is off-task, so
+    # it moves out of Success into Distractors as RED, while a completed ISDB
+    # stays a Success.
+    db = _db_with_role(tmp_path, "Project")
+    data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], tickets=[
+        Ticket("ISReq-1", "ISReq", "x", "Done", None, assignee_email=E, sprint_id=201,
+               is_done_date=date(2026, 6, 12)),
+        Ticket("ISDB-1", "ISDB", "y", "Done", None, assignee_email=E, sprint_id=None,
+               is_done_date=date(2026, 6, 12)),
+    ])
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    dist = {t.key: t.color.value for t in panel.groups["Distractors"]}
+    succ = {t.key for t in panel.groups["Success"]}
+    assert dist.get("ISReq-1") == "red"     # off-task completed ISReq → red distractor
+    assert "ISReq-1" not in succ
+    assert "ISDB-1" in succ                  # the engineer's ISDB completion is a success
     db.close()
 
 

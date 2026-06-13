@@ -332,13 +332,20 @@ def build_panel(
         email, data.tickets, data.touches, data.pulse_sprint_ids, (pstart, pend)
     )
 
-    # Reclassify assigned *in-progress* tickets into Distractors (To Do / queued
-    # work is never a distraction, even when untriaged):
-    #  * highest_focus toggle: any ISReq not Highest / not [PR/MP Review] → red.
-    #  * role rules (#86): BVG non-priority, Project non-ISDB (Project flagged yellow).
+    # Reclassify assigned tickets into Distractors (To Do / queued work is never a
+    # distraction, even when untriaged):
+    #  * highest_focus toggle (WIP only): any in-progress ISReq not Highest /
+    #    not [PR/MP Review] → red.
+    #  * role rules (#86): BVG non-priority, PVG In-Review (yellow), Project
+    #    non-ISDB (red) — Project distractions also pull completed work out of
+    #    Success, since off-task ISReq is never a success for a Project engineer.
     focus_distractor_ids: set[str] = set()
     role_distractor_ids: set[str] = set()
-    for grp in () if is_management else (TicketGroup.WIP,):
+    scan_groups = () if is_management else (TicketGroup.WIP, TicketGroup.SUCCESS)
+    for grp in scan_groups:
+        # The Highest-focus toggle is about in-progress focus; it never demotes a
+        # completed ticket, so it applies to WIP only.
+        apply_focus = highest_focus and grp is TicketGroup.WIP
         kept = []
         for t in grouped[grp]:
             role_dist = is_role_distractor(role, t)
@@ -346,7 +353,7 @@ def build_panel(
                 # PVG's "In Review" rule wins over the Highest-only toggle (yellow).
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 role_distractor_ids.add(t.id)
-            elif highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
+            elif apply_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 focus_distractor_ids.add(t.id)
             elif role_dist:
