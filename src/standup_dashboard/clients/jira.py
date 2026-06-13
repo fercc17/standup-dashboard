@@ -34,22 +34,23 @@ class JiraClient(ReadOnlyClient):
     async def active_sprint(self, project_key: str) -> dict[str, Any] | None:
         """Resolve the active sprint for a project.
 
-        Tries the pinned board id from config first, then falls back to board
-        discovery (skipping kanban boards, which have no sprints and return 400
-        on the sprint endpoint).
+        A pinned board id in config is **authoritative**: if it is a kanban board
+        with no active sprint (returns 400 on the sprint endpoint), the project
+        simply has no sprint pulse — we do NOT fall back to board discovery, which
+        would otherwise adopt another project's shared scrum sprint (e.g. ISDB on
+        kanban board 1400 wrongly picking up ISReq's sprint). Discovery is only a
+        safety net for projects with no pinned board.
         """
         pinned = config.PROJECT_BOARDS.get(project_key)
         if pinned is not None:
-            sprint = await self._first_active_sprint([pinned])
-            if sprint is not None:
-                return sprint
+            return await self._first_active_sprint([pinned])
 
         boards = await self._get_json(
             f"{_AGILE}/board", params={"projectKeyOrId": project_key}
         )
         discovered = [
             b["id"] for b in boards.get("values", [])
-            if (b.get("type") or "scrum") == "scrum" and b["id"] != pinned
+            if (b.get("type") or "scrum") == "scrum"
         ]
         return await self._first_active_sprint(discovered)
 
