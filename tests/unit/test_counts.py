@@ -155,6 +155,22 @@ def test_days_capped_at_today():
     assert day_rows[0].label.startswith("Thu")
 
 
+def test_closed_pr_mp_credited_to_assignee_region():
+    # A [PR/MP Review] ticket created in the EMEA window but OWNED by an AMER
+    # engineer: its PR/MP-closed credit goes to AMER (owner), while the generic
+    # closed_total still follows EMEA (creation region).
+    t = Ticket(id="ISReq-PRC", project_key="ISReq", title="[PR/MP Review] done",
+               status="Done", priority="Medium", labels=[], created=utc(2026, 6, 5, 10),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER)
+    amer_fri = build_region_counts("AMER", [t], [], _pulses(), utc(2026, 6, 15))[1]
+    emea_fri = build_region_counts("EMEA", [t], [], _pulses(), utc(2026, 6, 15))[1]
+    assert amer_fri.closed_pr_mp.count == 1
+    assert amer_fri.closed_pr_mp.breakdown == {"Alexandre Gomes": 1}
+    assert amer_fri.closed_total.count == 0      # creation region is EMEA, not AMER
+    assert emea_fri.closed_pr_mp.count == 0      # owner is AMER, not EMEA
+    assert emea_fri.closed_total.count == 1      # but the generic close is EMEA's
+
+
 def test_region_follows_creation_time_not_assignee():
     # Ticket created at 10:00 UTC (EMEA window) but assigned to an AMER engineer:
     # it belongs to EMEA (creation time), not AMER (assignee).

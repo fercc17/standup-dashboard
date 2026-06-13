@@ -9,6 +9,7 @@
       <th class="stk"><span class="proj">ISReq</span><span>New</span><span>Regular</span></th>
       <th class="stk"><span class="proj">ISReq</span><span>New</span><span>Total</span></th>
       <th class="stk grp"><span class="proj">ISReq</span><span>Closed</span><span>Highest</span></th>
+      <th class="stk" title="Closed [PR/MP Review] — by assignee (owner) region"><span class="proj">ISReq</span><span>Closed</span><span>PR/MP</span></th>
       <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>ps5</span></th>
       <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>Total</span></th>
       <th class="stk"><span class="proj">ISReq</span><span>Closed</span><span>%</span></th>
@@ -31,6 +32,7 @@
       <td data-tip="{{ c.new_regular.tip }}">{{ c.new_regular.count }}</td>
       <td class="sub" data-tip="{{ c.new_total.tip }}">{{ c.new_total.count }}</td>
       <td class="grp" data-tip="{{ c.closed_highest.tip }}">{{ c.closed_highest.count }}</td>
+      <td data-tip="{{ c.closed_pr_mp.tip }}">{{ c.closed_pr_mp.count }}</td>
       <td data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
       <td class="sub" data-tip="{{ c.closed_total.tip }}">{{ c.closed_total.count }}</td>
       <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>

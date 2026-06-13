@@ -253,7 +253,7 @@ class DetailPanelVM:
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).
 PULSE_SUMMARY_FIELDS = (
     "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
-    "closed_highest", "closed_ps5", "closed_total", "isdb_closed",
+    "closed_highest", "closed_pr_mp", "closed_ps5", "closed_total", "isdb_closed",
     "alerts_ack", "alerts_resolved", "alerts_total",
 )
 
@@ -307,6 +307,9 @@ class CountsRow:
     new_regular: Cell = field(default_factory=Cell)
     new_total: Cell = field(default_factory=Cell)
     closed_highest: Cell = field(default_factory=Cell)
+    # Closed [PR/MP Review] tickets, attributed by ASSIGNEE (owner) region — a
+    # deliberate exception to the creation-time region used by the other columns.
+    closed_pr_mp: Cell = field(default_factory=Cell)
     closed_ps5: Cell = field(default_factory=Cell)
     closed_total: Cell = field(default_factory=Cell)
     isdb_closed: Cell = field(default_factory=Cell)

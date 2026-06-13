@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     new_regular     INTEGER NOT NULL,
     new_total       INTEGER NOT NULL,
     closed_highest  INTEGER NOT NULL,
+    closed_pr_mp    INTEGER NOT NULL DEFAULT 0,
     closed_ps5      INTEGER NOT NULL,
     closed_total    INTEGER NOT NULL,
     isdb_closed     INTEGER NOT NULL DEFAULT 0,
@@ -196,6 +197,10 @@ class Database:
         if "pulse_number" in ps_cols and "isdb_closed" not in ps_cols:
             self._conn.execute(
                 "ALTER TABLE pulse_summary ADD COLUMN isdb_closed INTEGER NOT NULL DEFAULT 0"
+            )
+        if "pulse_number" in ps_cols and "closed_pr_mp" not in ps_cols:
+            self._conn.execute(
+                "ALTER TABLE pulse_summary ADD COLUMN closed_pr_mp INTEGER NOT NULL DEFAULT 0"
             )
 
     def close(self) -> None:
