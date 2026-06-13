@@ -238,7 +238,7 @@ class TicketVM:
     is_bvg_review: bool = False
     url: str | None = None  # Jira browse / PagerDuty link
     touched_24h: bool = False  # touched in the last 24h (for the panel split, #17)
-    stale: bool = False  # Highest + open for more than one pulse (#18)
+    pulses_open: int = 0  # Highest + open: full pulses it has stayed open, 0 if fresh (#18)
     status: str = ""  # Jira status name, shown on the ticket line
 
 
@@ -267,6 +267,7 @@ class PulseHistoryRow:
     region_pct: float | None = None        # selected regions' share of all alerts that pulse
     closed_pct: float | None = None        # selected regions' share of all ISReq closed
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
+    alert_fatigue: bool = False            # pulse alert load over the 2-per-12h standard (red)
 
 
 @dataclass
@@ -320,3 +321,4 @@ class CountsRow:
     closed_pct: float | None = None  # region's share of all ISReq closed tickets
     isdb_closed_pct: float | None = None  # region's share of all ISDB closed tickets
     is_previous: bool = False  # the previous-pulse comparison row (#80)
+    alert_fatigue: bool = False  # alerts that day exceed the per-shift standard (red)

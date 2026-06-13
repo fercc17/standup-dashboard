@@ -139,6 +139,8 @@ table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border);
 table.counts td.sub { font-weight: 600; }
 /* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
 table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
+/* Alert fatigue: alert cells of a day exceeding the 2-per-12h-shift standard. */
+table.counts td.fatigue { background: var(--red-bg); color: var(--red); font-weight: 600; }
 
 /* Custom hover/tap tooltip (native title tooltips don't fire on touch). */
 .tip-pop {

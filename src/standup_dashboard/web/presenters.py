@@ -34,8 +34,8 @@ from ..domain.models import (
 )
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
+from ..services.counts import ALERT_FATIGUE_PULSE, combine_summaries, region_pulse_summary
 from ..services.counts import build_counts as _build_counts
-from ..services.counts import combine_summaries, region_pulse_summary
 from ..services.oncall import others_off
 from ..services.pulse import current_pulse
 from ..storage.db import Database
@@ -126,10 +126,21 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         if snap_oncall:
             oncall = snap_oncall
 
-    # Alerts: latest successful (PagerDuty-ok) fetch only — it already holds the
-    # whole pulse, so no accumulation of stale alerts.
-    alert_snaps = [s for s in snaps if s.pagerduty_ok]
-    alerts = db.get_alerts(alert_snaps[-1].id) if alert_snaps else []
+    # Alerts: PagerDuty is fetched incrementally (only since the last refresh),
+    # so each snapshot holds just its window's alerts — accumulate across every
+    # PagerDuty-ok snapshot in the pulse. Dedup by (incident, handler, state,
+    # time); the 1h fetch overlap re-emits some events, so prefer the enriched
+    # copy (with incident title/number) when the same event recurs.
+    alerts_by_key: dict[tuple, Alert] = {}
+    for snap in snaps:  # oldest → newest
+        if not snap.pagerduty_ok:
+            continue
+        for a in db.get_alerts(snap.id):
+            key = (a.id, a.handler_email, a.state, a.at)
+            existing = alerts_by_key.get(key)
+            if existing is None or (a.title and not existing.title):
+                alerts_by_key[key] = a
+    alerts = list(alerts_by_key.values())
 
     return DashboardData(
         fetched_at=snaps[-1].fetched_at,
@@ -280,20 +291,22 @@ def build_pulse_history(
             for name, n in (breakdowns.get(m) or {}).items():
                 slot[m].breakdown[name] = slot[m].breakdown.get(name, 0) + n
 
-    # Overlay the current + previous pulse with freshly-computed cells.
+    # Overlay only the current pulse with freshly-computed cells so it reflects
+    # the latest in-pulse data. Past pulses (incl. the immediately previous one)
+    # come from stored summaries: the live snapshot's window no longer covers
+    # them in full — alerts before the PagerDuty floor read as zero — so a live
+    # recompute would blank out backfilled history (e.g. Pulse 11's alerts).
     if selected_regions:
         zone = ZoneInfo(config.REGIONS[selected_regions[0]].timezone)
         cur_num, _, _ = current_pulse(now.astimezone(zone).date())
-        for num, prev in ((cur_num, False), (cur_num - 1, True)):
-            by_region = {
-                r: region_pulse_summary(r, data.tickets, data.alerts, data.pulses,
-                                        now, previous=prev)
-                for r in config.REGION_KEYS
-            }
-            per_pulse[num] = combine_summaries([by_region[r] for r in selected_regions])
-            all_alerts[num] = sum(by_region[r]["alerts_total"].count for r in config.REGION_KEYS)
-            all_closed[num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
-            all_isdb[num] = sum(by_region[r]["isdb_closed"].count for r in config.REGION_KEYS)
+        by_region = {
+            r: region_pulse_summary(r, data.tickets, data.alerts, data.pulses, now)
+            for r in config.REGION_KEYS
+        }
+        per_pulse[cur_num] = combine_summaries([by_region[r] for r in selected_regions])
+        all_alerts[cur_num] = sum(by_region[r]["alerts_total"].count for r in config.REGION_KEYS)
+        all_closed[cur_num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
+        all_isdb[cur_num] = sum(by_region[r]["isdb_closed"].count for r in config.REGION_KEYS)
 
     rows: list[PulseHistoryRow] = []
     for pnum in sorted(per_pulse):
@@ -304,6 +317,7 @@ def build_pulse_history(
             region_pct=(100.0 * cells["alerts_total"].count / ga) if ga else None,
             closed_pct=(100.0 * cells["closed_total"].count / gc) if gc else None,
             isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
+            alert_fatigue=cells["alerts_total"].count > ALERT_FATIGUE_PULSE,
         ))
     return rows
 
@@ -367,16 +381,16 @@ def build_panel(
         tc.ticket_id for tc in data.touches
         if tc.engineer_email == email and tc.at >= now - _24H
     }
-    # A Highest ticket still open more than a pulse after creation is stale (#18).
-    stale_cutoff = now - timedelta(days=config.PULSE_LENGTH_DAYS)
-
-    def _is_stale(t: Ticket, group: TicketGroup) -> bool:
-        return (
+    # A Highest ticket still open is flagged with how many full pulses it has
+    # stayed open (#18); 1 pulse = PULSE_LENGTH_DAYS days. 0 = fresh / not Highest.
+    def _pulses_open(t: Ticket, group: TicketGroup) -> int:
+        if not (
             t.is_highest
             and group in (TicketGroup.TODO, TicketGroup.WIP)
             and t.created is not None
-            and t.created < stale_cutoff
-        )
+        ):
+            return 0
+        return (now - t.created).days // config.PULSE_LENGTH_DAYS
 
     shown = (TicketGroup.TODO, TicketGroup.WIP, TicketGroup.SUCCESS)
     if not is_management:
@@ -401,7 +415,7 @@ def build_panel(
                     is_bvg_review=t.is_bvg_review,
                     url=config.jira_browse_url(t.id),
                     touched_24h=t.id in touched_24h_ids,
-                    stale=_is_stale(t, group),
+                    pulses_open=_pulses_open(t, group),
                     status=t.status,
                 )
             )

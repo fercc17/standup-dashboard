@@ -9,7 +9,7 @@
   {% endif %}
   {% if t.status %}<span class="tstatus">{{ t.status }}</span>{% endif %}
   {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
-  {% if t.stale %}<span class="badge stale" title="Highest priority, open for more than one pulse">&#9203; &gt;1 pulse</span>{% endif %}
+  {% if t.pulses_open %}<span class="badge stale" title="Highest priority, open for more than {{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}">&#9203; &gt;{{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}</span>{% endif %}
 </div>
 {% endmacro %}
 <div class="panel" data-engineer="{{ panel.email }}" data-region="{{ region_key }}">

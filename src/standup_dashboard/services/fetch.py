@@ -182,8 +182,9 @@ async def _fetch_pagerduty(
             pd = pd_mod.PagerDutyClient(hc)
             users = await pd.list_users()
             id_to_email = {u["id"]: u.get("email", "") for u in users}
-            # Never request incidents from before the hard floor (FR: PagerDuty
-            # window starts no earlier than June 11).
+            # Hard floor: never request incidents from before PAGERDUTY_MIN_SINCE
+            # (2026-06-08). With incremental fetches this only binds on a cold
+            # start; afterwards ``since`` is the last successful PagerDuty fetch.
             since = max(since, config.PAGERDUTY_MIN_SINCE)
             # Scope to the roster's PagerDuty team(s) so we don't pull the whole org.
             incidents = await pd.incidents(since, now, team_ids=config.PAGERDUTY_TEAM_IDS)
@@ -242,17 +243,23 @@ async def run_fetch(
     if window_days is not None:
         jira_window_start = pd_window_start = now - timedelta(days=window_days)
     else:
-        # Incremental (#88) only for the heavy Jira comment/worklog calls: query
-        # since the last good fetch; earlier data is preserved by merging the
-        # pulse's snapshots. PagerDuty re-fetches the whole pulse window each time
-        # (bounded + cheap) so alert titles/links stay populated for every alert.
-        last_good = db.latest_good_fetch()
+        # Incremental (#88): each source resumes just after its own last
+        # successful fetch (a 1h overlap absorbs clock skew / boundary misses);
+        # earlier data is preserved by merging the pulse's snapshots — tickets
+        # and now alerts both accumulate (see load_merged_data). On a cold start
+        # (no prior good fetch) fall back to the full FETCH_WINDOW_DAYS window.
+        last_jira = db.latest_good_fetch()
+        last_pd = db.latest_pagerduty_fetch()
         jira_window_start = (
-            last_good.fetched_at - timedelta(hours=1)
-            if last_good is not None
+            last_jira.fetched_at - timedelta(hours=1)
+            if last_jira is not None
             else full_window_start
         )
-        pd_window_start = full_window_start
+        pd_window_start = (
+            last_pd.fetched_at - timedelta(hours=1)
+            if last_pd is not None
+            else full_window_start
+        )
     roster = set(config.all_roster_emails())
 
     jira_res, pd_res, ical_res = await asyncio.gather(

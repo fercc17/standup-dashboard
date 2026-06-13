@@ -47,6 +47,18 @@ from .pulse import current_pulse, previous_pulse
 # retarget the whole ticket section.
 COUNTS_PROJECT = config.PROJECT_ISREQ
 
+# Alert-fatigue thresholds: the on-call standard is 2 alerts per 12h shift, so a
+# day exceeding that is flagged red in the table. A weekday row is one 12h shift
+# (limit 2); a weekend row merges Sat+Sun into a single 48h on-call shift = four
+# 12h shifts, so its limit is 4 × 2 = 8. "More than" the limit (strictly) is red.
+ALERT_FATIGUE_WEEKDAY = 2
+ALERT_FATIGUE_WEEKEND = 8
+# Per-pulse equivalent: a pulse is one Jira sprint = PULSE_LENGTH_DAYS (14) days,
+# i.e. 14 × 2 = 28 twelve-hour cycles, so the limit is the 2-per-12h standard
+# times 28 = 56 alerts. Used to flag a fatigued pulse red in the pulse-history
+# table (mirrors how ALERT_FATIGUE_WEEKEND = 2 × 48h⁄12h was derived).
+ALERT_FATIGUE_PULSE = ALERT_FATIGUE_WEEKDAY * (config.PULSE_LENGTH_DAYS * 2)
+
 
 def _local_date(dt: datetime, zone: ZoneInfo) -> date:
     return dt.astimezone(zone).date()
@@ -229,6 +241,10 @@ def build_counts(
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
+        # Alert fatigue: a real day (not a pulse-total row) whose alert load
+        # exceeds the per-shift standard (weekday one shift, weekend = four).
+        fatigue_limit = ALERT_FATIGUE_WEEKEND if is_weekend else ALERT_FATIGUE_WEEKDAY
+        alert_fatigue = (not is_total) and (ack.count + resolved.count) > fatigue_limit
         region_distinct = _alert_cell(alerts, selected_members, dset, None).count
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
@@ -271,6 +287,7 @@ def build_counts(
             region_alert_pct=pct,
             closed_pct=closed_pct,
             isdb_closed_pct=isdb_closed_pct,
+            alert_fatigue=alert_fatigue,
         )
 
     rows: list[CountsRow] = []
@@ -320,16 +337,21 @@ def _window_dates(pulses: list[Pulse], zone: ZoneInfo, now: datetime, previous: 
 
 def region_pulse_summary(
     region: str, tickets: list[Ticket], alerts: list[Alert], pulses: list[Pulse],
-    now: datetime, *, previous: bool = False,
+    now: datetime, *, previous: bool = False, dates: set[date] | None = None,
 ) -> dict[str, Cell]:
     """Per-metric Cells (count + person breakdown) for one region's pulse (#80).
 
     Attribution per the requested tooltips: new tickets break down by requestor
     (reporter) — except [PR/MP Review], which uses assignee; closed by assignee;
     alerts by handler.
+
+    ``dates`` overrides the window with an explicit set of region-local calendar
+    days (used by the historical backfill); when omitted it is derived from the
+    pulse calendar as usual.
     """
     zone = ZoneInfo(config.REGIONS[region].timezone)
-    dates = _window_dates(pulses, zone, now, previous)
+    if dates is None:
+        dates = _window_dates(pulses, zone, now, previous)
     members = set(config.REGIONS[region].member_emails)
     scoped = [t for t in tickets if t.project_key == COUNTS_PROJECT]
 
@@ -388,8 +410,12 @@ def persist_pulse_summaries(db, tickets, alerts, pulses, now: datetime) -> None:
     for region in config.REGION_KEYS:
         zone = ZoneInfo(config.REGIONS[region].timezone)
         cur_num, _, _ = current_pulse(now.astimezone(zone).date())
+        # Current pulse is authoritative (replace); the previous pulse only fills
+        # a gap (replace=False) so a refresh whose live window no longer covers
+        # it — e.g. its alerts predate the PagerDuty floor — can't wipe a stored
+        # (backfilled / earlier current-phase) summary down to zero.
         for num, prev in ((cur_num, False), (cur_num - 1, True)):
             cells = region_pulse_summary(region, tickets, alerts, pulses, now, previous=prev)
             counts = {m: c.count for m, c in cells.items()}
             breakdowns = {m: c.breakdown for m, c in cells.items()}
-            db.upsert_pulse_summary(num, region, counts, breakdowns, now)
+            db.upsert_pulse_summary(num, region, counts, breakdowns, now, replace=not prev)

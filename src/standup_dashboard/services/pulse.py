@@ -39,6 +39,17 @@ def previous_pulse(today: date) -> tuple[int, date, date]:
     return num - 1, start - timedelta(days=config.PULSE_LENGTH_DAYS), start
 
 
+def pulse_window(num: int) -> tuple[date, date]:
+    """(start_monday, end_exclusive) for a given pulse number.
+
+    Inverts ``current_pulse`` off the anchor grid (any anchor works — they all
+    lie on the same 2-week cadence), so it resolves past pulses for backfill.
+    """
+    anchor_date, anchor_num = config.PULSE_ANCHORS[0]
+    start = anchor_date + timedelta(days=(num - anchor_num) * config.PULSE_LENGTH_DAYS)
+    return start, start + timedelta(days=config.PULSE_LENGTH_DAYS)
+
+
 def parse_jira_dt(value: str | None) -> datetime | None:
     """Parse a Jira ISO-8601 timestamp into an aware UTC datetime."""
     if not value:

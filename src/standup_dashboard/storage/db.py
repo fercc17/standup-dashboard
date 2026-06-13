@@ -202,6 +202,10 @@ class Database:
             self._conn.execute(
                 "ALTER TABLE pulse_summary ADD COLUMN closed_pr_mp INTEGER NOT NULL DEFAULT 0"
             )
+        if "pulse_number" in ps_cols and "breakdowns_json" not in ps_cols:
+            # Older DBs predate the per-person tooltip breakdowns; without this
+            # column upsert_pulse_summary fails and pulse history never persists.
+            self._conn.execute("ALTER TABLE pulse_summary ADD COLUMN breakdowns_json TEXT")
 
     def close(self) -> None:
         self._conn.close()
@@ -236,6 +240,23 @@ class Database:
             "SELECT * FROM fetch_snapshot WHERE jira_ok = 1 ORDER BY id DESC LIMIT 1"
         ).fetchone()
         return _row_to_snapshot(row) if row else None
+
+    def latest_pagerduty_fetch(self) -> FetchSnapshot | None:
+        """Most recent snapshot where PagerDuty succeeded — the start point for
+        the incremental alert window (mirrors ``latest_good_fetch`` for Jira)."""
+        row = self._conn.execute(
+            "SELECT * FROM fetch_snapshot WHERE pagerduty_ok = 1 ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        return _row_to_snapshot(row) if row else None
+
+    def last_refresh_at(self) -> datetime | None:
+        """When the most recent refresh ran (any source), or None if never.
+
+        The single easy accessor for "when did we last collect data" — used to
+        drive the incremental fetch window and available for last-updated display.
+        """
+        snap = self.latest_fetch()
+        return snap.fetched_at if snap else None
 
     def count_fetch_snapshots(self) -> int:
         return int(self._conn.execute("SELECT COUNT(*) FROM fetch_snapshot").fetchone()[0])
@@ -476,12 +497,22 @@ class Database:
 
     def upsert_pulse_summary(self, pulse_number: int, region: str,
                              metrics: dict[str, int], breakdowns: dict[str, dict[str, int]],
-                             now: datetime) -> None:
+                             now: datetime, *, replace: bool = True) -> None:
+        """Store one pulse/region summary.
+
+        ``replace=True`` (default) overwrites any existing row — used for the
+        authoritative current pulse and the backfill. ``replace=False`` only
+        fills a gap (INSERT OR IGNORE): the live previous-pulse persist must not
+        clobber an already-stored summary, because once a pulse falls behind the
+        PagerDuty hard floor / Jira window the live snapshot can't see its full
+        alert/ticket span and would zero out good history (#80 backfill).
+        """
         cols = ", ".join(PULSE_SUMMARY_FIELDS)
         placeholders = ", ".join("?" for _ in PULSE_SUMMARY_FIELDS)
         values = [int(metrics.get(f, 0)) for f in PULSE_SUMMARY_FIELDS]
+        conflict = "REPLACE" if replace else "IGNORE"
         self._conn.execute(
-            f"INSERT OR REPLACE INTO pulse_summary"
+            f"INSERT OR {conflict} INTO pulse_summary"
             f" (pulse_number, region, {cols}, breakdowns_json, updated_at)"
             f" VALUES (?, ?, {placeholders}, ?, ?)",
             (pulse_number, region, *values, json.dumps(breakdowns), now.isoformat()),
