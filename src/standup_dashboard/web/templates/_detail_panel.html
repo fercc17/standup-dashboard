@@ -7,6 +7,7 @@
   <span class="key">{{ t.key }}</span>
   <span class="title">{{ t.title }}</span>
   {% endif %}
+  {% if t.status %}<span class="tstatus">{{ t.status }}</span>{% endif %}
   {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
   {% if t.stale %}<span class="badge stale" title="Highest priority, open for more than one pulse">&#9203; &gt;1 pulse</span>{% endif %}
 </div>

@@ -86,6 +86,7 @@ def test_us1_refresh_and_detail(client, app, respx_mock):
     assert detail.status_code == 200
     panel = detail.text
     assert "ISDB-1" in panel and "ISReq-1" in panel and "ISReq-9" in panel
+    assert '<span class="tstatus">In Progress</span>' in panel  # ID — Title — Status
     assert "c-green" in panel         # assigned ISDB under Project
     assert "c-red" in panel           # assigned ISReq + distractor under Project
     # Each Jira ticket title/key links out to the issue (#89).

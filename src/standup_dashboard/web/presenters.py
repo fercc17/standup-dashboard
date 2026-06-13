@@ -374,6 +374,7 @@ def build_panel(
                     url=config.jira_browse_url(t.id),
                     touched_24h=t.id in touched_24h_ids,
                     stale=_is_stale(t, group),
+                    status=t.status,
                 )
             )
         out[group.value] = vms
