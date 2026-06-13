@@ -44,8 +44,10 @@ def test_assigned_matrix(role, ticket, expected):
     assert ticket_color(role, ticket, assigned=True) == expected
 
 
-# Role-based distractions (#86): Project flags yellow, everyone else red.
-@pytest.mark.parametrize("role,expected", [(Role.PROJECT, Color.YELLOW), (Role.BVG, Color.RED)])
+# Role-based distractions (#86): Project / PVG flag yellow, everyone else red.
+@pytest.mark.parametrize("role,expected", [
+    (Role.PROJECT, Color.YELLOW), (Role.PVG, Color.YELLOW), (Role.BVG, Color.RED),
+])
 def test_role_distractor_color(role, expected):
     assert ticket_color(role, mk("ISReq"), assigned=True, role_distractor=True) == expected
 
@@ -84,6 +86,9 @@ RECLASSIFY_CASES = [
     # Project: not ISDB → distractor.
     (Role.PROJECT, mk("ISReq"), True),
     (Role.PROJECT, mk("ISDB"), False),
+    # PVG: tickets in "In Review" → distractor.
+    (Role.PVG, mk("ISReq", status="In Review"), True),
+    (Role.PVG, mk("ISReq", status="In Progress"), False),
     # PVG / GEN / OFF: no role-based reclassification.
     (Role.PVG, mk("ISReq"), False),
     (Role.GEN, mk("ISReq"), False),

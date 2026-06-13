@@ -389,15 +389,21 @@ def build_panel(
         prev = alert_by_incident.get(a.id)
         if prev is None or prev.state is not AlertState.RESOLVED:
             alert_by_incident[a.id] = a
+    # For GEN, alerts are a distraction (their focus is ISReq tickets): all alerts
+    # go under Distractors — unresolved acks red, resolved yellow.
+    gen_alerts = role is Role.GEN and not is_management
     for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        if resolved:
-            color = Color.GREEN
+        if gen_alerts:
+            color = Color.YELLOW if resolved else Color.RED
+            target = TicketGroup.DISTRACTORS
+        elif resolved:
+            color, target = Color.GREEN, TicketGroup.SUCCESS
         elif recent:
-            color = Color.YELLOW          # acked in the last 24h
+            color, target = Color.YELLOW, TicketGroup.WIP   # acked in the last 24h
         else:
-            color = Color.RED             # acked >24h ago, still not resolved → stale
+            color, target = Color.RED, TicketGroup.WIP      # acked >24h, still open → stale
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if a.number is not None:
@@ -410,6 +416,6 @@ def build_panel(
             url=a.url,
             touched_24h=recent,
         )
-        out[(TicketGroup.SUCCESS if resolved else TicketGroup.WIP).value].append(vm)
+        out[target.value].append(vm)
 
     return DetailPanelVM(email=email, name=eng.name, role=role, groups=out)
