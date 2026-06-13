@@ -12,6 +12,13 @@ from typing import Any
 
 import httpx
 
+from standup_dashboard import config
+
+# The client now queries the config-pinned board ids (authoritative). Scenarios
+# still declare simple board ids, so translate a pinned id back to the scenario's
+# board for that project. Mirrors production, where the pinned board is queried.
+_PINNED_TO_PROJECT = {bid: key for key, bid in config.PROJECT_BOARDS.items()}
+
 
 def issue(
     key: str,
@@ -90,7 +97,11 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
         return httpx.Response(200, json={"values": values})
 
     if m := _BOARD_SPRINT.match(path):
-        sprint = scenario.sprints.get(int(m.group(1)))
+        board_id = int(m.group(1))
+        proj = _PINNED_TO_PROJECT.get(board_id)
+        if proj is not None:  # map pinned id → this scenario's board for the project
+            board_id = scenario.boards.get(proj, board_id)
+        sprint = scenario.sprints.get(board_id)
         return httpx.Response(200, json={"values": [sprint] if sprint else []})
 
     if m := _SPRINT_ISSUE.match(path):
