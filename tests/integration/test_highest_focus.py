@@ -40,14 +40,16 @@ def test_highest_toggle_recolors_isreq_distractor_red(client, app, respx_mock):
     now = datetime.now(UTC)
     install(respx_mock, _scenario(now))
     slot = region_weekday(now, AMER_TZ)
-    # Project role: ISReq is already a role-distractor → yellow (#86) by default.
-    app.state.ctx.db.set_weekly_role(COLIN, slot, "Project", now)
+    # GEN role: ISReq is NOT a role-distractor, so the toggle's effect is isolated
+    # (Project would already force red regardless of the toggle).
+    app.state.ctx.db.set_weekly_role(COLIN, slot, "GEN", now)
     client.post("/refresh", data={"regions": "AMER"})
 
     off = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    assert "ISReq-5" in off and "c-yellow" in off  # Project role-distractor
+    # Toggle off: the in-progress ISReq is current work in WIP, not a distraction.
+    assert "ISReq-5" in off[: off.index("Distractors")]
 
-    # Turn on "Highest only" → the non-Highest in-progress ISReq goes red.
+    # Turn on "Highest only" → the non-Highest in-progress ISReq goes red in Distractors.
     assert client.post("/toggle/highest", data={"value": "on"}).status_code == 204
     on = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
     assert "ISReq-5" in on and "c-red" in on

@@ -11,11 +11,12 @@ Assigned, non-Done tickets (after role-based reclassification, see
 | PVG     | red (tickets are a distraction from alerts)      | —                |
 | BVG     | green (only Highest / [PR/MP Review] are kept)    | red              |
 | GEN     | green iff ISReq Highest/ps5, else red            | —                |
-| Project | green (only ISDB is kept)                        | yellow           |
+| Project | green (only ISDB is kept)                        | red              |
 | OFF     | red                                              | —                |
 
 Non-assigned touches: PVG/BVG green; GEN/Project/OFF red.
-FR-017: a Done (Success) ticket is always green, regardless of role.
+FR-017: a Done (Success) ticket is green — except for a Project engineer, whose
+non-ISDB work is an off-task RED distraction even when completed.
 PVG alerts (resolved → green Success, ack → yellow WIP) are surfaced in the
 panel builder, which is the general case for all roles.
 """
@@ -34,20 +35,23 @@ _NON_ASSIGNED: dict[Role, Color] = {
 
 
 def is_role_distractor(role: Role, ticket: Ticket) -> bool:
-    """Whether an *assigned* (non-Done) ticket is a distraction for ``role`` (#86).
+    """Whether an assigned ticket is a distraction for ``role`` (#86).
 
-    These tickets are regrouped under Distractors instead of To Do / WIP:
-      * BVG: any ticket that is NOT Highest and NOT a ``[PR/MP Review]``.
-      * Project: any ticket that is NOT ISDB.
-      * PVG: any ticket in Jira status "In Review".
-    Done (Success) tickets are never distractions — finished work is a success.
+    These tickets are regrouped under Distractors instead of To Do / WIP / Success:
+      * Project: any ticket that is NOT ISDB — even when Done. A Project engineer
+        should only work ISDB, so a completed ISReq is still off-task, not a
+        success (overrides the FR-017 Success-green rule for this role).
+      * BVG: any non-Done ticket that is NOT Highest and NOT a ``[PR/MP Review]``.
+      * PVG: any non-Done ticket in Jira status "In Review".
+    For BVG/PVG, finished (Success) work is a success, never a distraction.
     """
+    # Project: non-ISDB is off-task regardless of status (incl. Done/Success).
+    if role is Role.PROJECT:
+        return not ticket.is_isdb
     if ticket.group is TicketGroup.SUCCESS:
         return False
     if role is Role.BVG:
         return not (ticket.is_highest or ticket.is_pr_mp_review)
-    if role is Role.PROJECT:
-        return not ticket.is_isdb
     if role is Role.PVG:
         return (ticket.status or "").strip().lower() == "in review"
     return False
@@ -69,13 +73,15 @@ def ticket_color(
     by the engineer's role (#86). ``group`` carries the precomputed status group
     so the FR-017 Success-green override applies.
     """
-    # FR-017 — Success is always green.
+    # Role-based distraction takes precedence over the Success-green rule: for a
+    # Project engineer a completed ISReq is still an off-task RED distraction.
+    # PVG distractions stay yellow; everyone else (Project, BVG) red (#86 / #..).
+    if role_distractor:
+        return Color.YELLOW if role is Role.PVG else Color.RED
+
+    # FR-017 — Success is always green for non-distractor tickets.
     if group is TicketGroup.SUCCESS or ticket.group is TicketGroup.SUCCESS:
         return Color.GREEN
-
-    # Role-based distraction: Project / PVG flag yellow, everyone else red (#86).
-    if role_distractor:
-        return Color.YELLOW if role in (Role.PROJECT, Role.PVG) else Color.RED
 
     if not assigned:
         return _NON_ASSIGNED[role]
