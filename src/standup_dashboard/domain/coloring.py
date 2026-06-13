@@ -39,6 +39,7 @@ def is_role_distractor(role: Role, ticket: Ticket) -> bool:
     These tickets are regrouped under Distractors instead of To Do / WIP:
       * BVG: any ticket that is NOT Highest and NOT a ``[PR/MP Review]``.
       * Project: any ticket that is NOT ISDB.
+      * PVG: any ticket in Jira status "In Review".
     Done (Success) tickets are never distractions — finished work is a success.
     """
     if ticket.group is TicketGroup.SUCCESS:
@@ -47,6 +48,8 @@ def is_role_distractor(role: Role, ticket: Ticket) -> bool:
         return not (ticket.is_highest or ticket.is_pr_mp_review)
     if role is Role.PROJECT:
         return not ticket.is_isdb
+    if role is Role.PVG:
+        return (ticket.status or "").strip().lower() == "in review"
     return False
 
 
@@ -70,9 +73,9 @@ def ticket_color(
     if group is TicketGroup.SUCCESS or ticket.group is TicketGroup.SUCCESS:
         return Color.GREEN
 
-    # Role-based distraction: Project flags yellow, everyone else red (#86).
+    # Role-based distraction: Project / PVG flag yellow, everyone else red (#86).
     if role_distractor:
-        return Color.YELLOW if role is Role.PROJECT else Color.RED
+        return Color.YELLOW if role in (Role.PROJECT, Role.PVG) else Color.RED
 
     if not assigned:
         return _NON_ASSIGNED[role]

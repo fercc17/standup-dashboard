@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from standup_dashboard.domain.roles import region_weekday
 from standup_dashboard.services.fetch import run_fetch
 from standup_dashboard.web import presenters
 from tests.fixtures.jira_pd import Scenario, install
 
 PVG = "alexandre.gomes@canonical.com"  # AMER
+AMER_TZ = "America/Mexico_City"
 
 
 def _jira_dt(dt: datetime) -> str:
@@ -50,6 +52,9 @@ async def test_stale_ack_is_red_recent_ack_is_yellow(app, respx_mock):
     now = _utc(2026, 6, 12, 18)
     install(respx_mock, _scenario(now))
     ctx = app.state.ctx
+    # PVG keeps alerts in WIP (GEN routes them to Distractors), so the recent/stale
+    # ack coloring applies here.
+    ctx.db.set_weekly_role(PVG, region_weekday(now, AMER_TZ), "PVG", now)
     fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now, window_days=3)
     data = presenters.load_fetch_data(ctx.db, now, fetch_id)
     panel = presenters.build_panel(ctx.db, PVG, data, now, region_key="AMER")
