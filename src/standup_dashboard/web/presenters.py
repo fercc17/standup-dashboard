@@ -335,10 +335,15 @@ def build_panel(
     for grp in () if is_management else (TicketGroup.WIP,):
         kept = []
         for t in grouped[grp]:
-            if highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
+            role_dist = is_role_distractor(role, t)
+            if role_dist and role is Role.PVG:
+                # PVG's "In Review" rule wins over the Highest-only toggle (yellow).
+                grouped[TicketGroup.DISTRACTORS].append(t)
+                role_distractor_ids.add(t.id)
+            elif highest_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 focus_distractor_ids.add(t.id)
-            elif is_role_distractor(role, t):
+            elif role_dist:
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 role_distractor_ids.add(t.id)
             else:
