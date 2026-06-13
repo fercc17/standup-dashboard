@@ -94,7 +94,8 @@ def test_us1_refresh_and_detail(client, app, respx_mock):
     assert 'target="_blank"' in panel
     # Groups split into touched-24h | not-touched columns; alerts show the
     # incident title + a PagerDuty link (#17).
-    assert "Touched 24h" in panel and "Not touched 24h" in panel
+    assert '<div class="split-head">24H</div>' in panel
+    assert '<div class="split-head">Pulse</div>' in panel
     assert 'href="https://pd.test/INC1"' in panel
     # Alert line is "STATUS — #code — Title".
     assert "ACK — #4242 — DB down" in panel
