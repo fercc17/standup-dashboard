@@ -32,18 +32,24 @@ def make_async_client(token: str, *, base_url: str = config.JIRA_BASE_URL) -> ht
 
 class JiraClient(ReadOnlyClient):
     async def active_sprint(self, project_key: str) -> dict[str, Any] | None:
-        """Resolve the active sprint for a project.
+        """The primary active sprint for a project (first one), or None."""
+        sprints = await self.active_sprints(project_key)
+        return sprints[0] if sprints else None
 
-        A pinned board id in config is **authoritative**: if it is a kanban board
-        with no active sprint (returns 400 on the sprint endpoint), the project
-        simply has no sprint pulse — we do NOT fall back to board discovery, which
-        would otherwise adopt another project's shared scrum sprint (e.g. ISDB on
-        kanban board 1400 wrongly picking up ISReq's sprint). Discovery is only a
-        safety net for projects with no pinned board.
+    async def active_sprints(self, project_key: str) -> list[dict[str, Any]]:
+        """**All** active sprints on a project's board.
+
+        A scrum board can run several concurrent active sprints — e.g. the ISDB
+        board carries the shared cross-team sprint plus ISDB's own — so callers
+        fetch issues from every one to avoid missing sprint tickets.
+
+        A pinned board id in config is authoritative; only when a project has no
+        pinned board do we fall back to discovering its scrum boards (kanban
+        boards have no sprints and 400 on the sprint endpoint).
         """
         pinned = config.PROJECT_BOARDS.get(project_key)
         if pinned is not None:
-            return await self._first_active_sprint([pinned])
+            return await self._active_sprints_on([pinned])
 
         boards = await self._get_json(
             f"{_AGILE}/board", params={"projectKeyOrId": project_key}
@@ -52,22 +58,21 @@ class JiraClient(ReadOnlyClient):
             b["id"] for b in boards.get("values", [])
             if (b.get("type") or "scrum") == "scrum"
         ]
-        return await self._first_active_sprint(discovered)
+        return await self._active_sprints_on(discovered)
 
-    async def _first_active_sprint(self, board_ids: list[int]) -> dict[str, Any] | None:
+    async def _active_sprints_on(self, board_ids: list[int]) -> list[dict[str, Any]]:
+        sprints: list[dict[str, Any]] = []
         for board_id in board_ids:
             try:
-                sprints = await self._get_json(
+                data = await self._get_json(
                     f"{_AGILE}/board/{board_id}/sprint", params={"state": "active"}
                 )
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 400:
                     continue  # kanban board — no sprints; other errors are real
                 raise
-            values = sprints.get("values", [])
-            if values:
-                return values[0]
-        return None
+            sprints.extend(data.get("values", []))
+        return sprints
 
     async def sprint_issues(self, sprint_id: int) -> list[dict[str, Any]]:
         """All issues in a sprint, with changelog expanded, paginated."""

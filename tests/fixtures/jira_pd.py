@@ -101,8 +101,10 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
         proj = _PINNED_TO_PROJECT.get(board_id)
         if proj is not None:  # map pinned id → this scenario's board for the project
             board_id = scenario.boards.get(proj, board_id)
-        sprint = scenario.sprints.get(board_id)
-        return httpx.Response(200, json={"values": [sprint] if sprint else []})
+        s = scenario.sprints.get(board_id)
+        # A scenario may map a board to one sprint (dict) or several (list).
+        values = [] if s is None else (s if isinstance(s, list) else [s])
+        return httpx.Response(200, json={"values": values})
 
     if m := _SPRINT_ISSUE.match(path):
         issues = scenario.sprint_issues.get(int(m.group(1)), [])

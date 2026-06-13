@@ -62,11 +62,22 @@ async def _fetch_jira(
             res.pulses = await resolve_pulses(jira, config.PROJECT_KEYS)
 
             issues_by_key: dict[str, dict[str, Any]] = {}
-            for pulse in res.pulses:
-                sprint_issues = await jira.sprint_issues(pulse.sprint_id)
-                res.raw[f"jira_{pulse.project_key.lower()}_sprint.json"] = sprint_issues
-                for issue in sprint_issues:
-                    issues_by_key[issue["key"]] = issue
+            # A board can run several concurrent active sprints (e.g. the ISDB
+            # board carries the shared cross-team sprint plus ISDB's own), so
+            # fetch issues from EVERY active sprint across the projects' boards —
+            # not just each project's primary one — or we miss sprint tickets that
+            # weren't updated within the candidate-search window.
+            seen_sprints: set[int] = set()
+            for key in config.PROJECT_KEYS:
+                for sprint in await jira.active_sprints(key):
+                    sid = int(sprint["id"])
+                    if sid in seen_sprints:
+                        continue
+                    seen_sprints.add(sid)
+                    sprint_issues = await jira.sprint_issues(sid)
+                    res.raw[f"jira_sprint_{sid}.json"] = sprint_issues
+                    for issue in sprint_issues:
+                        issues_by_key[issue["key"]] = issue
 
             # Best-effort candidate search (for Distractors). A failure here must
             # not discard the sprint issues we already have.
