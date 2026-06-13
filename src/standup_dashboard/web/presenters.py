@@ -324,7 +324,13 @@ def build_panel(
     # / Done, no Distractors and no role-based reclassification (#72 follow-up).
     is_management = eng.is_manager or eng.is_global
 
-    grouped = classify_for_engineer(email, data.tickets, data.touches, data.pulse_sprint_ids)
+    # Sprintless ISDB completions count as Success only if done this pulse, so
+    # pass the anchored pulse window (region-local) to the classifier (#ISDB).
+    today = now.astimezone(ZoneInfo(region.timezone)).date()
+    _, pstart, pend = current_pulse(today)
+    grouped = classify_for_engineer(
+        email, data.tickets, data.touches, data.pulse_sprint_ids, (pstart, pend)
+    )
 
     # Reclassify assigned *in-progress* tickets into Distractors (To Do / queued
     # work is never a distraction, even when untriaged):

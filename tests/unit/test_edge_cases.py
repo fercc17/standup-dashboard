@@ -41,15 +41,43 @@ def test_engineer_with_zero_activity_classifies_empty():
     assert all(len(v) == 0 for v in groups.values())
 
 
-def test_assigned_out_of_scope_ticket_is_omitted():
-    # Assigned to E but in another/no sprint (not untriaged ISReq) — backlog, not
-    # this pulse. It must not appear anywhere, even if E touched it.
-    t = Ticket(id="ISDB-2482", project_key="ISDB", title="x", status="Triaged",
-               priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+def test_assigned_out_of_scope_isreq_backlog_is_omitted():
+    # An ISReq assigned to E but in another sprint and not untriaged — backlog,
+    # not this pulse. It must not appear anywhere, even if E touched it.
+    t = Ticket(id="ISReq-2482", project_key="ISReq", title="x", status="Triaged",
+               priority=None, labels=[], assignee_email=EMAIL, sprint_id=999,
                status_category="To Do")
-    touches = [TouchEvent("ISDB-2482", EMAIL, TouchKind.COMMENT, utc())]
-    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISDB": 101})
+    touches = [TouchEvent("ISReq-2482", EMAIL, TouchKind.COMMENT, utc())]
+    groups = classify_for_engineer(EMAIL, [t], touches, pulse_sprint_ids={"ISReq": 34046})
     assert all(v == [] for v in groups.values())
+
+
+def test_assigned_open_isdb_is_in_scope_despite_no_sprint():
+    # ISDB is sprintless: open ISDB work assigned to E is current and must show,
+    # grouped by status (To Do / WIP), even though it has no sprint (#ISDB).
+    todo = Ticket(id="ISDB-3081", project_key="ISDB", title="t", status="Triaged",
+                  priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+                  status_category="To Do")
+    wip = Ticket(id="ISDB-3253", project_key="ISDB", title="w", status="In Review",
+                 priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+                 status_category="In Progress")
+    groups = classify_for_engineer(EMAIL, [todo, wip], [], pulse_sprint_ids={"ISDB": 101})
+    assert groups[TicketGroup.TODO] == [todo]
+    assert groups[TicketGroup.WIP] == [wip]
+
+
+def test_done_isdb_is_success_only_within_pulse_window():
+    from datetime import date
+    in_win = Ticket(id="ISDB-A", project_key="ISDB", title="a", status="Done",
+                    priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+                    status_category="Done", is_done_date=date(2026, 6, 11))
+    out_win = Ticket(id="ISDB-B", project_key="ISDB", title="b", status="Done",
+                     priority=None, labels=[], assignee_email=EMAIL, sprint_id=None,
+                     status_category="Done", is_done_date=date(2026, 5, 30))
+    window = (date(2026, 6, 8), date(2026, 6, 22))
+    groups = classify_for_engineer(EMAIL, [in_win, out_win], [],
+                                   pulse_sprint_ids={"ISDB": 101}, pulse_window=window)
+    assert groups[TicketGroup.SUCCESS] == [in_win]   # the pre-pulse completion is omitted
 
 
 def test_assigned_unsprinted_untriaged_is_todo_not_distractor():
