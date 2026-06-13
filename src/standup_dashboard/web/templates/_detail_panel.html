@@ -35,11 +35,11 @@
     {% set older = tickets | rejectattr("touched_24h") | list %}
     <div class="split">
       <div class="split-col">
-        <div class="split-head">Touched 24h</div>
+        <div class="split-head">24H</div>
         {% if recent %}{% for t in recent %}{{ ticket_row(t) }}{% endfor %}{% else %}<p class="empty">none</p>{% endif %}
       </div>
       <div class="split-col">
-        <div class="split-head">Not touched 24h</div>
+        <div class="split-head">Pulse</div>
         {% if older %}{% for t in older %}{{ ticket_row(t) }}{% endfor %}{% else %}<p class="empty">none</p>{% endif %}
       </div>
     </div>
