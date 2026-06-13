@@ -40,3 +40,18 @@ async def test_pinned_scrum_board_returns_its_active_sprint():
     async with httpx.AsyncClient(base_url=BASE) as hc:
         result = await JiraClient(hc).active_sprint("ISReq")
     assert result is not None and result["id"] == 34046
+
+
+@respx.mock
+async def test_active_sprints_returns_every_active_sprint_on_the_board():
+    # The ISDB board runs the shared cross-team sprint plus its own; both must be
+    # returned so the fetch can pull issues from each.
+    pinned = config.PROJECT_BOARDS["ISDB"]
+    respx.get(url__regex=rf".*/board/{pinned}/sprint.*").mock(
+        return_value=httpx.Response(200, json={"values": [
+            {"id": 34046, "name": "shared"}, {"id": 34047, "name": "isdb"},
+        ]})
+    )
+    async with httpx.AsyncClient(base_url=BASE) as hc:
+        sprints = await JiraClient(hc).active_sprints("ISDB")
+    assert [s["id"] for s in sprints] == [34046, 34047]
