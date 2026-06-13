@@ -70,6 +70,17 @@ REGION_TIMEZONES: dict[str, str] = {
 }
 REGION_KEYS = tuple(REGION_TIMEZONES.keys())
 
+# Follow-the-sun ticket attribution: a ticket belongs to the region whose
+# working-hours window (in UTC) contains its *creation* time — independent of
+# who later gets assigned. The three windows tile the full 24h day, so every
+# ticket maps to exactly one region. Boundaries are fixed UTC (≈ each region's
+# 09:00–17:00 local), so they drift ~1h vs local time across DST. Retune here.
+REGION_CREATION_WINDOWS_UTC: dict[str, tuple[int, int]] = {
+    "EMEA": (7, 15),   # 07:00–15:00 UTC  (Paris  ~09:00–17:00)
+    "AMER": (15, 23),  # 15:00–23:00 UTC  (Mexico ~09:00–17:00)
+    "APAC": (23, 7),   # 23:00–07:00 UTC  (Sydney ~09:00–17:00, wraps midnight)
+}
+
 
 @dataclass(frozen=True)
 class EngineerConfig:
@@ -246,3 +257,22 @@ def primary_region_for(email: str) -> str | None:
     if not eng or not eng.region_keys:
         return None
     return eng.region_keys[0]
+
+
+def region_for_creation(created: datetime) -> str:
+    """Region that owns a ticket created at ``created`` (follow-the-sun).
+
+    Attribution is purely by UTC hour-of-day per ``REGION_CREATION_WINDOWS_UTC``,
+    independent of the assignee. The windows tile the day, so this always returns
+    a region. A naive ``created`` is treated as UTC.
+    """
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=UTC)
+    h = created.astimezone(UTC).hour
+    for region, (start, end) in REGION_CREATION_WINDOWS_UTC.items():
+        if start < end:
+            if start <= h < end:
+                return region
+        elif h >= start or h < end:  # window wraps midnight
+            return region
+    return REGION_KEYS[0]  # unreachable: windows tile the full 24h

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
 from standup_dashboard.services.counts import build_counts
@@ -26,9 +26,10 @@ def _pulses(now):
 def _rows(selected):
     now = utc(2026, 6, 15, 12)
     at = utc(2026, 6, 15, 10)  # date 2026-06-15 in AMER, APAC and EMEA tz
-    # Assignee is an AMER member so the ticket counts for AMER (region-scoped, #21).
+    # Created at 02:00 UTC → APAC window, even though assigned to an AMER member:
+    # the ticket belongs to APAC by creation time (follow-the-sun), not assignee.
     tickets = [Ticket(id="ISReq-1", project_key="ISReq", title="x", status="In Progress",
-                      priority="Highest", labels=[], created=now - timedelta(hours=1),
+                      priority="Highest", labels=[], created=utc(2026, 6, 15, 2),
                       assignee_email="alexandre.gomes@canonical.com")]
     alerts = [
         Alert("INC1", FERNANDO, AlertState.ACKNOWLEDGED, at),  # manager → excluded,
@@ -58,9 +59,13 @@ def test_denominator_excludes_management_and_uses_three_region_total():
     assert round(row.region_alert_pct) == 50
 
 
-def test_tickets_not_double_counted_across_regions():
-    one = _rows(["AMER"])[0]
-    two = _rows(["AMER", "APAC"])[0]
-    # Ticket columns are project-wide; selecting more regions doesn't multiply them.
-    assert one.new_highest.count == 1
-    assert two.new_highest.count == 1
+def test_tickets_attributed_by_creation_time_not_assignee():
+    # The ISReq-1 ticket was created in the APAC window but assigned to AMER.
+    amer = _rows(["AMER"])[0]
+    apac = _rows(["APAC"])[0]
+    both = _rows(["AMER", "APAC"])[0]
+    # AMER doesn't get it despite the AMER assignee; APAC owns it by creation time.
+    assert amer.new_highest.count == 0
+    assert apac.new_highest.count == 1
+    # Selecting both regions still counts it exactly once (single creation region).
+    assert both.new_highest.count == 1
