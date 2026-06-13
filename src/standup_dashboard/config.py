@@ -38,6 +38,7 @@ FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "7"))
 # Add a new anchor to renumber a year (e.g. 2027 Pulse 1, week 1).
 PULSE_LENGTH_DAYS = 14
 PULSE_ANCHORS: tuple[tuple[date, int], ...] = (
+    (date(2026, 1, 5), 1),   # Mon Jan 5 2026 = Pulse 1, week 1 (Jan 5 + 11*14 = Jun 8)
     (date(2026, 6, 8), 12),  # Mon Jun 8 2026 = Pulse 12, week 1
 )
 
