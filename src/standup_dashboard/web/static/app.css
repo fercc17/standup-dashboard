@@ -175,8 +175,11 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 }
 .chip:hover { filter: brightness(0.96); }
 .chip .name { font-weight: 600; font-size: 13px; }
-.chip .meta { color: #3a3a3a; font-size: 11px; display: flex; gap: 7px; align-items: baseline; }
-.chip .meta .win { font-weight: 700; color: var(--muted); min-width: 30px; font-size: 10px; text-transform: uppercase; }
+/* Chips always have a light pastel role background (both themes), so chip text
+   stays dark for contrast — the win label used var(--muted), which turned light
+   grey and unreadable in dark mode. */
+.chip .meta { color: #1c1f23; font-size: 11px; display: flex; gap: 7px; align-items: baseline; }
+.chip .meta .win { font-weight: 700; color: #3a3a3a; min-width: 30px; font-size: 10px; text-transform: uppercase; }
 .chip .name .role-tag { margin-left: 6px; }
 /* Role colors from the Google Sheets palette (chip background + darker border). */
 .chip.role-PVG { background: #cfe2f3; border-left-color: #3d85c6; }   /* light blue 3 */
