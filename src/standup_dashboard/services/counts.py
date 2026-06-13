@@ -159,6 +159,39 @@ def _alert_cell(
     return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
 
 
+def _alert_mttr(alerts: list[Alert], members: set[str], dates: set[date]) -> tuple[int, int]:
+    """(sum_seconds, n_incidents) of time from first ack to resolution.
+
+    Considers only incidents whose ack *and* resolve were handled by ``members``
+    within ``dates`` (handler-tz bucketed — the same scope as the alert counts).
+    Persisting sum + count (not a median) keeps the pulse MTTR composable across
+    regions: the mean = sum/n sums cleanly, whereas a median would not.
+    """
+    ack_at: dict[str, datetime] = {}
+    res_at: dict[str, datetime] = {}
+    for a in alerts:
+        if a.handler_email not in members:
+            continue
+        zone = _handler_zone(a.handler_email)
+        if zone is None or _local_date(a.at, zone) not in dates:
+            continue
+        if a.state is AlertState.ACKNOWLEDGED:
+            bucket = ack_at
+        elif a.state is AlertState.RESOLVED:
+            bucket = res_at
+        else:
+            continue
+        if a.id not in bucket or a.at < bucket[a.id]:  # earliest event of each kind
+            bucket[a.id] = a.at
+    total = n = 0
+    for incident_id, resolved in res_at.items():
+        acked = ack_at.get(incident_id)
+        if acked is not None and resolved >= acked:
+            total += int((resolved - acked).total_seconds())
+            n += 1
+    return total, n
+
+
 def _merge_cells(cells: list[Cell]) -> Cell:
     """Element-wise sum of cells (count + per-person breakdown)."""
     breakdown: dict[str, int] = {}
@@ -380,6 +413,7 @@ def region_pulse_summary(
     ]
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
+    mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
     return {
         "new_highest": _ticket_cell(buckets["highest"], _reporter),
         "new_pr_mp": _ticket_cell(buckets["pr_mp"], _assignee),
@@ -394,6 +428,9 @@ def region_pulse_summary(
         "alerts_ack": ack,
         "alerts_resolved": res,
         "alerts_total": _merge_cells([ack, res]),
+        # Accumulators for mean time-to-resolve (sum/n), composable across regions.
+        "alert_mttr_sum": Cell(count=mttr_sum),
+        "alert_mttr_n": Cell(count=mttr_n),
     }
 
 

@@ -318,6 +318,10 @@ def build_pulse_history(
             closed_pct=(100.0 * cells["closed_total"].count / gc) if gc else None,
             isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
             alert_fatigue=cells["alerts_total"].count > ALERT_FATIGUE_PULSE,
+            alert_mttr_seconds=(
+                cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
+                if cells["alert_mttr_n"].count else None
+            ),
         ))
     return rows
 

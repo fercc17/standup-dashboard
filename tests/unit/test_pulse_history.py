@@ -66,3 +66,33 @@ def test_history_persists_counts_and_breakdowns(tmp_path):
     assert b12["closed_total"] == {"Alexandre Gomes": 1}
     assert (11, "AMER") in stored                        # previous pulse stored too
     db.close()
+
+
+def test_history_mttr_from_ack_to_resolve(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    # INC1 acked 10:00 → resolved 12:00 UTC (2h); INC2 only acked (no resolve).
+    alerts = [
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 10)),
+        Alert("INC1", MEMBER, AlertState.RESOLVED, utc(12, 12)),
+        Alert("INC2", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 10)),
+    ]
+    data = DashboardData(fetched_at=utc(12), tickets=[], alerts=alerts, pulses=pulses)
+    row = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}[12]
+    # Only the ack+resolve incident counts toward MTTR; the ack-only one is ignored.
+    assert row.alert_mttr_seconds == 2 * 3600
+    assert row.mttr_label == "2h"
+    db.close()
+
+
+def test_history_mttr_persists_and_reads_back(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    alerts = [
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 10)),
+        Alert("INC1", MEMBER, AlertState.RESOLVED, utc(12, 13)),   # 3h
+    ]
+    counts.persist_pulse_summaries(db, [], alerts, pulses, utc(12))
+    c12 = {(p, r): c for p, r, c, _ in db.get_pulse_summaries()}[(12, "AMER")]
+    assert c12["alert_mttr_sum"] == 3 * 3600 and c12["alert_mttr_n"] == 1
+    db.close()
