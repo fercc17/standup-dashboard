@@ -215,11 +215,23 @@ def build_counts(
         region_distinct = _alert_cell(alerts, selected_members, dset, None).count
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
-        # Closed %: the selected region's share of all closed tickets that day.
+        # Closed %: the selected region's share of all ISReq closed tickets that day.
         global_closed = sum(
             1 for t in scoped if t.assignee_email in counted_members and t.is_done_date in dset
         )
         closed_pct = (100.0 * len(closed) / global_closed) if global_closed else None
+        # ISDB closed (count + region share) — separate project column.
+        isdb_closed_tickets = [
+            t for t in tickets
+            if t.is_isdb and t.assignee_email in selected_members and t.is_done_date in dset
+        ]
+        global_isdb_closed = sum(
+            1 for t in tickets
+            if t.is_isdb and t.assignee_email in counted_members and t.is_done_date in dset
+        )
+        isdb_closed_pct = (
+            100.0 * len(isdb_closed_tickets) / global_isdb_closed if global_isdb_closed else None
+        )
 
         return CountsRow(
             label=label,
@@ -233,11 +245,13 @@ def build_counts(
             closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
             closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
             closed_total=_ticket_cell(closed, _assignee),
+            isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
             alerts_ack=ack,
             alerts_resolved=resolved,
             alerts_total=_merge_cells([ack, resolved]),
             region_alert_pct=pct,
             closed_pct=closed_pct,
+            isdb_closed_pct=isdb_closed_pct,
         )
 
     rows: list[CountsRow] = []
@@ -311,6 +325,10 @@ def region_pulse_summary(
     for t in new_tickets:
         buckets[_new_bucket(t)].append(t)
     closed = [t for t in scoped if t.assignee_email in members and t.is_done_date in dates]
+    isdb_closed = [
+        t for t in tickets
+        if t.is_isdb and t.assignee_email in members and t.is_done_date in dates
+    ]
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
     return {
@@ -322,6 +340,7 @@ def region_pulse_summary(
         "closed_highest": _ticket_cell([t for t in closed if t.is_highest], _assignee),
         "closed_ps5": _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
         "closed_total": _ticket_cell(closed, _assignee),
+        "isdb_closed": _ticket_cell(isdb_closed, _assignee),
         "alerts_ack": ack,
         "alerts_resolved": res,
         "alerts_total": _merge_cells([ack, res]),

@@ -257,7 +257,8 @@ def build_pulse_history(
     a per-person breakdown for the hover tooltip."""
     per_pulse: dict[int, dict[str, Cell]] = {}
     all_alerts: dict[int, int] = {}   # alerts across ALL regions (region-% denominator)
-    all_closed: dict[int, int] = {}   # closed across ALL regions (closed-% denominator)
+    all_closed: dict[int, int] = {}   # ISReq closed across ALL regions (closed-% denom)
+    all_isdb: dict[int, int] = {}     # ISDB closed across ALL regions (isdb-closed-% denom)
 
     def _slot(pnum: int) -> dict[str, Cell]:
         return per_pulse.setdefault(pnum, {m: Cell() for m in PULSE_SUMMARY_FIELDS})
@@ -265,6 +266,7 @@ def build_pulse_history(
     for pnum, region, counts, breakdowns in db.get_pulse_summaries():
         all_alerts[pnum] = all_alerts.get(pnum, 0) + counts.get("alerts_total", 0)
         all_closed[pnum] = all_closed.get(pnum, 0) + counts.get("closed_total", 0)
+        all_isdb[pnum] = all_isdb.get(pnum, 0) + counts.get("isdb_closed", 0)
         if region not in selected_regions:
             continue
         slot = _slot(pnum)
@@ -286,15 +288,18 @@ def build_pulse_history(
             per_pulse[num] = combine_summaries([by_region[r] for r in selected_regions])
             all_alerts[num] = sum(by_region[r]["alerts_total"].count for r in config.REGION_KEYS)
             all_closed[num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
+            all_isdb[num] = sum(by_region[r]["isdb_closed"].count for r in config.REGION_KEYS)
 
     rows: list[PulseHistoryRow] = []
     for pnum in sorted(per_pulse):
         cells = per_pulse[pnum]
-        ga, gc = all_alerts.get(pnum, 0), all_closed.get(pnum, 0)
-        region_pct = (100.0 * cells["alerts_total"].count / ga) if ga else None
-        closed_pct = (100.0 * cells["closed_total"].count / gc) if gc else None
-        rows.append(PulseHistoryRow(pnum, f"Pulse {pnum}", cells=cells,
-                                    region_pct=region_pct, closed_pct=closed_pct))
+        ga, gc, gi = all_alerts.get(pnum, 0), all_closed.get(pnum, 0), all_isdb.get(pnum, 0)
+        rows.append(PulseHistoryRow(
+            pnum, f"Pulse {pnum}", cells=cells,
+            region_pct=(100.0 * cells["alerts_total"].count / ga) if ga else None,
+            closed_pct=(100.0 * cells["closed_total"].count / gc) if gc else None,
+            isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
+        ))
     return rows
 
 

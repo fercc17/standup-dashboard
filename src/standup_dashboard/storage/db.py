@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     closed_highest  INTEGER NOT NULL,
     closed_ps5      INTEGER NOT NULL,
     closed_total    INTEGER NOT NULL,
+    isdb_closed     INTEGER NOT NULL DEFAULT 0,
     alerts_ack      INTEGER NOT NULL,
     alerts_resolved INTEGER NOT NULL,
     alerts_total    INTEGER NOT NULL,
@@ -191,6 +192,11 @@ class Database:
         for name, decl in (("title", "TEXT"), ("url", "TEXT"), ("number", "INTEGER")):
             if name not in alert_cols:
                 self._conn.execute(f"ALTER TABLE alert ADD COLUMN {name} {decl}")
+        ps_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(pulse_summary)")}
+        if "pulse_number" in ps_cols and "isdb_closed" not in ps_cols:
+            self._conn.execute(
+                "ALTER TABLE pulse_summary ADD COLUMN isdb_closed INTEGER NOT NULL DEFAULT 0"
+            )
 
     def close(self) -> None:
         self._conn.close()
