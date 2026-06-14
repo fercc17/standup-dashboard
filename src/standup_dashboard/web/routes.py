@@ -92,6 +92,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
         "oncall_name": None,
+        "weekend_recap": None,
         "counts_rows": [],
         "pulse_history": [],
         "banner": None,
@@ -122,6 +123,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         counts_rows=[r for r in counts_full if not r.is_previous],
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
         oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
+        weekend_recap=presenters.build_weekend_recap(db, data, now),
     )
 
     if latest is not None:
@@ -339,6 +341,31 @@ async def roster_modal(request: Request) -> HTMLResponse:
     if _ctx(request).setup_error is not None:
         return render_setup(request)
     return _render_roster_modal(request)
+
+
+@router.get("/legend", response_class=HTMLResponse)
+async def legend_modal(request: Request) -> HTMLResponse:
+    """Colour-rule reference (#143) — role × ticket-type colour matrix."""
+    if _ctx(request).setup_error is not None:
+        return render_setup(request)
+    return _templates(request).TemplateResponse(
+        request, "_legend_modal.html", presenters.build_color_legend()
+    )
+
+
+@router.get("/alerts/offenders", response_class=HTMLResponse)
+async def offenders_modal(request: Request) -> HTMLResponse:
+    """Repeat-offender alerts this pulse (#146) — alerts that fired 2+ times."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    selected = _parse_regions(request.query_params.getlist("regions"))
+    members = {e for r in selected for e in config.REGIONS[r].member_emails}
+    data = presenters.load_merged_data(ctx.db, _now())
+    return _templates(request).TemplateResponse(
+        request, "_offenders_modal.html",
+        {"offenders": presenters.build_repeat_offenders(data, members)},
+    )
 
 
 @router.post("/roster/add", response_class=HTMLResponse)

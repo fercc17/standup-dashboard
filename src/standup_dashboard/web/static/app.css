@@ -141,8 +141,11 @@ table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border);
 table.counts td.sub { font-weight: 600; }
 /* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
 table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
-/* Alert fatigue: alert cells of a day exceeding the 2-per-12h-shift standard. */
-table.counts td.fatigue { background: var(--red-bg); color: var(--red); font-weight: 600; }
+/* Alert health bands (ack/res/total/MTTR/MTTA): green within the on-call
+   standard, yellow a warning, red fatigue/too-slow. See domain/coloring.py. */
+table.counts td.lvl-green  { background: var(--green-bg);  color: var(--green);  font-weight: 600; }
+table.counts td.lvl-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
+table.counts td.lvl-red    { background: var(--red-bg);    color: var(--red);    font-weight: 600; }
 
 /* Custom hover/tap tooltip (native title tooltips don't fire on touch). */
 .tip-pop {
@@ -271,3 +274,43 @@ table.sched tr.override-row td { border-top: 2px solid var(--border); font-weigh
 .banner.ok { background: var(--green-bg); border: 1px solid var(--green); color: var(--green); }
 .paste-summary ul { margin: 6px 0 0; padding-left: 18px; }
 .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+
+/* ---- Colour-rule legend (#143) ---- */
+.legend-intro { font-size: 13px; color: var(--fg); margin: 0 0 12px; line-height: 1.7; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: middle; margin: 0 1px 0 4px; }
+.sw-green { background: var(--green); } .sw-red { background: var(--red); } .sw-yellow { background: var(--yellow); }
+.legend-scroll { overflow-x: auto; }
+table.legend { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.legend th, table.legend td { border: 1px solid var(--border); padding: 6px 9px; text-align: center; }
+table.legend thead th { background: var(--bg); font-weight: 600; }
+table.legend th.role { text-align: left; font-weight: 700; white-space: nowrap; }
+.sw-cell { font-weight: 600; }
+.sw-cell.sw-green { background: var(--green-bg); color: var(--green); }
+.sw-cell.sw-red { background: var(--red-bg); color: var(--red); }
+.sw-cell.sw-yellow { background: var(--yellow-bg); color: var(--yellow); }
+.sw-label { text-transform: capitalize; }
+.distractor-tag { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .85; margin-top: 2px; }
+.legend-subhead { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 16px 0 6px; }
+.legend-notes { font-size: 12.5px; color: var(--muted); line-height: 1.6; margin: 14px 0 0; padding-left: 18px; }
+.legend-notes li { margin-bottom: 4px; }
+
+/* ---- Weekend on-call recap (#145) ---- */
+.weekend-recap { font-size: 13px; margin: 0 0 12px; }
+.weekend-recap > summary { cursor: pointer; color: var(--fg); }
+.weekend-recap .recap-open { color: var(--red); font-weight: 600; }
+.recap-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.recap-list li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-top: 1px solid var(--border); }
+.recap-list li a { color: var(--fg); text-decoration: none; }
+.recap-list li a:hover { text-decoration: underline; }
+.recap-list li.open a, .recap-list li.open { color: var(--red); }
+.recap-meta { color: var(--muted); white-space: nowrap; font-size: 12px; }
+.recap-list li.open .recap-meta { color: var(--red); font-weight: 600; }
+.recap-empty { color: var(--muted); margin: 8px 0 0; }
+
+/* ---- Repeat-offender alerts (#146) ---- */
+table.offenders th, table.offenders td { text-align: left; }
+table.offenders .off-count { text-align: center; font-weight: 700; width: 2.5em; }
+table.offenders .off-handlers { color: var(--muted); font-size: 12px; }
+table.offenders td a { color: var(--fg); text-decoration: none; }
+table.offenders td a:hover { text-decoration: underline; }
+.offenders-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; }

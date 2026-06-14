@@ -13,8 +13,24 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..domain.coloring import is_role_distractor, ticket_color
+from ..domain.coloring import (
+    ALERT_MTTA_GREEN_S,
+    ALERT_MTTA_YELLOW_S,
+    ALERT_MTTR_GREEN_S,
+    ALERT_MTTR_YELLOW_S,
+    ALERT_RES_GREEN,
+    ALERT_RES_YELLOW,
+    alert_color,
+    count_level,
+    is_role_distractor,
+    mtta_level,
+    mttr_level,
+    resolve_rate_level,
+    ticket_color,
+)
 from ..domain.models import (
+    PRIORITY_HIGHEST,
+    PS5_BLOCKER_LABELS,
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
@@ -31,10 +47,20 @@ from ..domain.models import (
     TicketVM,
     TouchEvent,
     WeekendOnCall,
+    format_duration,
 )
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
-from ..services.counts import ALERT_FATIGUE_PULSE, combine_summaries, region_pulse_summary
+from ..services.counts import (
+    ALERT_FATIGUE_PULSE,
+    ALERT_FATIGUE_WEEKDAY,
+    ALERT_FATIGUE_WEEKEND,
+    _display_name,
+    _handler_zone,
+    accumulated_alerts_since,
+    combine_summaries,
+    region_pulse_summary,
+)
 from ..services.counts import build_counts as _build_counts
 from ..services.oncall import others_off
 from ..services.pulse import current_pulse
@@ -265,6 +291,213 @@ def build_counts(
     return _build_counts(selected_regions, data.tickets, data.alerts, data.pulses, now)
 
 
+# --- Colour-rule legend (#143) ---------------------------------------------
+
+# One representative assigned, in-flight (non-Done) ticket per category the
+# colour rules key on. The legend is rendered by running these through the very
+# same coloring functions the dashboard uses, so it can never drift from the
+# real behaviour.
+_LEGEND_TYPES: tuple[tuple[str, Ticket], ...] = (
+    ("ISReq Highest", Ticket("_", "ISReq", "x", "In Progress", PRIORITY_HIGHEST)),
+    ("ISReq [PR/MP Review]", Ticket("_", "ISReq", "[PR/MP Review] x", "In Progress", "Medium")),
+    ("ISReq ps5-blocker",
+     Ticket("_", "ISReq", "x", "In Progress", "Medium", labels=[PS5_BLOCKER_LABELS[0]])),
+    ("ISReq regular", Ticket("_", "ISReq", "x", "In Progress", "Medium")),
+    ("ISDB", Ticket("_", "ISDB", "x", "In Progress", None)),
+)
+_LEGEND_ROLES = (Role.PVG, Role.BVG, Role.GEN, Role.PROJECT, Role.OFF)
+
+
+def build_color_legend() -> dict:
+    """Role × ticket-type colour matrix, derived live from the coloring rules (#143).
+
+    Each cell is the colour an *assigned, in-flight* ticket of that type gets for
+    that role, plus whether the role reclassifies it into the Distractors group.
+    """
+    rows = []
+    for role in _LEGEND_ROLES:
+        cells = []
+        for _, ticket in _LEGEND_TYPES:
+            distractor = is_role_distractor(role, ticket)
+            color = ticket_color(
+                role, ticket, assigned=True, group=ticket.group, role_distractor=distractor
+            )
+            cells.append({"color": color.value, "distractor": distractor})
+        rows.append({"role": role.value, "cells": cells})
+
+    # Alerts are coloured by the handler's role (#143) — one colour per role,
+    # from the same alert_color() the detail panel uses.
+    alert_rows = [
+        {"role": role.value, "color": alert_color(role).value} for role in _LEGEND_ROLES
+    ]
+
+    # Counts-table alert-cell bands, derived from the same coloring thresholds the
+    # tables use (single source of truth). Ack/Total are judged against a "cap"
+    # that scales by the row's span and the selected-region count; the resolve
+    # rate and MTTR/MTTA means are rates, so they keep fixed thresholds.
+    pct = lambda r: f"{int(round(r * 100))}%"  # noqa: E731
+    alert_bands = [
+        {"col": "Alerts Ack / Total", "green": "≤ cap",
+         "yellow": "cap → 2× cap", "red": "> 2× cap"},
+        {"col": "Alert Res (resolved ÷ ack)", "green": f"≥ {pct(ALERT_RES_GREEN)}",
+         "yellow": f"{pct(ALERT_RES_YELLOW)} → {pct(ALERT_RES_GREEN)}",
+         "red": f"< {pct(ALERT_RES_YELLOW)}"},
+        {"col": "Alert MTTR (ack → resolve)", "green": f"≤ {format_duration(ALERT_MTTR_GREEN_S)}",
+         "yellow": f"≤ {format_duration(ALERT_MTTR_YELLOW_S)}",
+         "red": f"> {format_duration(ALERT_MTTR_YELLOW_S)}"},
+        {"col": "Alert MTTA (trigger → ack)", "green": f"≤ {format_duration(ALERT_MTTA_GREEN_S)}",
+         "yellow": f"≤ {format_duration(ALERT_MTTA_YELLOW_S)}",
+         "red": f"> {format_duration(ALERT_MTTA_YELLOW_S)}"},
+    ]
+    # The "cap" = on-call standard (2 alerts / 12h shift) × the row's shifts ×
+    # selected regions. Ack/Total scale with regions; the rates above do not.
+    alert_caps = {
+        "weekday": ALERT_FATIGUE_WEEKDAY,
+        "weekend": ALERT_FATIGUE_WEEKEND,
+        "pulse": ALERT_FATIGUE_PULSE,
+    }
+
+    return {
+        "types": [name for name, _ in _LEGEND_TYPES],
+        "rows": rows,
+        "alert_rows": alert_rows,
+        "alert_bands": alert_bands,
+        "alert_caps": alert_caps,
+    }
+
+
+# --- Weekend on-call recap (#145) ------------------------------------------
+
+
+@dataclass
+class WeekendRecap:
+    oncall_name: str
+    weekend_label: str
+    incident_count: int
+    resolved: int
+    open_acks: int
+    mttr_label: str
+    incidents: list[dict]
+
+
+def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> WeekendRecap | None:
+    """What the previous weekend's on-call engineer dealt with (#145).
+
+    Summarises the PagerDuty incidents the on-call engineer handled over their
+    weekend: count, resolved vs still-open, mean ack→resolve, and each incident
+    (title + link). Returns ``None`` when no on-call is known (no iCal data).
+
+    Loads the weekend's alerts directly from the DB rather than ``data.alerts``,
+    because the just-passed weekend can fall in the *previous* pulse (so it isn't
+    in the current-pulse merge). An incident counts if the on-call touched it
+    within the weekend window; its resolve time is taken whenever it resolved, so
+    a resolution that slips just past midnight still reads as resolved.
+    """
+    if not data.weekend_oncall:
+        return None
+    oc = data.weekend_oncall[0]
+    name = _display_name(oc.engineer_email)
+    tz = _handler_zone(oc.engineer_email) or UTC
+    # Half-open weekend window [Sat 00:00, Mon 00:00) in the on-call's timezone.
+    start = datetime(oc.weekend_start.year, oc.weekend_start.month, oc.weekend_start.day, tzinfo=tz)
+    mon = oc.weekend_end + timedelta(days=1)
+    end = datetime(mon.year, mon.month, mon.day, tzinfo=tz)
+
+    in_weekend: set[str] = set()
+    ack_at: dict[str, datetime] = {}
+    res_at: dict[str, datetime] = {}
+    meta: dict[str, dict] = {}
+    for a in accumulated_alerts_since(db, start.astimezone(UTC)):
+        if a.handler_email != oc.engineer_email:
+            continue
+        if start <= a.at < end:
+            in_weekend.add(a.id)          # the on-call touched it during the weekend
+        if a.state is AlertState.ACKNOWLEDGED and (a.id not in ack_at or a.at < ack_at[a.id]):
+            ack_at[a.id] = a.at
+        elif a.state is AlertState.RESOLVED and (a.id not in res_at or a.at < res_at[a.id]):
+            res_at[a.id] = a.at
+        m = meta.get(a.id)
+        if m is None or (a.title and not m["title"]):   # prefer an enriched copy
+            meta[a.id] = {"title": a.title, "url": a.url, "number": a.number}
+
+    incidents: list[dict] = []
+    mttr_total = mttr_n = 0
+    for iid in in_weekend:
+        m = meta[iid]
+        resolved = iid in res_at
+        duration = None
+        if resolved and iid in ack_at and res_at[iid] >= ack_at[iid]:
+            duration = (res_at[iid] - ack_at[iid]).total_seconds()
+            mttr_total += int(duration)
+            mttr_n += 1
+        incidents.append({
+            "number": m["number"],
+            "title": m["title"] or "(untitled incident)",
+            "url": m["url"],
+            "resolved": resolved,
+            "duration_label": format_duration(duration),
+        })
+    # Still-open (acknowledged, unresolved) incidents first, then by number desc.
+    incidents.sort(key=lambda i: (i["resolved"], -(i["number"] or 0)))
+    resolved_count = sum(1 for i in incidents if i["resolved"])
+    return WeekendRecap(
+        oncall_name=name,
+        weekend_label=f"{oc.weekend_start:%a %d} – {oc.weekend_end:%a %d %b}",
+        incident_count=len(incidents),
+        resolved=resolved_count,
+        open_acks=len(incidents) - resolved_count,
+        mttr_label=format_duration(mttr_total / mttr_n) if mttr_n else "—",
+        incidents=incidents,
+    )
+
+
+# --- Repeat-offender alerts (#146) -----------------------------------------
+
+
+@dataclass
+class OffenderRow:
+    title: str
+    count: int            # distinct incidents with this title this pulse
+    number: int | None    # a representative (latest) incident number
+    url: str | None
+    handlers: list[str]
+
+
+def build_repeat_offenders(
+    data: DashboardData, members: set[str], *, min_count: int = 2
+) -> list[OffenderRow]:
+    """Alerts that fired ≥ ``min_count`` times this pulse, grouped by title (#146).
+
+    Scoped to ``members`` (the selected region's handlers), so the modal agrees
+    with the region-scoped counts elsewhere on the page. Counts distinct incidents
+    (by id) sharing a whitespace/case-normalised title, so the same noisy alert
+    recurring under one incident isn't double-counted. The member filter also
+    drops handler-less TRIGGERED events. Within-pulse only — cross-pulse needs a
+    persisted per-pulse digest.
+    """
+    groups: dict[str, dict] = {}
+    for a in data.alerts:
+        if not a.title or a.handler_email not in members:
+            continue
+        key = " ".join(a.title.split()).lower()
+        g = groups.setdefault(
+            key, {"title": a.title.strip(), "ids": set(), "handlers": set(),
+                  "latest": None, "number": None, "url": None}
+        )
+        g["ids"].add(a.id)
+        eng = config.ENGINEERS_BY_EMAIL.get(a.handler_email)
+        g["handlers"].add(eng.name if eng else a.handler_email)
+        if g["latest"] is None or a.at > g["latest"]:
+            g["latest"], g["number"], g["url"] = a.at, a.number, a.url
+    rows = [
+        OffenderRow(title=g["title"], count=len(g["ids"]), number=g["number"],
+                    url=g["url"], handlers=sorted(g["handlers"]))
+        for g in groups.values() if len(g["ids"]) >= min_count
+    ]
+    rows.sort(key=lambda r: (-r.count, r.title.lower()))
+    return rows
+
+
 def build_pulse_history(
     db: Database, data: DashboardData, selected_regions: list[str], now: datetime
 ) -> list[PulseHistoryRow]:
@@ -308,20 +541,36 @@ def build_pulse_history(
         all_closed[cur_num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
         all_isdb[cur_num] = sum(by_region[r]["isdb_closed"].count for r in config.REGION_KEYS)
 
+    # The pulse-volume green cap scales by the number of selected regions, exactly
+    # like the per-day counts table (more on-call engineers ⇒ a higher ceiling).
+    pulse_cap = ALERT_FATIGUE_PULSE * max(len(selected_regions), 1)
+
     rows: list[PulseHistoryRow] = []
     for pnum in sorted(per_pulse):
         cells = per_pulse[pnum]
         ga, gc, gi = all_alerts.get(pnum, 0), all_closed.get(pnum, 0), all_isdb.get(pnum, 0)
+        ack_n, res_n = cells["alerts_ack"].count, cells["alerts_resolved"].count
+        total_n = cells["alerts_total"].count
+        mttr_s = (
+            cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
+            if cells["alert_mttr_n"].count else None
+        )
+        mtta_s = (
+            cells["alert_mtta_sum"].count / cells["alert_mtta_n"].count
+            if cells["alert_mtta_n"].count else None
+        )
         rows.append(PulseHistoryRow(
             pnum, f"Pulse {pnum}", cells=cells,
-            region_pct=(100.0 * cells["alerts_total"].count / ga) if ga else None,
+            region_pct=(100.0 * total_n / ga) if ga else None,
             closed_pct=(100.0 * cells["closed_total"].count / gc) if gc else None,
             isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
-            alert_fatigue=cells["alerts_total"].count > ALERT_FATIGUE_PULSE,
-            alert_mttr_seconds=(
-                cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
-                if cells["alert_mttr_n"].count else None
-            ),
+            alert_mttr_seconds=mttr_s,
+            alert_mtta_seconds=mtta_s,
+            ack_level=count_level(ack_n, pulse_cap),
+            total_level=count_level(total_n, pulse_cap),
+            resolved_level=resolve_rate_level(res_n, ack_n),
+            mttr_level=mttr_level(mttr_s),
+            mtta_level=mtta_level(mtta_s),
         ))
     return rows
 
@@ -435,21 +684,18 @@ def build_panel(
         prev = alert_by_incident.get(a.id)
         if prev is None or prev.state is not AlertState.RESOLVED:
             alert_by_incident[a.id] = a
-    # For GEN, alerts are a distraction (their focus is ISReq tickets): all alerts
-    # go under Distractors — unresolved acks red, resolved yellow.
-    gen_alerts = role is Role.GEN and not is_management
     for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        if gen_alerts:
-            color = Color.YELLOW if resolved else Color.RED
+        # Colour is role-based (#143); the group still reflects state — except for
+        # GEN, whose alerts are a distraction from their ISReq focus.
+        color = alert_color(role)
+        if role is Role.GEN and not is_management:
             target = TicketGroup.DISTRACTORS
         elif resolved:
-            color, target = Color.GREEN, TicketGroup.SUCCESS
-        elif recent:
-            color, target = Color.YELLOW, TicketGroup.WIP   # acked in the last 24h
+            target = TicketGroup.SUCCESS
         else:
-            color, target = Color.RED, TicketGroup.WIP      # acked >24h, still open → stale
+            target = TicketGroup.WIP
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if a.number is not None:

@@ -19,6 +19,7 @@
       <th class="stk"><span>Alert</span><span>Res</span></th>
       <th class="stk"><span>Alerts</span><span>Total</span></th>
       <th class="stk" title="Mean time from acknowledgement to resolution this pulse"><span>Alert</span><span>MTTR</span></th>
+      <th class="stk" title="Mean time from incident trigger to first acknowledgement this pulse"><span>Alert</span><span>MTTA</span></th>
       <th>Region %</th>
     </tr>
   </thead>
@@ -39,10 +40,11 @@
       <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>
       <td class="sub grp" data-tip="{{ c.isdb_closed.tip }}">{{ c.isdb_closed.count }}</td>
       <td>{% if row.isdb_closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.isdb_closed_pct) }}{% endif %}</td>
-      <td class="div{% if row.alert_fatigue %} fatigue{% endif %}" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
-      <td class="{% if row.alert_fatigue %}fatigue{% endif %}" data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
-      <td class="sub{% if row.alert_fatigue %} fatigue{% endif %}" title="Alert fatigue: more than 56 alerts this pulse (2 per 12h shift × 28 shifts in a 2-week sprint)" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
-      <td title="Mean ack→resolve time ({{ c.alert_mttr_n.count }} incident{{ 's' if c.alert_mttr_n.count != 1 else '' }})">{{ row.mttr_label }}</td>
+      <td class="div{% if row.ack_level %} lvl-{{ row.ack_level.value }}{% endif %}" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
+      <td class="{% if row.resolved_level %}lvl-{{ row.resolved_level.value }}{% endif %}" data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
+      <td class="sub{% if row.total_level %} lvl-{{ row.total_level.value }}{% endif %}" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
+      <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack→resolve time ({{ c.alert_mttr_n.count }} incident{{ 's' if c.alert_mttr_n.count != 1 else '' }})">{{ row.mttr_label }}</td>
+      <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger→ack time ({{ c.alert_mtta_n.count }} incident{{ 's' if c.alert_mtta_n.count != 1 else '' }})">{{ row.mtta_label }}</td>
       <td>{% if row.region_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}

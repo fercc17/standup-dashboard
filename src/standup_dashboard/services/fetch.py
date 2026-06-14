@@ -157,17 +157,25 @@ def _alerts_from_logs(
 ) -> list[Alert]:
     out: list[Alert] = []
     state_for = {
+        "trigger_log_entry": AlertState.TRIGGERED,
         "acknowledge_log_entry": AlertState.ACKNOWLEDGED,
         "resolve_log_entry": AlertState.RESOLVED,
     }
     for entry in log_entries:
         state = state_for.get(entry.get("type", ""))
-        if state is None:
+        at = parse_jira_dt(entry.get("created_at"))
+        if state is None or at is None:
+            continue
+        if state is AlertState.TRIGGERED:
+            # The trigger has no engineer agent; capture only the fire time so MTTA
+            # (trigger→ack) is computable. Handler-less, so it never affects the
+            # ack/resolve counts, which filter by member handler.
+            out.append(Alert(id=incident_id, handler_email="", state=state, at=at,
+                             title=title, url=url, number=number))
             continue
         agent = entry.get("agent") or {}
         email = id_to_email.get(agent.get("id", ""))
-        at = parse_jira_dt(entry.get("created_at"))
-        if email and email in roster and at is not None:
+        if email and email in roster:
             out.append(Alert(id=incident_id, handler_email=email, state=state, at=at,
                              title=title, url=url, number=number))
     return out
@@ -289,9 +297,12 @@ async def run_fetch(
         db.insert_weekend_oncall(fetch_id, [ical_res.oncall])
 
     # Snapshot this fetch's current + previous pulse totals so the pulse-history
-    # table accumulates over time (#80).
-    from .counts import persist_pulse_summaries
-    persist_pulse_summaries(db, jira_res.tickets, pd_res.alerts, jira_res.pulses, now)
+    # table accumulates over time (#80). Persist from the whole pulse's
+    # accumulated alerts, not just this fetch's incremental window, so MTTR and
+    # alert totals reflect the full pulse (#140).
+    from .counts import accumulated_pulse_alerts, persist_pulse_summaries
+    pulse_alerts = accumulated_pulse_alerts(db, now)
+    persist_pulse_summaries(db, jira_res.tickets, pulse_alerts, jira_res.pulses, now)
 
     logger.info(
         "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s tickets=%d alerts=%d oncall=%s",

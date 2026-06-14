@@ -24,11 +24,12 @@ def _db_with_role(tmp_path, role):
 def test_gen_alerts_go_to_distractors(tmp_path):
     db = _db_with_role(tmp_path, "GEN")
     data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], alerts=[
-        Alert("INC1", E, AlertState.ACKNOWLEDGED, NOW),   # unresolved → red
-        Alert("INC2", E, AlertState.RESOLVED, NOW),       # resolved → yellow
+        Alert("INC1", E, AlertState.ACKNOWLEDGED, NOW),
+        Alert("INC2", E, AlertState.RESOLVED, NOW),
     ])
     panel = build_panel(db, E, data, NOW, region_key="AMER")
-    assert sorted(t.color.value for t in panel.groups["Distractors"]) == ["red", "yellow"]
+    # GEN's alerts are a distraction and coloured by role → both yellow (#143).
+    assert sorted(t.color.value for t in panel.groups["Distractors"]) == ["yellow", "yellow"]
     assert panel.groups["Success"] == []   # resolved alert isn't a Success for GEN
     assert panel.groups["WIP"] == []
     db.close()
