@@ -39,22 +39,17 @@
       </table>
     </div>
 
-    <h3 class="legend-subhead">Alerts (your own PagerDuty incidents)</h3>
+    <h3 class="legend-subhead">Alerts (coloured by the handler's role)</h3>
     <div class="legend-scroll">
       <table class="legend">
         <thead>
-          <tr><th>Alert state</th>{% for c in alert_cols %}<th>{{ c }}</th>{% endfor %}</tr>
+          <tr><th>Role</th><th>Handled alert</th></tr>
         </thead>
         <tbody>
           {% for row in alert_rows %}
           <tr>
-            <th class="role">{{ row.state }}</th>
-            {% for c in row.cells %}
-            <td class="sw-cell sw-{{ c.color }}">
-              <span class="sw-label">{{ c.color }}</span>
-              <span class="group-tag">{{ c.group }}</span>
-            </td>
-            {% endfor %}
+            <th class="role">{{ row.role }}</th>
+            <td class="sw-cell sw-{{ row.color }}"><span class="sw-label">{{ row.color }}</span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -65,7 +60,7 @@
       <li><strong>To&nbsp;Do / WIP / Success</strong> come from the Jira status; <strong>Distractors</strong> are tickets reclassified as off-task for the role.</li>
       <li><strong>Success (Done)</strong> is green for everyone — except a <strong>Project</strong> engineer's non-ISDB work, which stays a red distractor even when done.</li>
       <li><strong>Non-assigned</strong> touches: green for PVG/BVG, red for GEN/Project/OFF.</li>
-      <li><strong>PVG alerts</strong>: resolved &rarr; green Success, acknowledged &rarr; yellow WIP. A PVG ticket in <em>In&nbsp;Review</em> is a yellow distractor.</li>
+      <li><strong>Alerts</strong> are coloured by the handler's role (table above), regardless of acked/resolved. In the panel they still group as resolved &rarr; Success, open &rarr; WIP, and <strong>GEN</strong>'s alerts &rarr; Distractors. A PVG ticket in <em>In&nbsp;Review</em> is a yellow distractor.</li>
       <li><strong>Weekend</strong> has no role — only the on-call engineer is active; everyone else is OFF (all red).</li>
     </ul>
   </div>

@@ -302,27 +302,15 @@ def build_color_legend() -> dict:
             cells.append({"color": color.value, "distractor": distractor})
         rows.append({"role": role.value, "cells": cells})
 
-    # Alerts — where yellow lives. Resolved / acked-recent / acked-stale, for a
-    # typical role vs GEN (for whom alerts are a Distractor). Derived from the
-    # same alert_color() the detail panel uses, so it stays accurate.
-    alert_states = (
-        ("Resolved", {"resolved": True, "recent": False}),
-        ("Acknowledged · today", {"resolved": False, "recent": True}),
-        ("Acknowledged · >24h (stale)", {"resolved": False, "recent": False}),
-    )
-    alert_roles = (("Most roles", Role.PVG), ("GEN", Role.GEN))
-    alert_rows = []
-    for label, kwargs in alert_states:
-        cells = []
-        for _, role in alert_roles:
-            color, group = alert_color(role, **kwargs)
-            cells.append({"color": color.value, "group": group.value})
-        alert_rows.append({"state": label, "cells": cells})
+    # Alerts are coloured by the handler's role (#143) — one colour per role,
+    # from the same alert_color() the detail panel uses.
+    alert_rows = [
+        {"role": role.value, "color": alert_color(role).value} for role in _LEGEND_ROLES
+    ]
 
     return {
         "types": [name for name, _ in _LEGEND_TYPES],
         "rows": rows,
-        "alert_cols": [name for name, _ in alert_roles],
         "alert_rows": alert_rows,
     }
 
@@ -617,9 +605,15 @@ def build_panel(
     for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        color, target = alert_color(
-            role, resolved=resolved, recent=recent, is_management=is_management
-        )
+        # Colour is role-based (#143); the group still reflects state — except for
+        # GEN, whose alerts are a distraction from their ISReq focus.
+        color = alert_color(role)
+        if role is Role.GEN and not is_management:
+            target = TicketGroup.DISTRACTORS
+        elif resolved:
+            target = TicketGroup.SUCCESS
+        else:
+            target = TicketGroup.WIP
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if a.number is not None:

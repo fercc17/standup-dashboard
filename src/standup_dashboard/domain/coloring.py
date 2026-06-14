@@ -106,22 +106,23 @@ def ticket_color(
     return Color.RED  # defensive; all roles handled above
 
 
-def alert_color(
-    role: Role, *, resolved: bool, recent: bool, is_management: bool = False
-) -> tuple[Color, TicketGroup]:
-    """Colour + group for an engineer's own PagerDuty alert (#143).
+# Alerts are coloured by the handler's role — whether handling alerts is on-task
+# for them — independent of acked/resolved/age (#143): PVG green (alert duty is
+# their job), BVG/GEN yellow (secondary), Project/OFF red (off-task).
+_ALERT_ROLE_COLOR: dict[Role, Color] = {
+    Role.PVG: Color.GREEN,
+    Role.BVG: Color.YELLOW,
+    Role.GEN: Color.YELLOW,
+    Role.PROJECT: Color.RED,
+    Role.OFF: Color.RED,
+}
 
-    The general case (all roles): resolved → green Success; acknowledged and
-    recent (≤24h) → yellow WIP; acknowledged but stale (>24h, still open) → red
-    WIP. For a GEN engineer alerts are a distraction from ISReq work, so they go
-    under Distractors instead — resolved yellow, unresolved red.
 
-    Single source of truth for both the detail panel and the colour legend.
+def alert_color(role: Role) -> Color:
+    """Colour of an alert handled by an engineer with ``role`` (#143).
+
+    Single source of truth for both the detail panel and the colour legend. The
+    panel still groups alerts (resolved → Success, open → WIP, GEN → Distractors);
+    only the colour is role-based.
     """
-    if role is Role.GEN and not is_management:
-        return (Color.YELLOW if resolved else Color.RED), TicketGroup.DISTRACTORS
-    if resolved:
-        return Color.GREEN, TicketGroup.SUCCESS
-    if recent:
-        return Color.YELLOW, TicketGroup.WIP
-    return Color.RED, TicketGroup.WIP
+    return _ALERT_ROLE_COLOR.get(role, Color.RED)

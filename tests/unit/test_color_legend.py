@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from standup_dashboard.domain.coloring import alert_color
-from standup_dashboard.domain.models import Color, Role, TicketGroup
+from standup_dashboard.domain.models import Color, Role
 from standup_dashboard.web.presenters import build_color_legend
 
 
@@ -38,30 +38,21 @@ def test_legend_matrix_matches_coloring_rules():
     assert proj[0] == {"color": "red", "distractor": True}     # ISReq Highest
 
 
-def test_alert_color_rules():
-    # General case (non-GEN): resolved green, acked-recent yellow, acked-stale red.
-    assert alert_color(Role.PVG, resolved=True, recent=False) == (Color.GREEN, TicketGroup.SUCCESS)
-    assert alert_color(Role.PVG, resolved=False, recent=True) == (Color.YELLOW, TicketGroup.WIP)
-    assert alert_color(Role.PVG, resolved=False, recent=False) == (Color.RED, TicketGroup.WIP)
-    # GEN: alerts are a distraction — resolved yellow, unresolved red.
-    assert alert_color(Role.GEN, resolved=True, recent=False) == (Color.YELLOW, TicketGroup.DISTRACTORS)
-    assert alert_color(Role.GEN, resolved=False, recent=True) == (Color.RED, TicketGroup.DISTRACTORS)
-    # A management GEN is treated as the general case, not GEN-distraction.
-    assert alert_color(Role.GEN, resolved=True, recent=False, is_management=True) == (
-        Color.GREEN, TicketGroup.SUCCESS)
+def test_alert_color_is_role_based():
+    # Alerts are coloured purely by the handler's role, regardless of state.
+    assert alert_color(Role.PVG) is Color.GREEN
+    assert alert_color(Role.BVG) is Color.YELLOW
+    assert alert_color(Role.GEN) is Color.YELLOW
+    assert alert_color(Role.PROJECT) is Color.RED
+    assert alert_color(Role.OFF) is Color.RED
 
 
-def test_legend_includes_alerts_with_yellow():
-    legend = build_color_legend()
-    assert legend["alert_cols"] == ["Most roles", "GEN"]
-    states = {r["state"]: r["cells"] for r in legend["alert_rows"]}
-    assert states["Resolved"][0] == {"color": "green", "group": "Success"}
-    assert states["Acknowledged · today"][0] == {"color": "yellow", "group": "WIP"}
-    assert states["Acknowledged · >24h (stale)"][0] == {"color": "red", "group": "WIP"}
-    assert states["Resolved"][1] == {"color": "yellow", "group": "Distractors"}   # GEN
-    # The user's "things on yellow" must actually appear.
-    all_alert_colours = {c["color"] for cells in states.values() for c in cells}
-    assert "yellow" in all_alert_colours
+def test_legend_alerts_one_row_per_role_with_yellow():
+    by_role = {r["role"]: r["color"] for r in build_color_legend()["alert_rows"]}
+    assert by_role == {
+        "PVG": "green", "BVG": "yellow", "GEN": "yellow", "Project": "red", "OFF": "red",
+    }
+    assert "yellow" in by_role.values()   # the user's "things on yellow"
 
 
 def test_legend_route_renders(client):
@@ -69,7 +60,7 @@ def test_legend_route_renders(client):
     assert "Colour rules" in page
     assert "ISReq [PR/MP Review]" in page
     assert "Distractor" in page
-    assert "Alerts (your own PagerDuty incidents)" in page
-    assert "sw-yellow" in page   # yellow now visible (alerts table)
+    assert "Alerts (coloured by the handler's role)" in page
+    assert "sw-yellow" in page   # yellow now visible (BVG/GEN alert rows)
     for role in ("PVG", "BVG", "GEN", "Project", "OFF"):
         assert role in page
