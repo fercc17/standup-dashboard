@@ -353,6 +353,19 @@ async def legend_modal(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/alerts/offenders", response_class=HTMLResponse)
+async def offenders_modal(request: Request) -> HTMLResponse:
+    """Repeat-offender alerts this pulse (#146) — alerts that fired 2+ times."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    data = presenters.load_merged_data(ctx.db, _now())
+    return _templates(request).TemplateResponse(
+        request, "_offenders_modal.html",
+        {"offenders": presenters.build_repeat_offenders(data)},
+    )
+
+
 @router.post("/roster/add", response_class=HTMLResponse)
 async def roster_add(request: Request) -> HTMLResponse:
     ctx = _ctx(request)

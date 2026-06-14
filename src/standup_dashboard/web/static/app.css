@@ -302,3 +302,11 @@ table.legend th.role { text-align: left; font-weight: 700; white-space: nowrap; 
 .recap-meta { color: var(--muted); white-space: nowrap; font-size: 12px; }
 .recap-list li.open .recap-meta { color: var(--red); font-weight: 600; }
 .recap-empty { color: var(--muted); margin: 8px 0 0; }
+
+/* ---- Repeat-offender alerts (#146) ---- */
+table.offenders th, table.offenders td { text-align: left; }
+table.offenders .off-count { text-align: center; font-weight: 700; width: 2.5em; }
+table.offenders .off-handlers { color: var(--muted); font-size: 12px; }
+table.offenders td a { color: var(--fg); text-decoration: none; }
+table.offenders td a:hover { text-decoration: underline; }
+.offenders-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
