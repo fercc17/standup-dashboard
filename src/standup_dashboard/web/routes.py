@@ -92,6 +92,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
         "oncall_name": None,
+        "weekend_recap": None,
         "counts_rows": [],
         "pulse_history": [],
         "banner": None,
@@ -122,6 +123,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         counts_rows=[r for r in counts_full if not r.is_previous],
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
         oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
+        weekend_recap=presenters.build_weekend_recap(data),
     )
 
     if latest is not None:

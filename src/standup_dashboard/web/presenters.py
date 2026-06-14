@@ -33,6 +33,7 @@ from ..domain.models import (
     TicketVM,
     TouchEvent,
     WeekendOnCall,
+    format_duration,
 )
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
@@ -301,6 +302,81 @@ def build_color_legend() -> dict:
             cells.append({"color": color.value, "distractor": distractor})
         rows.append({"role": role.value, "cells": cells})
     return {"types": [name for name, _ in _LEGEND_TYPES], "rows": rows}
+
+
+# --- Weekend on-call recap (#145) ------------------------------------------
+
+
+@dataclass
+class WeekendRecap:
+    oncall_name: str
+    weekend_label: str
+    incident_count: int
+    resolved: int
+    open_acks: int
+    mttr_label: str
+    incidents: list[dict]
+
+
+def build_weekend_recap(data: DashboardData) -> WeekendRecap | None:
+    """What the previous weekend's on-call engineer dealt with (#145).
+
+    Summarises the PagerDuty incidents the on-call engineer handled over their
+    weekend window: count, resolved vs still-open, mean ack→resolve time, and
+    the individual incidents (title + link). Returns ``None`` when no on-call is
+    known (no iCal data) — the caller then shows nothing.
+    """
+    if not data.weekend_oncall:
+        return None
+    oc = data.weekend_oncall[0]
+    eng = config.ENGINEERS_BY_EMAIL.get(oc.engineer_email)
+    name = eng.name if eng else oc.engineer_email
+    region_key = config.primary_region_for(oc.engineer_email)
+    tz = ZoneInfo(config.REGIONS[region_key].timezone) if region_key else UTC
+    weekend_dates = {oc.weekend_start, oc.weekend_end}
+
+    meta: dict[str, dict] = {}
+    ack_at: dict[str, datetime] = {}
+    res_at: dict[str, datetime] = {}
+    for a in data.alerts:
+        if a.handler_email != oc.engineer_email:
+            continue
+        if a.at.astimezone(tz).date() not in weekend_dates:
+            continue
+        meta[a.id] = {"title": a.title, "url": a.url, "number": a.number}
+        if a.state is AlertState.ACKNOWLEDGED and (a.id not in ack_at or a.at < ack_at[a.id]):
+            ack_at[a.id] = a.at
+        elif a.state is AlertState.RESOLVED and (a.id not in res_at or a.at < res_at[a.id]):
+            res_at[a.id] = a.at
+
+    incidents: list[dict] = []
+    mttr_total = mttr_n = 0
+    for iid, m in meta.items():
+        resolved = iid in res_at
+        duration = None
+        if resolved and iid in ack_at and res_at[iid] >= ack_at[iid]:
+            duration = (res_at[iid] - ack_at[iid]).total_seconds()
+            mttr_total += int(duration)
+            mttr_n += 1
+        incidents.append({
+            "number": m["number"],
+            "title": m["title"] or "(untitled incident)",
+            "url": m["url"],
+            "resolved": resolved,
+            "duration_label": format_duration(duration),
+        })
+    # Still-open (acknowledged, unresolved) incidents first, then by number desc.
+    incidents.sort(key=lambda i: (i["resolved"], -(i["number"] or 0)))
+    resolved_count = sum(1 for i in incidents if i["resolved"])
+    return WeekendRecap(
+        oncall_name=name,
+        weekend_label=f"{oc.weekend_start:%a %d} – {oc.weekend_end:%a %d %b}",
+        incident_count=len(incidents),
+        resolved=resolved_count,
+        open_acks=len(incidents) - resolved_count,
+        mttr_label=format_duration(mttr_total / mttr_n) if mttr_n else "—",
+        incidents=incidents,
+    )
 
 
 def build_pulse_history(

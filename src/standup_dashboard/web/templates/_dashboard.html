@@ -14,6 +14,30 @@
   <div class="oncall-line">&#127958; Weekend on-call: <strong>{{ oncall_name }}</strong></div>
   {% endif %}
 
+  {% if weekend_recap %}
+  <details class="weekend-recap">
+    <summary>
+      Weekend recap &middot; {{ weekend_recap.weekend_label }} &middot;
+      <strong>{{ weekend_recap.incident_count }}</strong> incident{{ 's' if weekend_recap.incident_count != 1 else '' }}
+      ({{ weekend_recap.resolved }} resolved{% if weekend_recap.open_acks %}, <span class="recap-open">{{ weekend_recap.open_acks }} open</span>{% endif %})
+      &middot; MTTR {{ weekend_recap.mttr_label }}
+    </summary>
+    {% if weekend_recap.incidents %}
+    <ul class="recap-list">
+      {% for inc in weekend_recap.incidents %}
+      <li class="{% if not inc.resolved %}open{% endif %}">
+        {% if inc.url %}<a href="{{ inc.url }}" target="_blank" rel="noopener">{% endif %}
+        {% if inc.number %}#{{ inc.number }} {% endif %}{{ inc.title }}{% if inc.url %}</a>{% endif %}
+        <span class="recap-meta">{% if inc.resolved %}&#10003; {{ inc.duration_label }}{% else %}open{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="recap-empty">Quiet weekend — no incidents handled by the on-call. &#127881;</p>
+    {% endif %}
+  </details>
+  {% endif %}
+
   {% if pulse_history %}
   {% include "_pulse_history.html" %}
   {% endif %}
