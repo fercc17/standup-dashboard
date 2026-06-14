@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..domain.coloring import is_role_distractor, ticket_color
+from ..domain.coloring import alert_color, is_role_distractor, ticket_color
 from ..domain.models import (
     PRIORITY_HIGHEST,
     PS5_BLOCKER_LABELS,
@@ -301,7 +301,30 @@ def build_color_legend() -> dict:
             )
             cells.append({"color": color.value, "distractor": distractor})
         rows.append({"role": role.value, "cells": cells})
-    return {"types": [name for name, _ in _LEGEND_TYPES], "rows": rows}
+
+    # Alerts — where yellow lives. Resolved / acked-recent / acked-stale, for a
+    # typical role vs GEN (for whom alerts are a Distractor). Derived from the
+    # same alert_color() the detail panel uses, so it stays accurate.
+    alert_states = (
+        ("Resolved", {"resolved": True, "recent": False}),
+        ("Acknowledged · today", {"resolved": False, "recent": True}),
+        ("Acknowledged · >24h (stale)", {"resolved": False, "recent": False}),
+    )
+    alert_roles = (("Most roles", Role.PVG), ("GEN", Role.GEN))
+    alert_rows = []
+    for label, kwargs in alert_states:
+        cells = []
+        for _, role in alert_roles:
+            color, group = alert_color(role, **kwargs)
+            cells.append({"color": color.value, "group": group.value})
+        alert_rows.append({"state": label, "cells": cells})
+
+    return {
+        "types": [name for name, _ in _LEGEND_TYPES],
+        "rows": rows,
+        "alert_cols": [name for name, _ in alert_roles],
+        "alert_rows": alert_rows,
+    }
 
 
 # --- Weekend on-call recap (#145) ------------------------------------------
@@ -591,21 +614,12 @@ def build_panel(
         prev = alert_by_incident.get(a.id)
         if prev is None or prev.state is not AlertState.RESOLVED:
             alert_by_incident[a.id] = a
-    # For GEN, alerts are a distraction (their focus is ISReq tickets): all alerts
-    # go under Distractors — unresolved acks red, resolved yellow.
-    gen_alerts = role is Role.GEN and not is_management
     for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        if gen_alerts:
-            color = Color.YELLOW if resolved else Color.RED
-            target = TicketGroup.DISTRACTORS
-        elif resolved:
-            color, target = Color.GREEN, TicketGroup.SUCCESS
-        elif recent:
-            color, target = Color.YELLOW, TicketGroup.WIP   # acked in the last 24h
-        else:
-            color, target = Color.RED, TicketGroup.WIP      # acked >24h, still open → stale
+        color, target = alert_color(
+            role, resolved=resolved, recent=recent, is_management=is_management
+        )
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if a.number is not None:

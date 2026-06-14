@@ -14,6 +14,7 @@
       into the <strong>Distractors</strong> group.
     </p>
 
+    <h3 class="legend-subhead">Tickets (assigned, in-flight)</h3>
     <div class="legend-scroll">
       <table class="legend">
         <thead>
@@ -30,6 +31,28 @@
             <td class="sw-cell sw-{{ c.color }}">
               <span class="sw-label">{{ c.color }}</span>
               {% if c.distractor %}<span class="distractor-tag">Distractor</span>{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="legend-subhead">Alerts (your own PagerDuty incidents)</h3>
+    <div class="legend-scroll">
+      <table class="legend">
+        <thead>
+          <tr><th>Alert state</th>{% for c in alert_cols %}<th>{{ c }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for row in alert_rows %}
+          <tr>
+            <th class="role">{{ row.state }}</th>
+            {% for c in row.cells %}
+            <td class="sw-cell sw-{{ c.color }}">
+              <span class="sw-label">{{ c.color }}</span>
+              <span class="group-tag">{{ c.group }}</span>
             </td>
             {% endfor %}
           </tr>

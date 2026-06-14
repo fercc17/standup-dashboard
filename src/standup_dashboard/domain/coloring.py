@@ -104,3 +104,24 @@ def ticket_color(
         return Color.GREEN if (ticket.is_isreq and is_priority) else Color.RED
 
     return Color.RED  # defensive; all roles handled above
+
+
+def alert_color(
+    role: Role, *, resolved: bool, recent: bool, is_management: bool = False
+) -> tuple[Color, TicketGroup]:
+    """Colour + group for an engineer's own PagerDuty alert (#143).
+
+    The general case (all roles): resolved → green Success; acknowledged and
+    recent (≤24h) → yellow WIP; acknowledged but stale (>24h, still open) → red
+    WIP. For a GEN engineer alerts are a distraction from ISReq work, so they go
+    under Distractors instead — resolved yellow, unresolved red.
+
+    Single source of truth for both the detail panel and the colour legend.
+    """
+    if role is Role.GEN and not is_management:
+        return (Color.YELLOW if resolved else Color.RED), TicketGroup.DISTRACTORS
+    if resolved:
+        return Color.GREEN, TicketGroup.SUCCESS
+    if recent:
+        return Color.YELLOW, TicketGroup.WIP
+    return Color.RED, TicketGroup.WIP
