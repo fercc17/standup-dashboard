@@ -186,6 +186,22 @@ def mtta_level(seconds: float | None) -> Color | None:
     return _duration_level(seconds, ALERT_MTTA_GREEN_S, ALERT_MTTA_YELLOW_S)
 
 
+ALERT_WIP_GREEN_DAYS = 2     # ≤2 days in progress is healthy
+ALERT_WIP_YELLOW_DAYS = 5    # 3–5 days is ageing; >5 days is stale (red)
+
+
+def wip_age_level(age_seconds: float | None) -> Color | None:
+    """Aging-WIP band (#147): ≤2d green, 3–5d yellow, >5d red; None if not WIP."""
+    if age_seconds is None:
+        return None
+    days = age_seconds / 86400
+    if days <= ALERT_WIP_GREEN_DAYS:
+        return Color.GREEN
+    if days <= ALERT_WIP_YELLOW_DAYS:
+        return Color.YELLOW
+    return Color.RED
+
+
 def pr_mp_review_level(review_new: int, closed: int) -> Color | None:
     """Closed PR/MP vs reviews requested (#141): are we keeping up with reviews?
 

@@ -127,6 +127,13 @@ class Ticket:
     created: datetime | None = None
     status_category: str | None = None
     reporter_email: str | None = None
+    wip_since: datetime | None = None   # start of the current In-Progress streak (#147)
+
+    def wip_age_seconds(self, now: datetime) -> float | None:
+        """How long the ticket has sat in its current WIP streak, or None."""
+        if self.wip_since is None:
+            return None
+        return (now - self.wip_since).total_seconds()
 
     @property
     def group(self) -> TicketGroup | None:

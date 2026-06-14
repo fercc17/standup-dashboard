@@ -1,0 +1,46 @@
+<div class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Aging WIP &middot; in progress now</h2>
+      <button class="close" data-close-modal title="Close">&times;</button>
+    </div>
+
+    <p class="legend-intro">
+      Tickets currently <strong>In Progress / In Review</strong> for the selected
+      region(s), by how long they've sat in that state — oldest first.
+      <span class="sw sw-green"></span> &le;2d ·
+      <span class="sw sw-yellow"></span> 3&ndash;5d ·
+      <span class="sw sw-red"></span> &gt;5d.
+    </p>
+
+    {% if aging %}
+    <div class="legend-scroll">
+      <table class="legend offenders">
+        <thead>
+          <tr><th title="Time in the current WIP streak">Age</th><th>Ticket</th><th>Assignee</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {% for t in aging %}
+          <tr>
+            <td class="aging-age {% if t.level %}lvl-{{ t.level.value }}{% endif %}">{{ t.age_label }}</td>
+            <td class="off-title">
+              <a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.key }}</a> {{ t.title }}
+            </td>
+            <td class="off-handlers">{{ t.assignee }}</td>
+            <td class="off-handlers">{{ t.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="recap-empty">No work-in-progress tickets for the selected region(s). &#127881;</p>
+    {% endif %}
+
+    <p class="offenders-note">
+      Age is time since the ticket last entered In Progress (In&nbsp;Progress&rarr;In&nbsp;Review
+      doesn't reset it). A dash means the entry time isn't known yet — it fills in
+      on the next refresh.
+    </p>
+  </div>
+</div>

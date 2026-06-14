@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS ticket (
     created        TEXT,
     status_category TEXT,
     reporter_email TEXT,
+    wip_since      TEXT,
     PRIMARY KEY (fetch_id, id)
 );
 
@@ -204,6 +205,7 @@ class Database:
             ("created", "TEXT"),
             ("status_category", "TEXT"),
             ("reporter_email", "TEXT"),
+            ("wip_since", "TEXT"),
         ):
             if name not in cols:
                 self._conn.execute(f"ALTER TABLE ticket ADD COLUMN {name} {decl}")
@@ -301,8 +303,8 @@ class Database:
             "INSERT OR IGNORE INTO ticket"
             " (fetch_id, id, project_key, title, status, priority, labels_json,"
             "  assignee_email, sprint_id, is_done_date, created, status_category,"
-            "  reporter_email)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "  reporter_email, wip_since)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     fetch_id, t.id, t.project_key, t.title, t.status, t.priority,
@@ -310,6 +312,7 @@ class Database:
                     t.is_done_date.isoformat() if t.is_done_date else None,
                     t.created.isoformat() if t.created else None,
                     t.status_category, t.reporter_email,
+                    t.wip_since.isoformat() if t.wip_since else None,
                 )
                 for t in tickets
             ],
@@ -609,4 +612,5 @@ def _row_to_ticket(row: sqlite3.Row) -> Ticket:
         created=datetime.fromisoformat(row["created"]) if row["created"] else None,
         status_category=row["status_category"],
         reporter_email=row["reporter_email"],
+        wip_since=datetime.fromisoformat(row["wip_since"]) if row["wip_since"] else None,
     )

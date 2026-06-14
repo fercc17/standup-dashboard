@@ -12,7 +12,14 @@ from datetime import datetime
 from typing import Any
 
 from .. import config
-from ..domain.models import Ticket, TouchEvent, TouchKind
+from ..domain.models import (
+    STATUS_CATEGORY_GROUP,
+    STATUS_GROUP,
+    Ticket,
+    TicketGroup,
+    TouchEvent,
+    TouchKind,
+)
 from .pulse import parse_jira_dt
 
 
@@ -58,6 +65,8 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
         created=parse_jira_dt(fields.get("created")),
         status_category=status_category,
         reporter_email=reporter.get("emailAddress"),
+        wip_since=_wip_since(issue, status, status_category,
+                             parse_jira_dt(fields.get("created"))),
     )
 
 
@@ -73,6 +82,42 @@ def _done_date(issue: dict[str, Any]):
                 if latest is None or at > latest:
                     latest = at
     return latest.date() if latest else None
+
+
+def _is_wip(status_name: str | None) -> bool:
+    return STATUS_GROUP.get(status_name or "") is TicketGroup.WIP
+
+
+def _wip_since(issue, status, status_category, created):
+    """Start of the ticket's *current* continuous In-Progress streak (#147).
+
+    Only meaningful when the ticket is in the WIP group now. Walks the status
+    changelog and returns when it last entered WIP from a non-WIP status —
+    WIP→WIP moves (In Progress→In Review) don't reset it. Falls back to the most
+    recent status change (or creation) for custom WIP status names not in
+    ``STATUS_GROUP``."""
+    current = STATUS_CATEGORY_GROUP.get(status_category) or STATUS_GROUP.get(status)
+    if current is not TicketGroup.WIP:
+        return None
+    changes = []
+    for hist in (issue.get("changelog") or {}).get("histories", []):
+        at = parse_jira_dt(hist.get("created"))
+        if at is None:
+            continue
+        for item in hist.get("items", []):
+            if item.get("field") == "status":
+                changes.append((at, item.get("fromString"), item.get("toString")))
+    if not changes:
+        return created                       # created straight into WIP, never moved
+    changes.sort(key=lambda c: c[0])
+    streak = created if _is_wip(changes[0][1]) else None
+    for at, _frm, to in changes:
+        if _is_wip(to):
+            if streak is None:
+                streak = at                  # entered WIP from non-WIP
+        else:
+            streak = None                    # left WIP
+    return streak if streak is not None else changes[-1][0]
 
 
 _CHANGELOG_KIND = {"status": TouchKind.STATUS, "assignee": TouchKind.ASSIGNMENT}
