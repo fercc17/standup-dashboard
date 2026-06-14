@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .. import config
 from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
-from ..services import offenders, roster, schedule
+from ..services import aging, offenders, roster, schedule
 from ..services.fetch import run_fetch
 from ..services.pulse import current_pulse
 from . import presenters
@@ -375,6 +375,24 @@ async def offenders_modal(request: Request) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request, "_offenders_modal.html",
         {"offenders": offenders.build_offenders(ctx.db, _now())},
+    )
+
+
+@router.get("/tickets/aging-wip", response_class=HTMLResponse)
+async def aging_wip_modal(request: Request) -> HTMLResponse:
+    """Tickets sitting In Progress too long, for the selected region(s) (#147)."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    try:
+        selected = _parse_regions(request.query_params.getlist("regions"))
+    except ValueError as exc:
+        return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
+    members = {e for r in selected for e in config.REGIONS[r].member_emails}
+    data = presenters.load_merged_data(ctx.db, _now())
+    return _templates(request).TemplateResponse(
+        request, "_aging_modal.html",
+        {"aging": aging.build_aging_wip(data.tickets, members, _now())},
     )
 
 

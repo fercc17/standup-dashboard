@@ -143,9 +143,9 @@ table.counts td.sub { font-weight: 600; }
 table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
 /* Alert health bands (ack/res/total/MTTR/MTTA): green within the on-call
    standard, yellow a warning, red fatigue/too-slow. See domain/coloring.py. */
-table.counts td.lvl-green  { background: var(--green-bg);  color: var(--green);  font-weight: 600; }
-table.counts td.lvl-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
-table.counts td.lvl-red    { background: var(--red-bg);    color: var(--red);    font-weight: 600; }
+table.counts td.lvl-green,  table.offenders td.lvl-green  { background: var(--green-bg);  color: var(--green);  font-weight: 600; }
+table.counts td.lvl-yellow, table.offenders td.lvl-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
+table.counts td.lvl-red,    table.offenders td.lvl-red    { background: var(--red-bg);    color: var(--red);    font-weight: 600; }
 
 /* Custom hover/tap tooltip (native title tooltips don't fire on touch). */
 .tip-pop {
@@ -311,6 +311,7 @@ table.legend th.role { text-align: left; font-weight: 700; white-space: nowrap; 
 table.offenders th, table.offenders td { text-align: left; }
 table.offenders .off-count { text-align: center; font-weight: 700; width: 2.5em; }
 table.offenders .off-recent { text-align: center; color: var(--muted); width: 2.5em; }
+table.offenders .aging-age { text-align: center; font-weight: 700; white-space: nowrap; }
 table.offenders .off-handlers { color: var(--muted); font-size: 12px; }
 table.offenders td a { color: var(--fg); text-decoration: none; }
 table.offenders td a:hover { text-decoration: underline; }
