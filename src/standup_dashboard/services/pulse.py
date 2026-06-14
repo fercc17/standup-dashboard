@@ -19,6 +19,12 @@ def current_pulse(today: date) -> tuple[int, date, date]:
 
     Anchored on ``config.PULSE_ANCHORS`` with a 2-week cadence (#93). Uses the
     latest anchor on/before ``today`` so a new year's anchor renumbers cleanly.
+
+    Rollover is automatic (#144): because the pulse number is derived purely from
+    the date, crossing a boundary advances it with no manual step — the counts
+    table resets to the new window and ``persist_pulse_summaries`` freezes the
+    just-ended pulse into pulse history (the previous-pulse gap-fill is
+    replace=False, so a later refresh can't wipe a frozen pulse to zero).
     """
     anchor_date, anchor_num = max(
         (a for a in config.PULSE_ANCHORS if a[0] <= today),
