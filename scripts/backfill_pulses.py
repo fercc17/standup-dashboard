@@ -33,6 +33,7 @@ from standup_dashboard.clients import jira as jira_mod
 from standup_dashboard.clients import pagerduty as pd_mod
 from standup_dashboard.services.counts import region_pulse_summary
 from standup_dashboard.services.fetch import _alerts_from_logs
+from standup_dashboard.services.offenders import incidents_from_alerts
 from standup_dashboard.services.pulse import pulse_window
 from standup_dashboard.services.touches import parse_ticket
 from standup_dashboard.settings import load_secrets
@@ -171,6 +172,12 @@ async def main() -> None:
             "backfill_pagerduty_log_entries.json": all_logs,
         })
         logger.info("Raw audit snapshot written: %s", raw_path)
+
+    # Bootstrap the long-lived incident year-history (#146) from every alert in
+    # the span, so repeat-offender analysis has data before the live PD floor.
+    incidents = incidents_from_alerts(alerts)
+    db.upsert_incidents(incidents)
+    logger.info("Incident history: upserted %d distinct incidents.", len(incidents))
 
     print(f"\n{'Pulse':>6}  {'Region':<8} {'new':>5} {'closed':>7} {'isdb_cl':>8} {'alerts':>7}")
     print("  " + "-" * 48)

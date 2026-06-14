@@ -184,3 +184,21 @@ def mttr_level(seconds: float | None) -> Color | None:
 def mtta_level(seconds: float | None) -> Color | None:
     """Trigger→ack mean band (#140): ≤5m green, 5–15m yellow, >15m red."""
     return _duration_level(seconds, ALERT_MTTA_GREEN_S, ALERT_MTTA_YELLOW_S)
+
+
+def pr_mp_review_level(review_new: int, closed: int) -> Color | None:
+    """Closed PR/MP vs reviews requested (#141): are we keeping up with reviews?
+
+    ``review_new`` is the New PR/MP Review count, ``closed`` the Closed PR/MP
+    count. Green when we closed at least as many as came in (closing *more* is
+    fine — another region may have left one), yellow when exactly one is left
+    behind, red when two or more are. Neutral when there was no PR/MP activity.
+    """
+    if review_new == 0 and closed == 0:
+        return None
+    deficit = review_new - closed
+    if deficit <= 0:
+        return Color.GREEN
+    if deficit == 1:
+        return Color.YELLOW
+    return Color.RED

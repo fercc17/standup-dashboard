@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
 from .. import config
 from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
-from ..services import roster, schedule
+from ..services import offenders, roster, schedule
 from ..services.fetch import run_fetch
 from ..services.pulse import current_pulse
 from . import presenters
@@ -359,12 +359,12 @@ async def offenders_modal(request: Request) -> HTMLResponse:
     ctx = _ctx(request)
     if ctx.setup_error is not None:
         return render_setup(request)
-    selected = _parse_regions(request.query_params.getlist("regions"))
-    members = {e for r in selected for e in config.REGIONS[r].member_emails}
-    data = presenters.load_merged_data(ctx.db, _now())
+    # Team-wide year-history analysis (#146): alerts still firing in the last 10
+    # days that have fired 10+ times this year — read from the stored incident
+    # table, so no extra fetching and no region scoping.
     return _templates(request).TemplateResponse(
         request, "_offenders_modal.html",
-        {"offenders": presenters.build_repeat_offenders(data, members)},
+        {"offenders": offenders.build_offenders(ctx.db, _now())},
     )
 
 
