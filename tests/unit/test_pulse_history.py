@@ -39,10 +39,10 @@ def test_history_attribution_requestor_vs_assignee(tmp_path):
     data = _data()
     rows = build_pulse_history(db, data, ["AMER"], utc(12, 19))
     cur = {r.pulse_number: r for r in rows}[12].cells
-    # New Highest breaks down by requestor (reporter); PR/MP by assignee.
+    # New tickets — including [PR/MP Review] — break down by requestor (reporter).
     assert cur["new_highest"].count == 1
     assert cur["new_highest"].breakdown == {"Jane Doe": 1}
-    assert cur["new_pr_mp"].breakdown == {"Alexandre Gomes": 1}
+    assert cur["new_pr_mp"].breakdown == {"Jane Doe": 1}
     assert cur["new_total"].breakdown == {"Jane Doe": 2}        # both new, by requestor
     # Closed breaks down by assignee.
     assert cur["closed_total"].breakdown == {"Alexandre Gomes": 1}

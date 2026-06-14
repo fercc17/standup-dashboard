@@ -305,7 +305,8 @@ def build_counts(
             is_weekend=is_weekend,
             is_total=is_total,
             new_highest=_ticket_cell(buckets["highest"], _assignee),
-            new_pr_mp=_ticket_cell(buckets["pr_mp"], _assignee),
+            # New [PR/MP Review] credits the REQUESTER (reporter) who raised it (#141).
+            new_pr_mp=_ticket_cell(buckets["pr_mp"], _reporter),
             new_ps5=_ticket_cell(buckets["ps5"], _assignee),
             new_regular=_ticket_cell(buckets["regular"], _assignee),
             new_total=_ticket_cell(new_tickets, _assignee),
@@ -375,8 +376,8 @@ def region_pulse_summary(
     """Per-metric Cells (count + person breakdown) for one region's pulse (#80).
 
     Attribution per the requested tooltips: new tickets break down by requestor
-    (reporter) — except [PR/MP Review], which uses assignee; closed by assignee;
-    alerts by handler.
+    (reporter), including [PR/MP Review] (#141); closed by assignee; alerts by
+    handler.
 
     ``dates`` overrides the window with an explicit set of region-local calendar
     days (used by the historical backfill); when omitted it is derived from the
@@ -416,7 +417,7 @@ def region_pulse_summary(
     mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
     return {
         "new_highest": _ticket_cell(buckets["highest"], _reporter),
-        "new_pr_mp": _ticket_cell(buckets["pr_mp"], _assignee),
+        "new_pr_mp": _ticket_cell(buckets["pr_mp"], _reporter),   # requester (#141)
         "new_ps5": _ticket_cell(buckets["ps5"], _reporter),
         "new_regular": _ticket_cell(buckets["regular"], _reporter),
         "new_total": _ticket_cell(new_tickets, _reporter),
