@@ -27,7 +27,7 @@ tickets, assignee for closed tickets, handler for alerts.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
@@ -440,9 +440,35 @@ def combine_summaries(summaries: list[dict[str, Cell]]) -> dict[str, Cell]:
     return {m: _merge_cells([s[m] for s in summaries]) for m in PULSE_SUMMARY_FIELDS}
 
 
+def accumulated_pulse_alerts(db, now: datetime) -> list[Alert]:
+    """De-duplicated PagerDuty alerts across every fetch in the current pulse.
+
+    PagerDuty is fetched incrementally, so a single fetch holds only its window.
+    Pulse summaries must be persisted from the *whole pulse's* accumulated alerts
+    (the same set the counts table builds) or per-pulse MTTR and alert totals
+    reflect only the last fetch — which is why the MTTR column read blank (#140).
+    Dedup by (incident, handler, state, time), preferring the enriched copy.
+    """
+    _, start, _ = current_pulse(now.astimezone(UTC).date())
+    pulse_start = datetime(start.year, start.month, start.day, tzinfo=UTC)
+    by_key: dict[tuple, Alert] = {}
+    for snap in db.fetches_since(pulse_start):
+        if not snap.pagerduty_ok:
+            continue
+        for a in db.get_alerts(snap.id):
+            key = (a.id, a.handler_email, a.state, a.at)
+            existing = by_key.get(key)
+            if existing is None or (a.title and not existing.title):
+                by_key[key] = a
+    return list(by_key.values())
+
+
 def persist_pulse_summaries(db, tickets, alerts, pulses, now: datetime) -> None:
     """Store the current + previous pulse totals + breakdowns per region so the
-    pulse-history table accumulates across pulses (#80)."""
+    pulse-history table accumulates across pulses (#80).
+
+    ``alerts`` should be the accumulated pulse alerts (see
+    ``accumulated_pulse_alerts``), not a single fetch's window (#140)."""
     if not pulses:
         return
     for region in config.REGION_KEYS:

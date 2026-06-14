@@ -85,6 +85,22 @@ def test_history_mttr_from_ack_to_resolve(tmp_path):
     db.close()
 
 
+def test_accumulated_pulse_alerts_unions_fetches(tmp_path):
+    # PagerDuty is fetched incrementally, so an incident's ack and resolve can land
+    # in different fetch snapshots. The persisted summary must see both (#140).
+    db = Database(tmp_path / "t.db")
+    f1 = db.create_fetch_snapshot(fetched_at=utc(11), jira_ok=True,
+                                  pagerduty_ok=True, ical_ok=True, raw_path="")
+    db.insert_alerts(f1, [Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(11, 10))])
+    f2 = db.create_fetch_snapshot(fetched_at=utc(13), jira_ok=True,
+                                  pagerduty_ok=True, ical_ok=True, raw_path="")
+    db.insert_alerts(f2, [Alert("INC1", MEMBER, AlertState.RESOLVED, utc(11, 12))])
+    alerts = counts.accumulated_pulse_alerts(db, utc(13))
+    assert len(alerts) == 2
+    assert {a.state for a in alerts} == {AlertState.ACKNOWLEDGED, AlertState.RESOLVED}
+    db.close()
+
+
 def test_history_mttr_persists_and_reads_back(tmp_path):
     db = Database(tmp_path / "t.db")
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
