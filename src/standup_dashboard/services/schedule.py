@@ -28,6 +28,7 @@ def set_weekly_role(db: Database, email: str, weekday: str, role: str, now: date
 
 
 HIGHEST_FOCUS_KEY = "highest_focus"
+SHOW_MANAGEMENT_KEY = "show_management"
 
 
 def get_highest_focus(db: Database) -> bool:
@@ -37,6 +38,15 @@ def get_highest_focus(db: Database) -> bool:
 
 def set_highest_focus(db: Database, on: bool, now: datetime) -> None:
     db.set_ui_state(HIGHEST_FOCUS_KEY, "on" if on else "off", now)
+
+
+def get_show_management(db: Database) -> bool:
+    """Whether the Management chip group is shown (#151). Default on."""
+    return db.get_ui_state(SHOW_MANAGEMENT_KEY, "on") == "on"
+
+
+def set_show_management(db: Database, on: bool, now: datetime) -> None:
+    db.set_ui_state(SHOW_MANAGEMENT_KEY, "on" if on else "off", now)
 
 
 def set_day_note(db: Database, email: str, weekday: str, note: str, now: datetime) -> None:

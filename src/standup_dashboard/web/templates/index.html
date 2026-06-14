@@ -7,7 +7,10 @@
     <a class="region-btn {% if link.active %}active{% endif %}"
        href="{{ link.href }}">{{ link.key }}</a>
     {% endfor %}
-    <button type="button" class="region-btn mgmt-tab" data-toggle-management
+    <button type="button" class="region-btn mgmt-tab {% if show_management %}active{% endif %}"
+            hx-post="/toggle/management" hx-include="#controls"
+            hx-target="#dashboard" hx-swap="outerHTML"
+            onclick="this.classList.toggle('active')"
             title="Show/hide the Management group">Management</button>
   </div>
   <button class="action" hx-post="/refresh" hx-include="#controls"
@@ -29,6 +32,7 @@
 
 <form id="controls" style="display:none">
   {% for r in selected_regions %}<input type="hidden" name="regions" value="{{ r }}">{% endfor %}
+  {% if not selected_regions %}<input type="hidden" name="regions" value="none">{% endif %}
 </form>
 
 {% include "_dashboard.html" %}
