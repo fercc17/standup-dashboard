@@ -56,6 +56,39 @@
       </table>
     </div>
 
+    <h3 class="legend-subhead">Alert health (counts &amp; pulse-history tables)</h3>
+    <div class="legend-scroll">
+      <table class="legend">
+        <thead>
+          <tr>
+            <th>Column</th>
+            <th class="sw-cell sw-green">green</th>
+            <th class="sw-cell sw-yellow">yellow</th>
+            <th class="sw-cell sw-red">red</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for b in alert_bands %}
+          <tr>
+            <th class="role">{{ b.col }}</th>
+            <td class="sw-cell sw-green">{{ b.green }}</td>
+            <td class="sw-cell sw-yellow">{{ b.yellow }}</td>
+            <td class="sw-cell sw-red">{{ b.red }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="legend-intro">
+      <strong>cap</strong> = the on-call standard of <strong>2 alerts / 12h shift</strong>,
+      multiplied by the row's shifts and by the number of <strong>selected regions</strong>:
+      weekday <strong>{{ alert_caps.weekday }}</strong>, weekend
+      <strong>{{ alert_caps.weekend }}</strong> (4 shifts), whole pulse
+      <strong>{{ alert_caps.pulse }}</strong> (28 shifts) — per region. Ack &amp; Total
+      scale with the number of regions selected; the resolve rate and the MTTR/MTTA
+      means do not (they're rates, not volumes).
+    </p>
+
     <ul class="legend-notes">
       <li><strong>To&nbsp;Do / WIP / Success</strong> come from the Jira status; <strong>Distractors</strong> are tickets reclassified as off-task for the role.</li>
       <li><strong>Success (Done)</strong> is green for everyone — except a <strong>Project</strong> engineer's non-ISDB work, which stays a red distractor even when done.</li>

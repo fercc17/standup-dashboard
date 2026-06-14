@@ -13,7 +13,21 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
-from ..domain.coloring import alert_color, is_role_distractor, ticket_color
+from ..domain.coloring import (
+    ALERT_MTTA_GREEN_S,
+    ALERT_MTTA_YELLOW_S,
+    ALERT_MTTR_GREEN_S,
+    ALERT_MTTR_YELLOW_S,
+    ALERT_RES_GREEN,
+    ALERT_RES_YELLOW,
+    alert_color,
+    count_level,
+    is_role_distractor,
+    mtta_level,
+    mttr_level,
+    resolve_rate_level,
+    ticket_color,
+)
 from ..domain.models import (
     PRIORITY_HIGHEST,
     PS5_BLOCKER_LABELS,
@@ -39,6 +53,8 @@ from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
 from ..services.counts import (
     ALERT_FATIGUE_PULSE,
+    ALERT_FATIGUE_WEEKDAY,
+    ALERT_FATIGUE_WEEKEND,
     _display_name,
     _handler_zone,
     accumulated_alerts_since,
@@ -315,10 +331,38 @@ def build_color_legend() -> dict:
         {"role": role.value, "color": alert_color(role).value} for role in _LEGEND_ROLES
     ]
 
+    # Counts-table alert-cell bands, derived from the same coloring thresholds the
+    # tables use (single source of truth). Ack/Total are judged against a "cap"
+    # that scales by the row's span and the selected-region count; the resolve
+    # rate and MTTR/MTTA means are rates, so they keep fixed thresholds.
+    pct = lambda r: f"{int(round(r * 100))}%"  # noqa: E731
+    alert_bands = [
+        {"col": "Alerts Ack / Total", "green": "≤ cap",
+         "yellow": "cap → 2× cap", "red": "> 2× cap"},
+        {"col": "Alert Res (resolved ÷ ack)", "green": f"≥ {pct(ALERT_RES_GREEN)}",
+         "yellow": f"{pct(ALERT_RES_YELLOW)} → {pct(ALERT_RES_GREEN)}",
+         "red": f"< {pct(ALERT_RES_YELLOW)}"},
+        {"col": "Alert MTTR (ack → resolve)", "green": f"≤ {format_duration(ALERT_MTTR_GREEN_S)}",
+         "yellow": f"≤ {format_duration(ALERT_MTTR_YELLOW_S)}",
+         "red": f"> {format_duration(ALERT_MTTR_YELLOW_S)}"},
+        {"col": "Alert MTTA (trigger → ack)", "green": f"≤ {format_duration(ALERT_MTTA_GREEN_S)}",
+         "yellow": f"≤ {format_duration(ALERT_MTTA_YELLOW_S)}",
+         "red": f"> {format_duration(ALERT_MTTA_YELLOW_S)}"},
+    ]
+    # The "cap" = on-call standard (2 alerts / 12h shift) × the row's shifts ×
+    # selected regions. Ack/Total scale with regions; the rates above do not.
+    alert_caps = {
+        "weekday": ALERT_FATIGUE_WEEKDAY,
+        "weekend": ALERT_FATIGUE_WEEKEND,
+        "pulse": ALERT_FATIGUE_PULSE,
+    }
+
     return {
         "types": [name for name, _ in _LEGEND_TYPES],
         "rows": rows,
         "alert_rows": alert_rows,
+        "alert_bands": alert_bands,
+        "alert_caps": alert_caps,
     }
 
 
@@ -497,24 +541,36 @@ def build_pulse_history(
         all_closed[cur_num] = sum(by_region[r]["closed_total"].count for r in config.REGION_KEYS)
         all_isdb[cur_num] = sum(by_region[r]["isdb_closed"].count for r in config.REGION_KEYS)
 
+    # The pulse-volume green cap scales by the number of selected regions, exactly
+    # like the per-day counts table (more on-call engineers ⇒ a higher ceiling).
+    pulse_cap = ALERT_FATIGUE_PULSE * max(len(selected_regions), 1)
+
     rows: list[PulseHistoryRow] = []
     for pnum in sorted(per_pulse):
         cells = per_pulse[pnum]
         ga, gc, gi = all_alerts.get(pnum, 0), all_closed.get(pnum, 0), all_isdb.get(pnum, 0)
+        ack_n, res_n = cells["alerts_ack"].count, cells["alerts_resolved"].count
+        total_n = cells["alerts_total"].count
+        mttr_s = (
+            cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
+            if cells["alert_mttr_n"].count else None
+        )
+        mtta_s = (
+            cells["alert_mtta_sum"].count / cells["alert_mtta_n"].count
+            if cells["alert_mtta_n"].count else None
+        )
         rows.append(PulseHistoryRow(
             pnum, f"Pulse {pnum}", cells=cells,
-            region_pct=(100.0 * cells["alerts_total"].count / ga) if ga else None,
+            region_pct=(100.0 * total_n / ga) if ga else None,
             closed_pct=(100.0 * cells["closed_total"].count / gc) if gc else None,
             isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
-            alert_fatigue=cells["alerts_total"].count > ALERT_FATIGUE_PULSE,
-            alert_mttr_seconds=(
-                cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
-                if cells["alert_mttr_n"].count else None
-            ),
-            alert_mtta_seconds=(
-                cells["alert_mtta_sum"].count / cells["alert_mtta_n"].count
-                if cells["alert_mtta_n"].count else None
-            ),
+            alert_mttr_seconds=mttr_s,
+            alert_mtta_seconds=mtta_s,
+            ack_level=count_level(ack_n, pulse_cap),
+            total_level=count_level(total_n, pulse_cap),
+            resolved_level=resolve_rate_level(res_n, ack_n),
+            mttr_level=mttr_level(mttr_s),
+            mtta_level=mtta_level(mtta_s),
         ))
     return rows
 

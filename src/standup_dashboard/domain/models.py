@@ -284,9 +284,14 @@ class PulseHistoryRow:
     region_pct: float | None = None        # selected regions' share of all alerts that pulse
     closed_pct: float | None = None        # selected regions' share of all ISReq closed
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
-    alert_fatigue: bool = False            # pulse alert load over the 2-per-12h standard (red)
     alert_mttr_seconds: float | None = None  # mean ack→resolve time this pulse, None if no data
     alert_mtta_seconds: float | None = None  # mean trigger→ack time this pulse, None if no data
+    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    ack_level: Color | None = None
+    resolved_level: Color | None = None
+    total_level: Color | None = None
+    mttr_level: Color | None = None
+    mtta_level: Color | None = None
 
     @property
     def mttr_label(self) -> str:
@@ -348,4 +353,21 @@ class CountsRow:
     closed_pct: float | None = None  # region's share of all ISReq closed tickets
     isdb_closed_pct: float | None = None  # region's share of all ISDB closed tickets
     is_previous: bool = False  # the previous-pulse comparison row (#80)
-    alert_fatigue: bool = False  # alerts that day exceed the per-shift standard (red)
+    alert_mttr_seconds: float | None = None  # mean ack→resolve time this row, None if no data
+    alert_mtta_seconds: float | None = None  # mean trigger→ack time this row, None if no data
+    alert_mttr_n: int = 0  # incidents behind the MTTR mean (for the tooltip)
+    alert_mtta_n: int = 0  # incidents behind the MTTA mean (for the tooltip)
+    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    ack_level: Color | None = None
+    resolved_level: Color | None = None
+    total_level: Color | None = None
+    mttr_level: Color | None = None
+    mtta_level: Color | None = None
+
+    @property
+    def mttr_label(self) -> str:
+        return format_duration(self.alert_mttr_seconds)
+
+    @property
+    def mtta_label(self) -> str:
+        return format_duration(self.alert_mtta_seconds)

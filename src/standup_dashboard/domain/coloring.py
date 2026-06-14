@@ -126,3 +126,61 @@ def alert_color(role: Role) -> Color:
     only the colour is role-based.
     """
     return _ALERT_ROLE_COLOR.get(role, Color.RED)
+
+
+# --- Alert counts-table cell coloring (green / yellow / red bands) ----------
+# Volume columns (Ack, Total) are judged against an on-call "fatigue" cap that
+# the caller scales by the row's span (weekday / weekend / pulse) AND the number
+# of selected regions — more engineers on call ⇒ a higher healthy ceiling. The
+# resolve rate and the MTTR/MTTA means are *rates*, not volumes, so they share
+# fixed thresholds and are NOT scaled by region count.
+ALERT_RES_GREEN = 0.80            # resolved ≥80% of acked → keeping pace (green)
+ALERT_RES_YELLOW = 0.50           # 50–79% slipping (yellow); <50% backlog (red)
+ALERT_MTTA_GREEN_S = 5 * 60       # ≤5m ack latency is healthy
+ALERT_MTTA_YELLOW_S = 15 * 60     # 5–15m slipping; >15m alerts go unnoticed (red)
+ALERT_MTTR_GREEN_S = 30 * 60      # ≤30m is a tidy resolve
+ALERT_MTTR_YELLOW_S = 2 * 60 * 60  # 30m–2h acceptable; >2h painful (red)
+
+
+def count_level(count: int, green_cap: int) -> Color | None:
+    """Volume band: green ≤ cap, yellow ≤ 2×cap, red beyond (None if no cap)."""
+    if green_cap <= 0:
+        return None
+    if count <= green_cap:
+        return Color.GREEN
+    if count <= 2 * green_cap:
+        return Color.YELLOW
+    return Color.RED
+
+
+def resolve_rate_level(resolved: int, acked: int) -> Color | None:
+    """Resolved-vs-acked band; None when there was nothing to acknowledge."""
+    if acked <= 0:
+        return None
+    rate = resolved / acked
+    if rate >= ALERT_RES_GREEN:
+        return Color.GREEN
+    if rate >= ALERT_RES_YELLOW:
+        return Color.YELLOW
+    return Color.RED
+
+
+def _duration_level(seconds: float | None, green_max: float, yellow_max: float) -> Color | None:
+    """Lower-is-better band: green ≤ green_max, yellow ≤ yellow_max, else red."""
+    if seconds is None:
+        return None
+    if seconds <= green_max:
+        return Color.GREEN
+    if seconds <= yellow_max:
+        return Color.YELLOW
+    return Color.RED
+
+
+def mttr_level(seconds: float | None) -> Color | None:
+    """Ack→resolve mean band (#140): ≤30m green, 30m–2h yellow, >2h red."""
+    return _duration_level(seconds, ALERT_MTTR_GREEN_S, ALERT_MTTR_YELLOW_S)
+
+
+def mtta_level(seconds: float | None) -> Color | None:
+    """Trigger→ack mean band (#140): ≤5m green, 5–15m yellow, >15m red."""
+    return _duration_level(seconds, ALERT_MTTA_GREEN_S, ALERT_MTTA_YELLOW_S)

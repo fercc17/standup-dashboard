@@ -141,8 +141,11 @@ table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border);
 table.counts td.sub { font-weight: 600; }
 /* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
 table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
-/* Alert fatigue: alert cells of a day exceeding the 2-per-12h-shift standard. */
-table.counts td.fatigue { background: var(--red-bg); color: var(--red); font-weight: 600; }
+/* Alert health bands (ack/res/total/MTTR/MTTA): green within the on-call
+   standard, yellow a warning, red fatigue/too-slow. See domain/coloring.py. */
+table.counts td.lvl-green  { background: var(--green-bg);  color: var(--green);  font-weight: 600; }
+table.counts td.lvl-yellow { background: var(--yellow-bg); color: var(--yellow); font-weight: 600; }
+table.counts td.lvl-red    { background: var(--red-bg);    color: var(--red);    font-weight: 600; }
 
 /* Custom hover/tap tooltip (native title tooltips don't fire on touch). */
 .tip-pop {

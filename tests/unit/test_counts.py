@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
-from standup_dashboard.services.counts import build_region_counts
+from standup_dashboard.domain.models import Alert, AlertState, Color, Pulse, Ticket
+from standup_dashboard.services.counts import build_counts, build_region_counts
 
 AMER = "AMER"
 MEMBER = "alexandre.gomes@canonical.com"   # AMER → "Alexandre Gomes"
@@ -169,6 +169,59 @@ def test_closed_pr_mp_credited_to_assignee_region():
     assert amer_fri.closed_total.count == 0      # creation region is EMEA, not AMER
     assert emea_fri.closed_pr_mp.count == 0      # owner is AMER, not EMEA
     assert emea_fri.closed_total.count == 1      # but the generic close is EMEA's
+
+
+def test_daily_mttr_and_mtta_per_row_and_total():
+    # One incident on Friday: trigger 18:00, first ack 18:10 (MTTA 10m), resolve
+    # 18:40 (MTTR 30m). All three events land on the same region-local day
+    # (18:00 UTC ≈ 12:00 Mexico City), so the Friday row and the pulse total agree.
+    alerts = [
+        Alert("INC", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),
+        Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 10, tzinfo=UTC)),
+        Alert("INC", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 40, tzinfo=UTC)),
+    ]
+    rows = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))
+    fri = next(r for r in rows if not r.is_total and r.alert_mttr_n)
+    assert fri.alert_mttr_n == 1 and fri.mttr_label == "30m"
+    assert fri.alert_mtta_n == 1 and fri.mtta_label == "10m"
+    total = _total(rows)
+    assert total.alert_mttr_seconds == 1800 and total.mttr_label == "30m"
+    assert total.alert_mtta_seconds == 600 and total.mtta_label == "10m"
+
+
+def test_daily_mttr_blank_when_no_resolve_pair():
+    # An ack with no matching resolve yields no MTTR pairing → None / em dash.
+    alerts = [Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 12, 18))]
+    total = _total(build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15)))
+    assert total.alert_mttr_n == 0 and total.alert_mttr_seconds is None
+    assert total.mttr_label == "—"
+
+
+def test_daily_alert_levels_wired():
+    # trigger 18:00 · ack 18:10 (MTTA 10m → yellow) · resolve 18:40 (MTTR 30m → green).
+    alerts = [
+        Alert("INC", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),
+        Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 10, tzinfo=UTC)),
+        Alert("INC", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 40, tzinfo=UTC)),
+    ]
+    total = _total(build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15)))
+    assert total.mttr_level is Color.GREEN       # 30m ≤ 30m
+    assert total.mtta_level is Color.YELLOW      # 10m in (5m, 15m]
+    assert total.resolved_level is Color.GREEN   # 1 resolved / 1 acked = 100%
+
+
+def test_ack_total_level_scales_with_selected_region_count():
+    # Three weekday acks by AMER members → over the single-region weekday cap (2).
+    fri = utc(2026, 6, 12)
+    alerts = [Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, fri) for i in range(3)]
+    amer_fri = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))[1]
+    assert amer_fri.alerts_ack.count == 3
+    assert amer_fri.ack_level is Color.YELLOW     # 3 > cap 2 (one region)
+    assert amer_fri.total_level is Color.YELLOW
+    # Selecting a second region doubles the cap to 4 → 3 is healthy again.
+    both_fri = build_counts([AMER, "APAC"], [], alerts, _pulses(), utc(2026, 6, 15))[1]
+    assert both_fri.ack_level is Color.GREEN
+    assert both_fri.total_level is Color.GREEN
 
 
 def test_region_follows_creation_time_not_assignee():

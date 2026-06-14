@@ -31,6 +31,12 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
+from ..domain.coloring import (
+    count_level,
+    mtta_level,
+    mttr_level,
+    resolve_rate_level,
+)
 from ..domain.models import (
     PULSE_SUMMARY_FIELDS,
     Alert,
@@ -47,10 +53,12 @@ from .pulse import current_pulse, previous_pulse
 # retarget the whole ticket section.
 COUNTS_PROJECT = config.PROJECT_ISREQ
 
-# Alert-fatigue thresholds: the on-call standard is 2 alerts per 12h shift, so a
-# day exceeding that is flagged red in the table. A weekday row is one 12h shift
-# (limit 2); a weekend row merges Sat+Sun into a single 48h on-call shift = four
-# 12h shifts, so its limit is 4 × 2 = 8. "More than" the limit (strictly) is red.
+# Alert-fatigue green caps: the on-call standard is 2 alerts per 12h shift, so a
+# healthy (green) row stays at or under that; up to twice the cap is a yellow
+# warning, beyond is red (see ``coloring.count_level``). A weekday row is one 12h
+# shift (cap 2); a weekend row merges Sat+Sun into a single 48h on-call shift =
+# four 12h shifts, so its cap is 4 × 2 = 8. The caller further multiplies the cap
+# by the number of selected regions (more on-call engineers ⇒ higher ceiling).
 ALERT_FATIGUE_WEEKDAY = 2
 ALERT_FATIGUE_WEEKEND = 8
 # Per-pulse equivalent: a pulse is one Jira sprint = PULSE_LENGTH_DAYS (14) days,
@@ -267,6 +275,7 @@ def build_counts(
     groups = _group_days(days)
 
     selected_set = set(selected_regions)
+    region_count = len(selected_regions)  # scales the alert-volume green cap
     selected_members: set[str] = set()
     for key in selected_regions:
         selected_members.update(config.REGIONS[key].member_emails)
@@ -305,10 +314,21 @@ def build_counts(
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
-        # Alert fatigue: a real day (not a pulse-total row) whose alert load
-        # exceeds the per-shift standard (weekday one shift, weekend = four).
-        fatigue_limit = ALERT_FATIGUE_WEEKEND if is_weekend else ALERT_FATIGUE_WEEKDAY
-        alert_fatigue = (not is_total) and (ack.count + resolved.count) > fatigue_limit
+        total = _merge_cells([ack, resolved])
+        mttr_sum, mttr_n = _alert_mttr(alerts, selected_members, dset)
+        mtta_sum, mtta_n = _alert_mtta(alerts, selected_members, dset)
+        mttr_seconds = (mttr_sum / mttr_n) if mttr_n else None
+        mtta_seconds = (mtta_sum / mtta_n) if mtta_n else None
+        # Alert-volume bands scale by the row's span (pulse total → whole sprint;
+        # weekend → four shifts; weekday → one shift) AND the number of selected
+        # regions (more on-call engineers ⇒ a higher healthy ceiling).
+        if is_total:
+            green_cap = ALERT_FATIGUE_PULSE
+        elif is_weekend:
+            green_cap = ALERT_FATIGUE_WEEKEND
+        else:
+            green_cap = ALERT_FATIGUE_WEEKDAY
+        green_cap *= region_count
         region_distinct = _alert_cell(alerts, selected_members, dset, None).count
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
@@ -348,11 +368,24 @@ def build_counts(
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
             alerts_ack=ack,
             alerts_resolved=resolved,
-            alerts_total=_merge_cells([ack, resolved]),
+            alerts_total=total,
             region_alert_pct=pct,
             closed_pct=closed_pct,
             isdb_closed_pct=isdb_closed_pct,
-            alert_fatigue=alert_fatigue,
+            # Same ack→resolve / trigger→ack means as the pulse-history table, here
+            # scoped to this row's day(s). A pairing only counts when both events
+            # land in this row's bucket, so single days see fewer pairs (more '—').
+            alert_mttr_seconds=mttr_seconds,
+            alert_mtta_seconds=mtta_seconds,
+            alert_mttr_n=mttr_n,
+            alert_mtta_n=mtta_n,
+            # Green/yellow/red bands (#143 follow-up). Volumes use the scaled cap;
+            # the resolve rate and the MTTR/MTTA means are rates, never scaled.
+            ack_level=count_level(ack.count, green_cap),
+            total_level=count_level(total.count, green_cap),
+            resolved_level=resolve_rate_level(resolved.count, ack.count),
+            mttr_level=mttr_level(mttr_seconds),
+            mtta_level=mtta_level(mtta_seconds),
         )
 
     rows: list[CountsRow] = []

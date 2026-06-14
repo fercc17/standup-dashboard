@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from standup_dashboard.domain.models import Alert, AlertState, Pulse, Ticket
+from standup_dashboard.domain.models import Alert, AlertState, Color, Pulse, Ticket
 from standup_dashboard.services import counts
 from standup_dashboard.storage.db import Database
 from standup_dashboard.web.presenters import DashboardData, build_pulse_history
@@ -82,6 +82,40 @@ def test_history_mttr_from_ack_to_resolve(tmp_path):
     # Only the ack+resolve incident counts toward MTTR; the ack-only one is ignored.
     assert row.alert_mttr_seconds == 2 * 3600
     assert row.mttr_label == "2h"
+    db.close()
+
+
+def test_history_alert_levels_wired(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    # INC1 triggered 12:00 → acked 12:03 (MTTA 3m) → resolved 12:33 (MTTR 30m).
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(12, 12)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 12, 3, tzinfo=UTC)),
+        Alert("INC1", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 12, 12, 33, tzinfo=UTC)),
+    ]
+    data = DashboardData(fetched_at=utc(12), tickets=[], alerts=alerts, pulses=pulses)
+    row = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}[12]
+    assert row.ack_level is Color.GREEN        # 1 alert ≪ pulse cap (56)
+    assert row.total_level is Color.GREEN
+    assert row.resolved_level is Color.GREEN   # 1 resolved / 1 acked = 100%
+    assert row.mttr_level is Color.GREEN       # 30m
+    assert row.mtta_level is Color.GREEN       # 3m
+    db.close()
+
+
+def test_history_ack_level_scales_with_selected_region_count(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    # 57 acked incidents > single-region pulse cap (56) → yellow for one region.
+    alerts = [Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, utc(12)) for i in range(57)]
+    data = DashboardData(fetched_at=utc(12), tickets=[], alerts=alerts, pulses=pulses)
+    one = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}[12]
+    assert one.cells["alerts_ack"].count == 57
+    assert one.ack_level is Color.YELLOW
+    # Selecting a second region doubles the cap to 112 → 57 is healthy again.
+    two = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER", "APAC"], utc(12, 19))}[12]
+    assert two.ack_level is Color.GREEN
     db.close()
 
 
