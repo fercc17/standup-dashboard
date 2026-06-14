@@ -39,8 +39,16 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+# Explicit "no region selected" marker (#152): distinguishes a deliberate
+# deselect-all (zero regions) from a first visit (no param → default region).
+NO_REGION = "none"
+
+
 def _parse_regions(values: list[str]) -> list[str]:
-    """Validate + dedupe requested regions; default to the first region."""
+    """Validate + dedupe requested regions. No param → default to the first
+    region; the explicit ``none`` marker → an empty (region-less) selection."""
+    if NO_REGION in values:
+        return []
     if not values:
         return [config.REGION_KEYS[0]]
     out: list[str] = []
@@ -53,12 +61,13 @@ def _parse_regions(values: list[str]) -> list[str]:
 
 
 def _region_links(selected: list[str]) -> list[dict]:
-    """Toggle links for the region buttons (multi-select, FR-002/005)."""
+    """Toggle links for the region buttons (multi-select, FR-002/005). Turning the
+    last region off carries the explicit ``none`` marker so it stays deselected."""
     links: list[dict] = []
     for r in config.REGION_KEYS:
         new = [x for x in selected if x != r] if r in selected else [*selected, r]
-        query = "&".join(f"regions={x}" for x in new)
-        links.append({"key": r, "href": f"/?{query}" if query else "/", "active": r in selected})
+        query = "&".join(f"regions={x}" for x in new) or f"regions={NO_REGION}"
+        links.append({"key": r, "href": f"/?{query}", "active": r in selected})
     return links
 
 
@@ -91,6 +100,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "pulse_range": pulse_range,
         "region_links": _region_links(selected_regions),
         "highest_focus": schedule.get_highest_focus(db),
+        "show_management": schedule.get_show_management(db),
         "oncall_name": None,
         "weekend_recap": None,
         "counts_rows": [],
@@ -405,6 +415,27 @@ async def toggle_highest(request: Request) -> Response:
     form = await request.form()
     schedule.set_highest_focus(ctx.db, form.get("value") == "on", _now())
     return Response(status_code=204)
+
+
+@router.post("/toggle/management", response_class=HTMLResponse)
+async def toggle_management(request: Request) -> Response:
+    """Flip the Management-group visibility (#151) and re-render the dashboard.
+
+    Server-persisted (``ui_state``) so it survives reloads, unlike the old
+    per-browser localStorage toggle. Re-renders ``_dashboard.html`` only — no
+    refetch — so the Management group appears/disappears immediately."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    try:
+        selected = _parse_regions(form.getlist("regions"))
+    except ValueError as exc:
+        return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
+    schedule.set_show_management(ctx.db, not schedule.get_show_management(ctx.db), _now())
+    return _templates(request).TemplateResponse(
+        request, "_dashboard.html", _dashboard_context(request, selected, _now())
+    )
 
 
 @router.post("/schedule/weekly", response_class=HTMLResponse)

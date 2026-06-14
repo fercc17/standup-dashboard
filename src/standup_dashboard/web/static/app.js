@@ -71,25 +71,8 @@ document.addEventListener('click', function (e) {
   }
 });
 
-// Management tab: show/hide the Management chip group (persisted; default shown).
-function applyManagementTab() {
-  const on = localStorage.getItem('showManagement') !== 'off';
-  const grp = document.getElementById('management-group');
-  if (grp) grp.style.display = on ? '' : 'none';
-  document.querySelectorAll('[data-toggle-management]').forEach(function (b) {
-    b.classList.toggle('active', on);
-  });
-}
-document.addEventListener('DOMContentLoaded', applyManagementTab);
-// #dashboard (with the Management group) is re-rendered on refresh — re-apply.
-document.body.addEventListener('htmx:afterSettle', applyManagementTab);
-document.addEventListener('click', function (e) {
-  if (e.target.closest('[data-toggle-management]')) {
-    const on = localStorage.getItem('showManagement') !== 'off';
-    localStorage.setItem('showManagement', on ? 'off' : 'on');
-    applyManagementTab();
-  }
-});
+// Management group visibility is now a server-persisted toggle (#151): the
+// Management button hx-posts /toggle/management and re-renders #dashboard.
 
 // Highest-only toggle: after it persists, recolor any open detail panel.
 document.body.addEventListener('htmx:afterRequest', function (e) {
