@@ -112,3 +112,32 @@ def test_history_mttr_persists_and_reads_back(tmp_path):
     c12 = {(p, r): c for p, r, c, _ in db.get_pulse_summaries()}[(12, "AMER")]
     assert c12["alert_mttr_sum"] == 3 * 3600 and c12["alert_mttr_n"] == 1
     db.close()
+
+
+def test_history_mtta_from_trigger_to_ack(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    # INC1 triggered 10:00 → acked 12:00 UTC (2h). INC2 acked with no trigger → ignored.
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(12, 10)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 12)),
+        Alert("INC2", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 10)),
+    ]
+    data = DashboardData(fetched_at=utc(12), tickets=[], alerts=alerts, pulses=pulses)
+    row = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}[12]
+    assert row.alert_mtta_seconds == 2 * 3600
+    assert row.mtta_label == "2h"
+    db.close()
+
+
+def test_history_mtta_persists_and_reads_back(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(12, 10)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 13)),   # 3h
+    ]
+    counts.persist_pulse_summaries(db, [], alerts, pulses, utc(12))
+    c12 = {(p, r): c for p, r, c, _ in db.get_pulse_summaries()}[(12, "AMER")]
+    assert c12["alert_mtta_sum"] == 3 * 3600 and c12["alert_mtta_n"] == 1
+    db.close()

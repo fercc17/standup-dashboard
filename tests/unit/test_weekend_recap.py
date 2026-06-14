@@ -1,23 +1,32 @@
-"""Previous-weekend on-call recap (#145)."""
+"""Previous-weekend on-call recap (#145) — reads weekend alerts from the DB."""
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
 from standup_dashboard.domain.models import Alert, AlertState, WeekendOnCall
+from standup_dashboard.storage.db import Database
 from standup_dashboard.web.presenters import DashboardData, build_weekend_recap
 
-MEMBER = "alexandre.gomes@canonical.com"  # AMER roster member
+MEMBER = "alexandre.gomes@canonical.com"  # AMER (America/Mexico_City, UTC-6)
 OTHER = "someone.else@external.com"
+OC = WeekendOnCall(engineer_email=MEMBER, weekend_start=date(2026, 6, 13),
+                   weekend_end=date(2026, 6, 14))
 
 
-def _at(d, h):
-    return datetime(2026, 6, d, h, tzinfo=UTC)
+def _at(d, h, m=0):
+    return datetime(2026, 6, d, h, m, tzinfo=UTC)
 
 
-def test_recap_summarizes_oncall_incidents():
-    oc = WeekendOnCall(engineer_email=MEMBER, weekend_start=date(2026, 6, 13),
-                       weekend_end=date(2026, 6, 14))
+def _db(tmp_path, alerts):
+    db = Database(tmp_path / "t.db")
+    fid = db.create_fetch_snapshot(fetched_at=_at(15, 9), jira_ok=True,
+                                   pagerduty_ok=True, ical_ok=True, raw_path="")
+    db.insert_alerts(fid, alerts)
+    return db
+
+
+def test_recap_summarizes_oncall_incidents(tmp_path):
     alerts = [
         # INC1: ack 15:00 → resolve 16:00 Sat (1h).
         Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, _at(13, 15), title="disk full",
@@ -31,8 +40,8 @@ def test_recap_summarizes_oncall_incidents():
         # On-call but outside the weekend window → excluded.
         Alert("INC4", MEMBER, AlertState.RESOLVED, _at(10, 15), title="weekday", number=45),
     ]
-    data = DashboardData(fetched_at=_at(15, 9), alerts=alerts, weekend_oncall=[oc])
-    recap = build_weekend_recap(data)
+    db = _db(tmp_path, alerts)
+    recap = build_weekend_recap(db, DashboardData(fetched_at=_at(15, 9), weekend_oncall=[OC]), _at(15, 9))
 
     assert recap is not None
     assert recap.oncall_name == "Alexandre Gomes"
@@ -41,20 +50,26 @@ def test_recap_summarizes_oncall_incidents():
     assert recap.open_acks == 1
     assert recap.incidents[0]["number"] == 43  # open one sorts first
     assert recap.incidents[0]["resolved"] is False
+    assert recap.mttr_label == "1h"
+    db.close()
 
 
-def test_recap_resolve_time_uses_ack_to_resolve():
-    oc = WeekendOnCall(engineer_email=MEMBER, weekend_start=date(2026, 6, 13),
-                       weekend_end=date(2026, 6, 14))
+def test_recap_counts_resolution_that_slips_past_midnight(tmp_path):
+    # Acked Sun 23:30 local (Mon 05:30 UTC), resolved Mon 00:30 local (Mon 06:30 UTC).
+    # The resolution slips just past the weekend, but must still read as resolved (#145).
     alerts = [
-        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, _at(13, 15), title="x", number=1),
-        Alert("INC1", MEMBER, AlertState.RESOLVED, _at(13, 17), title="x", number=1),  # 2h
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, _at(15, 5, 30), title="x", number=1),
+        Alert("INC1", MEMBER, AlertState.RESOLVED, _at(15, 6, 30), title="x", number=1),
     ]
-    data = DashboardData(fetched_at=_at(15, 9), alerts=alerts, weekend_oncall=[oc])
-    recap = build_weekend_recap(data)
-    assert recap.mttr_label == "2h"
-    assert recap.incidents[0]["duration_label"] == "2h"
+    db = _db(tmp_path, alerts)
+    recap = build_weekend_recap(db, DashboardData(fetched_at=_at(15, 9), weekend_oncall=[OC]), _at(15, 9))
+    assert recap.incident_count == 1
+    assert recap.resolved == 1 and recap.open_acks == 0
+    assert recap.mttr_label == "1h"
+    db.close()
 
 
-def test_recap_none_without_oncall():
-    assert build_weekend_recap(DashboardData(fetched_at=_at(15, 9))) is None
+def test_recap_none_without_oncall(tmp_path):
+    db = _db(tmp_path, [])
+    assert build_weekend_recap(db, DashboardData(fetched_at=_at(15, 9)), _at(15, 9)) is None
+    db.close()

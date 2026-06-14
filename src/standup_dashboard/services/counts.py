@@ -192,6 +192,37 @@ def _alert_mttr(alerts: list[Alert], members: set[str], dates: set[date]) -> tup
     return total, n
 
 
+def _alert_mtta(alerts: list[Alert], members: set[str], dates: set[date]) -> tuple[int, int]:
+    """(sum_seconds, n_incidents) of time from incident trigger to first ack.
+
+    Pairs each incident's earliest trigger (a handler-less TRIGGERED event) with
+    the earliest acknowledgement by ``members`` within ``dates`` (bucketed in the
+    acker's region tz — the same scope as the alert counts). Sum+count keeps the
+    pulse MTTA composable across regions, mirroring ``_alert_mttr``.
+    """
+    trig_at: dict[str, datetime] = {}
+    ack_at: dict[str, datetime] = {}
+    for a in alerts:
+        if a.state is AlertState.TRIGGERED:
+            if a.id not in trig_at or a.at < trig_at[a.id]:  # earliest fire
+                trig_at[a.id] = a.at
+            continue
+        if a.state is not AlertState.ACKNOWLEDGED or a.handler_email not in members:
+            continue
+        zone = _handler_zone(a.handler_email)
+        if zone is None or _local_date(a.at, zone) not in dates:
+            continue
+        if a.id not in ack_at or a.at < ack_at[a.id]:  # earliest ack by a member
+            ack_at[a.id] = a.at
+    total = n = 0
+    for incident_id, acked in ack_at.items():
+        triggered = trig_at.get(incident_id)
+        if triggered is not None and acked >= triggered:
+            total += int((acked - triggered).total_seconds())
+            n += 1
+    return total, n
+
+
 def _merge_cells(cells: list[Cell]) -> Cell:
     """Element-wise sum of cells (count + per-person breakdown)."""
     breakdown: dict[str, int] = {}
@@ -415,6 +446,7 @@ def region_pulse_summary(
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
     mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
+    mtta_sum, mtta_n = _alert_mtta(alerts, members, dates)
     return {
         "new_highest": _ticket_cell(buckets["highest"], _reporter),
         "new_pr_mp": _ticket_cell(buckets["pr_mp"], _reporter),   # requester (#141)
@@ -429,9 +461,11 @@ def region_pulse_summary(
         "alerts_ack": ack,
         "alerts_resolved": res,
         "alerts_total": _merge_cells([ack, res]),
-        # Accumulators for mean time-to-resolve (sum/n), composable across regions.
+        # Accumulators for mean time-to-resolve / -acknowledge (sum/n), composable.
         "alert_mttr_sum": Cell(count=mttr_sum),
         "alert_mttr_n": Cell(count=mttr_n),
+        "alert_mtta_sum": Cell(count=mtta_sum),
+        "alert_mtta_n": Cell(count=mtta_n),
     }
 
 
@@ -440,19 +474,15 @@ def combine_summaries(summaries: list[dict[str, Cell]]) -> dict[str, Cell]:
     return {m: _merge_cells([s[m] for s in summaries]) for m in PULSE_SUMMARY_FIELDS}
 
 
-def accumulated_pulse_alerts(db, now: datetime) -> list[Alert]:
-    """De-duplicated PagerDuty alerts across every fetch in the current pulse.
+def accumulated_alerts_since(db, since: datetime) -> list[Alert]:
+    """De-duplicated PagerDuty alerts from every PD-ok snapshot fetched ≥ ``since``.
 
-    PagerDuty is fetched incrementally, so a single fetch holds only its window.
-    Pulse summaries must be persisted from the *whole pulse's* accumulated alerts
-    (the same set the counts table builds) or per-pulse MTTR and alert totals
-    reflect only the last fetch — which is why the MTTR column read blank (#140).
-    Dedup by (incident, handler, state, time), preferring the enriched copy.
+    Dedup by (incident, handler, state, time), preferring the enriched copy (with
+    incident title/number). Shared by pulse-summary persistence (#140) and the
+    weekend recap (#145), which both need alerts spanning more than the last fetch.
     """
-    _, start, _ = current_pulse(now.astimezone(UTC).date())
-    pulse_start = datetime(start.year, start.month, start.day, tzinfo=UTC)
     by_key: dict[tuple, Alert] = {}
-    for snap in db.fetches_since(pulse_start):
+    for snap in db.fetches_since(since):
         if not snap.pagerduty_ok:
             continue
         for a in db.get_alerts(snap.id):
@@ -461,6 +491,17 @@ def accumulated_pulse_alerts(db, now: datetime) -> list[Alert]:
             if existing is None or (a.title and not existing.title):
                 by_key[key] = a
     return list(by_key.values())
+
+
+def accumulated_pulse_alerts(db, now: datetime) -> list[Alert]:
+    """Accumulated alerts across the current pulse's fetches (since pulse start).
+
+    PagerDuty is fetched incrementally, so persisting summaries from a single
+    fetch made the MTTR column read blank (#140); persist from this instead.
+    """
+    _, start, _ = current_pulse(now.astimezone(UTC).date())
+    pulse_start = datetime(start.year, start.month, start.day, tzinfo=UTC)
+    return accumulated_alerts_since(db, pulse_start)
 
 
 def persist_pulse_summaries(db, tickets, alerts, pulses, now: datetime) -> None:

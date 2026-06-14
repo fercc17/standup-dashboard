@@ -37,7 +37,14 @@ from ..domain.models import (
 )
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
-from ..services.counts import ALERT_FATIGUE_PULSE, combine_summaries, region_pulse_summary
+from ..services.counts import (
+    ALERT_FATIGUE_PULSE,
+    _display_name,
+    _handler_zone,
+    accumulated_alerts_since,
+    combine_summaries,
+    region_pulse_summary,
+)
 from ..services.counts import build_counts as _build_counts
 from ..services.oncall import others_off
 from ..services.pulse import current_pulse
@@ -329,40 +336,50 @@ class WeekendRecap:
     incidents: list[dict]
 
 
-def build_weekend_recap(data: DashboardData) -> WeekendRecap | None:
+def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> WeekendRecap | None:
     """What the previous weekend's on-call engineer dealt with (#145).
 
     Summarises the PagerDuty incidents the on-call engineer handled over their
-    weekend window: count, resolved vs still-open, mean ack→resolve time, and
-    the individual incidents (title + link). Returns ``None`` when no on-call is
-    known (no iCal data) — the caller then shows nothing.
+    weekend: count, resolved vs still-open, mean ack→resolve, and each incident
+    (title + link). Returns ``None`` when no on-call is known (no iCal data).
+
+    Loads the weekend's alerts directly from the DB rather than ``data.alerts``,
+    because the just-passed weekend can fall in the *previous* pulse (so it isn't
+    in the current-pulse merge). An incident counts if the on-call touched it
+    within the weekend window; its resolve time is taken whenever it resolved, so
+    a resolution that slips just past midnight still reads as resolved.
     """
     if not data.weekend_oncall:
         return None
     oc = data.weekend_oncall[0]
-    eng = config.ENGINEERS_BY_EMAIL.get(oc.engineer_email)
-    name = eng.name if eng else oc.engineer_email
-    region_key = config.primary_region_for(oc.engineer_email)
-    tz = ZoneInfo(config.REGIONS[region_key].timezone) if region_key else UTC
-    weekend_dates = {oc.weekend_start, oc.weekend_end}
+    name = _display_name(oc.engineer_email)
+    tz = _handler_zone(oc.engineer_email) or UTC
+    # Half-open weekend window [Sat 00:00, Mon 00:00) in the on-call's timezone.
+    start = datetime(oc.weekend_start.year, oc.weekend_start.month, oc.weekend_start.day, tzinfo=tz)
+    mon = oc.weekend_end + timedelta(days=1)
+    end = datetime(mon.year, mon.month, mon.day, tzinfo=tz)
 
-    meta: dict[str, dict] = {}
+    in_weekend: set[str] = set()
     ack_at: dict[str, datetime] = {}
     res_at: dict[str, datetime] = {}
-    for a in data.alerts:
+    meta: dict[str, dict] = {}
+    for a in accumulated_alerts_since(db, start.astimezone(UTC)):
         if a.handler_email != oc.engineer_email:
             continue
-        if a.at.astimezone(tz).date() not in weekend_dates:
-            continue
-        meta[a.id] = {"title": a.title, "url": a.url, "number": a.number}
+        if start <= a.at < end:
+            in_weekend.add(a.id)          # the on-call touched it during the weekend
         if a.state is AlertState.ACKNOWLEDGED and (a.id not in ack_at or a.at < ack_at[a.id]):
             ack_at[a.id] = a.at
         elif a.state is AlertState.RESOLVED and (a.id not in res_at or a.at < res_at[a.id]):
             res_at[a.id] = a.at
+        m = meta.get(a.id)
+        if m is None or (a.title and not m["title"]):   # prefer an enriched copy
+            meta[a.id] = {"title": a.title, "url": a.url, "number": a.number}
 
     incidents: list[dict] = []
     mttr_total = mttr_n = 0
-    for iid, m in meta.items():
+    for iid in in_weekend:
+        m = meta[iid]
         resolved = iid in res_at
         duration = None
         if resolved and iid in ack_at and res_at[iid] >= ack_at[iid]:
@@ -402,16 +419,21 @@ class OffenderRow:
     handlers: list[str]
 
 
-def build_repeat_offenders(data: DashboardData, *, min_count: int = 2) -> list[OffenderRow]:
+def build_repeat_offenders(
+    data: DashboardData, members: set[str], *, min_count: int = 2
+) -> list[OffenderRow]:
     """Alerts that fired ≥ ``min_count`` times this pulse, grouped by title (#146).
 
-    Counts distinct incidents (by id) sharing a whitespace/case-normalised title,
-    so the same noisy alert recurring under one incident isn't double-counted.
-    Within-pulse only — cross-pulse needs a persisted per-pulse digest.
+    Scoped to ``members`` (the selected region's handlers), so the modal agrees
+    with the region-scoped counts elsewhere on the page. Counts distinct incidents
+    (by id) sharing a whitespace/case-normalised title, so the same noisy alert
+    recurring under one incident isn't double-counted. The member filter also
+    drops handler-less TRIGGERED events. Within-pulse only — cross-pulse needs a
+    persisted per-pulse digest.
     """
     groups: dict[str, dict] = {}
     for a in data.alerts:
-        if not a.title:
+        if not a.title or a.handler_email not in members:
             continue
         key = " ".join(a.title.split()).lower()
         g = groups.setdefault(
@@ -488,6 +510,10 @@ def build_pulse_history(
             alert_mttr_seconds=(
                 cells["alert_mttr_sum"].count / cells["alert_mttr_n"].count
                 if cells["alert_mttr_n"].count else None
+            ),
+            alert_mtta_seconds=(
+                cells["alert_mtta_sum"].count / cells["alert_mtta_n"].count
+                if cells["alert_mtta_n"].count else None
             ),
         ))
     return rows

@@ -71,6 +71,7 @@ class TouchKind(StrEnum):
 
 
 class AlertState(StrEnum):
+    TRIGGERED = "triggered"        # incident fired — handler-less; used for MTTA only
     ACKNOWLEDGED = "acknowledged"
     RESOLVED = "resolved"
 
@@ -256,6 +257,7 @@ PULSE_SUMMARY_FIELDS = (
     "closed_highest", "closed_pr_mp", "closed_ps5", "closed_total", "isdb_closed",
     "alerts_ack", "alerts_resolved", "alerts_total",
     "alert_mttr_sum", "alert_mttr_n",   # sum-of-seconds / count → mean time to resolve
+    "alert_mtta_sum", "alert_mtta_n",   # sum-of-seconds / count → mean time to acknowledge
 )
 
 
@@ -284,10 +286,15 @@ class PulseHistoryRow:
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
     alert_fatigue: bool = False            # pulse alert load over the 2-per-12h standard (red)
     alert_mttr_seconds: float | None = None  # mean ack→resolve time this pulse, None if no data
+    alert_mtta_seconds: float | None = None  # mean trigger→ack time this pulse, None if no data
 
     @property
     def mttr_label(self) -> str:
         return format_duration(self.alert_mttr_seconds)
+
+    @property
+    def mtta_label(self) -> str:
+        return format_duration(self.alert_mtta_seconds)
 
 
 @dataclass

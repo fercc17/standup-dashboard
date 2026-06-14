@@ -123,7 +123,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         counts_rows=[r for r in counts_full if not r.is_previous],
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
         oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
-        weekend_recap=presenters.build_weekend_recap(data),
+        weekend_recap=presenters.build_weekend_recap(db, data, now),
     )
 
     if latest is not None:
@@ -359,10 +359,12 @@ async def offenders_modal(request: Request) -> HTMLResponse:
     ctx = _ctx(request)
     if ctx.setup_error is not None:
         return render_setup(request)
+    selected = _parse_regions(request.query_params.getlist("regions"))
+    members = {e for r in selected for e in config.REGIONS[r].member_emails}
     data = presenters.load_merged_data(ctx.db, _now())
     return _templates(request).TemplateResponse(
         request, "_offenders_modal.html",
-        {"offenders": presenters.build_repeat_offenders(data)},
+        {"offenders": presenters.build_repeat_offenders(data, members)},
     )
 
 
