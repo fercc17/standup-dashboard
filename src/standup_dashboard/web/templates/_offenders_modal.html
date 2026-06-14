@@ -1,25 +1,33 @@
 <div class="modal-backdrop">
   <div class="modal">
     <div class="modal-head">
-      <h2>Repeat alerts &middot; this pulse</h2>
+      <h2>Repeat offenders &middot; this year</h2>
       <button class="close" data-close-modal title="Close">&times;</button>
     </div>
 
     <p class="legend-intro">
-      Alerts that fired <strong>2+ times</strong> this pulse (distinct incidents,
-      grouped by title) — candidates to fix at the source.
+      Alerts still firing in the <strong>last 10 days</strong> that have fired
+      <strong>more than 10 times this year</strong> — chronic offenders to fix at
+      the source. Team-wide across all on-call handlers (incl. weekend &amp;
+      unacked); the volatile <code>[FIRING:n]</code> prefix is ignored when grouping.
     </p>
 
     {% if offenders %}
     <div class="legend-scroll">
       <table class="legend offenders">
         <thead>
-          <tr><th title="Distinct incidents this pulse">&times;</th><th>Alert</th><th>Handled by</th></tr>
+          <tr>
+            <th title="Distinct incidents this calendar year">× / yr</th>
+            <th title="Distinct incidents in the last 10 days">10d</th>
+            <th>Alert</th>
+            <th title="Who handled it in the last 10 days">Handled by (10d)</th>
+          </tr>
         </thead>
         <tbody>
           {% for o in offenders %}
           <tr>
-            <td class="off-count">{{ o.count }}</td>
+            <td class="off-count">{{ o.year_count }}</td>
+            <td class="off-recent">{{ o.recent_count }}</td>
             <td class="off-title">
               {% if o.url %}<a href="{{ o.url }}" target="_blank" rel="noopener">{% endif %}
               {% if o.number %}#{{ o.number }} {% endif %}{{ o.title }}{% if o.url %}</a>{% endif %}
@@ -31,12 +39,13 @@
       </table>
     </div>
     {% else %}
-    <p class="recap-empty">No alert fired more than once this pulse. &#127881;</p>
+    <p class="recap-empty">No alert fired more than 10 times this year. &#127881;</p>
     {% endif %}
 
     <p class="offenders-note">
-      Counts are distinct incidents <strong>this pulse only</strong>. Cross-pulse
-      offender history needs a persisted per-pulse digest — tracked in #146.
+      Year-to-date counts from stored incident history (bootstrapped from the
+      backfill, updated each refresh). The <strong>×&nbsp;/&nbsp;yr</strong> column
+      is this calendar year; <strong>10d</strong> is the last ten days.
     </p>
   </div>
 </div>

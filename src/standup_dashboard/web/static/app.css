@@ -310,6 +310,7 @@ table.legend th.role { text-align: left; font-weight: 700; white-space: nowrap; 
 /* ---- Repeat-offender alerts (#146) ---- */
 table.offenders th, table.offenders td { text-align: left; }
 table.offenders .off-count { text-align: center; font-weight: 700; width: 2.5em; }
+table.offenders .off-recent { text-align: center; color: var(--muted); width: 2.5em; }
 table.offenders .off-handlers { color: var(--muted); font-size: 12px; }
 table.offenders td a { color: var(--fg); text-decoration: none; }
 table.offenders td a:hover { text-decoration: underline; }

@@ -35,6 +35,7 @@ from ..domain.coloring import (
     count_level,
     mtta_level,
     mttr_level,
+    pr_mp_review_level,
     resolve_rate_level,
 )
 from ..domain.models import (
@@ -351,18 +352,21 @@ def build_counts(
             100.0 * len(isdb_closed_tickets) / global_isdb_closed if global_isdb_closed else None
         )
 
+        # New [PR/MP Review] credits the REQUESTER (reporter); Closed credits the
+        # assignee (owner). Their counts drive the PR/MP keep-up colour (#141).
+        new_pr_mp_cell = _ticket_cell(buckets["pr_mp"], _reporter)
+        closed_pr_mp_cell = _ticket_cell(closed_pr_mp, _assignee)
         return CountsRow(
             label=label,
             is_weekend=is_weekend,
             is_total=is_total,
             new_highest=_ticket_cell(buckets["highest"], _assignee),
-            # New [PR/MP Review] credits the REQUESTER (reporter) who raised it (#141).
-            new_pr_mp=_ticket_cell(buckets["pr_mp"], _reporter),
+            new_pr_mp=new_pr_mp_cell,
             new_ps5=_ticket_cell(buckets["ps5"], _assignee),
             new_regular=_ticket_cell(buckets["regular"], _assignee),
             new_total=_ticket_cell(new_tickets, _assignee),
             closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
-            closed_pr_mp=_ticket_cell(closed_pr_mp, _assignee),
+            closed_pr_mp=closed_pr_mp_cell,
             closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
             closed_total=_ticket_cell(closed, _assignee),
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
@@ -386,6 +390,8 @@ def build_counts(
             resolved_level=resolve_rate_level(resolved.count, ack.count),
             mttr_level=mttr_level(mttr_seconds),
             mtta_level=mtta_level(mtta_seconds),
+            # PR/MP keep-up: did Closed keep pace with reviews requested? (#141)
+            closed_pr_mp_level=pr_mp_review_level(new_pr_mp_cell.count, closed_pr_mp_cell.count),
         )
 
     rows: list[CountsRow] = []

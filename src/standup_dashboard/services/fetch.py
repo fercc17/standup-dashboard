@@ -304,6 +304,11 @@ async def run_fetch(
     pulse_alerts = accumulated_pulse_alerts(db, now)
     persist_pulse_summaries(db, jira_res.tickets, pulse_alerts, jira_res.pulses, now)
 
+    # Accumulate this pulse's incidents into the long-lived year history that
+    # powers the repeat-offender analysis (#146); idempotent across refreshes.
+    from .offenders import incidents_from_alerts
+    db.upsert_incidents(incidents_from_alerts(pulse_alerts))
+
     logger.info(
         "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s tickets=%d alerts=%d oncall=%s",
         fetch_id, jira_res.ok, pd_res.ok, ical_res.ok, len(jira_res.tickets),

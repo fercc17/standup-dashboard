@@ -224,6 +224,31 @@ def test_ack_total_level_scales_with_selected_region_count():
     assert both_fri.total_level is Color.GREEN
 
 
+def test_closed_pr_mp_keep_up_colour():
+    # 2 reviews requested Friday, 1 closed → 1 behind → yellow ("ok to leave one").
+    fri = utc(2026, 6, 12)
+    tickets = [
+        Ticket(id="ISReq-PR1", project_key="ISReq", title="[PR/MP Review] a", status="To Do",
+               priority="Medium", labels=[], created=fri, assignee_email=MEMBER,
+               reporter_email=OTHER),
+        Ticket(id="ISReq-PR2", project_key="ISReq", title="[PR/MP Review] b", status="To Do",
+               priority="Medium", labels=[], created=fri, assignee_email=MEMBER,
+               reporter_email=OTHER),
+        Ticket(id="ISReq-PRC", project_key="ISReq", title="[PR/MP Review] c", status="Done",
+               priority="Medium", labels=[], created=utc(2026, 6, 5),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
+    ]
+    fri_row = build_region_counts(AMER, tickets, [], _pulses(), utc(2026, 6, 15))[1]
+    assert fri_row.new_pr_mp.count == 2 and fri_row.closed_pr_mp.count == 1
+    assert fri_row.closed_pr_mp_level is Color.YELLOW
+    # Close the second one too → kept up → green.
+    tickets.append(Ticket(id="ISReq-PRC2", project_key="ISReq", title="[PR/MP Review] d",
+                          status="Done", priority="Medium", labels=[], created=utc(2026, 6, 5),
+                          is_done_date=date(2026, 6, 12), assignee_email=MEMBER))
+    fri_row = build_region_counts(AMER, tickets, [], _pulses(), utc(2026, 6, 15))[1]
+    assert fri_row.closed_pr_mp.count == 2 and fri_row.closed_pr_mp_level is Color.GREEN
+
+
 def test_region_follows_creation_time_not_assignee():
     # Ticket created at 10:00 UTC (EMEA window) but assigned to an AMER engineer:
     # it belongs to EMEA (creation time), not AMER (assignee).

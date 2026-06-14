@@ -87,6 +87,20 @@ CREATE TABLE IF NOT EXISTS pulse (
     PRIMARY KEY (fetch_id, project_key)
 );
 
+-- One row per distinct PagerDuty incident, deduped across fetches and NOT
+-- pruned — the long-lived year history for repeat-offender analysis (#146).
+-- Bootstrapped from the historical backfill, topped up by every refresh.
+CREATE TABLE IF NOT EXISTS incident (
+    id         TEXT PRIMARY KEY,
+    signature  TEXT NOT NULL,   -- normalised title ([FIRING:n] prefix stripped)
+    fired_at   TEXT NOT NULL,   -- earliest event time (the trigger)
+    title      TEXT,
+    number     INTEGER,
+    url        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_incident_sig ON incident (signature);
+CREATE INDEX IF NOT EXISTS idx_incident_fired ON incident (fired_at);
+
 CREATE TABLE IF NOT EXISTS weekend_oncall (
     fetch_id       INTEGER NOT NULL REFERENCES fetch_snapshot(id),
     engineer_email TEXT NOT NULL,
@@ -320,6 +334,34 @@ class Database:
               a.title, a.url, a.number) for a in alerts],
         )
         self._conn.commit()
+
+    def upsert_incidents(self, records: Iterable) -> None:
+        """Accumulate distinct incidents into the long-lived ``incident`` table.
+
+        ``records`` carry ``id, signature, fired_at (datetime), title, number,
+        url``. Keeps the earliest ``fired_at`` and back-fills title/number/url
+        from whichever event first carried them (idempotent across refreshes)."""
+        self._conn.executemany(
+            "INSERT INTO incident (id, signature, fired_at, title, number, url)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET"
+            "   fired_at = MIN(incident.fired_at, excluded.fired_at),"
+            "   signature = COALESCE(NULLIF(excluded.signature, ''), incident.signature),"
+            "   title = COALESCE(NULLIF(excluded.title, ''), incident.title),"
+            "   number = COALESCE(incident.number, excluded.number),"
+            "   url = COALESCE(incident.url, excluded.url)",
+            [(r.id, r.signature, r.fired_at.isoformat(), r.title, r.number, r.url)
+             for r in records],
+        )
+        self._conn.commit()
+
+    def get_incidents_since(self, since: datetime) -> list[sqlite3.Row]:
+        """Raw incident rows fired at/after ``since`` (the service maps them)."""
+        return self._conn.execute(
+            "SELECT id, signature, fired_at, title, number, url"
+            " FROM incident WHERE fired_at >= ?",
+            (since.isoformat(),),
+        ).fetchall()
 
     def insert_pulses(self, fetch_id: int, pulses: Iterable[Pulse]) -> None:
         self._conn.executemany(

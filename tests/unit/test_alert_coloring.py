@@ -10,6 +10,7 @@ from standup_dashboard.domain.coloring import (
     count_level,
     mtta_level,
     mttr_level,
+    pr_mp_review_level,
     resolve_rate_level,
 )
 from standup_dashboard.domain.models import Color
@@ -59,3 +60,16 @@ def test_mtta_bands():
     assert mtta_level(5 * 60 + 1) is Color.YELLOW
     assert mtta_level(15 * 60) is Color.YELLOW         # 15m boundary
     assert mtta_level(15 * 60 + 1) is Color.RED
+
+
+def test_pr_mp_review_keep_up_bands():
+    # review (New PR/MP) vs closed (Closed PR/MP): deficit = review - closed.
+    assert pr_mp_review_level(0, 0) is None             # no activity → neutral
+    assert pr_mp_review_level(5, 5) is Color.GREEN      # matched
+    assert pr_mp_review_level(5, 6) is Color.GREEN      # closed more (another region left one)
+    assert pr_mp_review_level(5, 7) is Color.GREEN      # well ahead
+    assert pr_mp_review_level(0, 3) is Color.GREEN      # closed backlog, none came in
+    assert pr_mp_review_level(5, 4) is Color.YELLOW     # exactly one behind (ok)
+    assert pr_mp_review_level(3, 2) is Color.YELLOW
+    assert pr_mp_review_level(5, 3) is Color.RED        # two behind
+    assert pr_mp_review_level(5, 0) is Color.RED

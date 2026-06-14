@@ -25,6 +25,7 @@ from ..domain.coloring import (
     is_role_distractor,
     mtta_level,
     mttr_level,
+    pr_mp_review_level,
     resolve_rate_level,
     ticket_color,
 )
@@ -452,50 +453,8 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
 
 
 # --- Repeat-offender alerts (#146) -----------------------------------------
-
-
-@dataclass
-class OffenderRow:
-    title: str
-    count: int            # distinct incidents with this title this pulse
-    number: int | None    # a representative (latest) incident number
-    url: str | None
-    handlers: list[str]
-
-
-def build_repeat_offenders(
-    data: DashboardData, members: set[str], *, min_count: int = 2
-) -> list[OffenderRow]:
-    """Alerts that fired ≥ ``min_count`` times this pulse, grouped by title (#146).
-
-    Scoped to ``members`` (the selected region's handlers), so the modal agrees
-    with the region-scoped counts elsewhere on the page. Counts distinct incidents
-    (by id) sharing a whitespace/case-normalised title, so the same noisy alert
-    recurring under one incident isn't double-counted. The member filter also
-    drops handler-less TRIGGERED events. Within-pulse only — cross-pulse needs a
-    persisted per-pulse digest.
-    """
-    groups: dict[str, dict] = {}
-    for a in data.alerts:
-        if not a.title or a.handler_email not in members:
-            continue
-        key = " ".join(a.title.split()).lower()
-        g = groups.setdefault(
-            key, {"title": a.title.strip(), "ids": set(), "handlers": set(),
-                  "latest": None, "number": None, "url": None}
-        )
-        g["ids"].add(a.id)
-        eng = config.ENGINEERS_BY_EMAIL.get(a.handler_email)
-        g["handlers"].add(eng.name if eng else a.handler_email)
-        if g["latest"] is None or a.at > g["latest"]:
-            g["latest"], g["number"], g["url"] = a.at, a.number, a.url
-    rows = [
-        OffenderRow(title=g["title"], count=len(g["ids"]), number=g["number"],
-                    url=g["url"], handlers=sorted(g["handlers"]))
-        for g in groups.values() if len(g["ids"]) >= min_count
-    ]
-    rows.sort(key=lambda r: (-r.count, r.title.lower()))
-    return rows
+# Moved to services/offenders.py (now year-history backed, not pulse-scoped);
+# the route calls offenders.build_offenders directly.
 
 
 def build_pulse_history(
@@ -571,6 +530,8 @@ def build_pulse_history(
             resolved_level=resolve_rate_level(res_n, ack_n),
             mttr_level=mttr_level(mttr_s),
             mtta_level=mtta_level(mtta_s),
+            closed_pr_mp_level=pr_mp_review_level(
+                cells["new_pr_mp"].count, cells["closed_pr_mp"].count),
         ))
     return rows
 

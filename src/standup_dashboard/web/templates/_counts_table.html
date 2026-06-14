@@ -36,7 +36,7 @@
       <td data-tip="{{ row.new_regular.tip }}">{{ row.new_regular.count }}</td>
       <td class="sub" data-tip="{{ row.new_total.tip }}">{{ row.new_total.count }}</td>
       <td class="grp" data-tip="{{ row.closed_highest.tip }}">{{ row.closed_highest.count }}</td>
-      <td data-tip="{{ row.closed_pr_mp.tip }}">{{ row.closed_pr_mp.count }}</td>
+      <td class="{% if row.closed_pr_mp_level %}lvl-{{ row.closed_pr_mp_level.value }}{% endif %}" title="Closed PR/MP vs New PR/MP Review: green = kept up, yellow = 1 behind, red = 2+ behind" data-tip="{{ row.closed_pr_mp.tip }}">{{ row.closed_pr_mp.count }}</td>
       <td data-tip="{{ row.closed_ps5.tip }}">{{ row.closed_ps5.count }}</td>
       <td class="sub" data-tip="{{ row.closed_total.tip }}">{{ row.closed_total.count }}</td>
       <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>
