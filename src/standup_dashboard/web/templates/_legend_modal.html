@@ -1,0 +1,49 @@
+<div class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Colour rules</h2>
+      <button class="close" data-close-modal title="Close">&times;</button>
+    </div>
+
+    <p class="legend-intro">
+      How an <strong>assigned, in-flight</strong> ticket is coloured for each role:
+      <span class="sw sw-green"></span> on-task (kept) ·
+      <span class="sw sw-red"></span> off-task ·
+      <span class="sw sw-yellow"></span> needs attention.
+      A <em>Distractor</em> tag means the role pulls that ticket out of To&nbsp;Do/WIP
+      into the <strong>Distractors</strong> group.
+    </p>
+
+    <div class="legend-scroll">
+      <table class="legend">
+        <thead>
+          <tr>
+            <th>Role</th>
+            {% for t in types %}<th>{{ t }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <th class="role">{{ row.role }}</th>
+            {% for c in row.cells %}
+            <td class="sw-cell sw-{{ c.color }}">
+              <span class="sw-label">{{ c.color }}</span>
+              {% if c.distractor %}<span class="distractor-tag">Distractor</span>{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <ul class="legend-notes">
+      <li><strong>To&nbsp;Do / WIP / Success</strong> come from the Jira status; <strong>Distractors</strong> are tickets reclassified as off-task for the role.</li>
+      <li><strong>Success (Done)</strong> is green for everyone — except a <strong>Project</strong> engineer's non-ISDB work, which stays a red distractor even when done.</li>
+      <li><strong>Non-assigned</strong> touches: green for PVG/BVG, red for GEN/Project/OFF.</li>
+      <li><strong>PVG alerts</strong>: resolved &rarr; green Success, acknowledged &rarr; yellow WIP. A PVG ticket in <em>In&nbsp;Review</em> is a yellow distractor.</li>
+      <li><strong>Weekend</strong> has no role — only the on-call engineer is active; everyone else is OFF (all red).</li>
+    </ul>
+  </div>
+</div>

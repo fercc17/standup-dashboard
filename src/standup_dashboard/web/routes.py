@@ -341,6 +341,16 @@ async def roster_modal(request: Request) -> HTMLResponse:
     return _render_roster_modal(request)
 
 
+@router.get("/legend", response_class=HTMLResponse)
+async def legend_modal(request: Request) -> HTMLResponse:
+    """Colour-rule reference (#143) — role × ticket-type colour matrix."""
+    if _ctx(request).setup_error is not None:
+        return render_setup(request)
+    return _templates(request).TemplateResponse(
+        request, "_legend_modal.html", presenters.build_color_legend()
+    )
+
+
 @router.post("/roster/add", response_class=HTMLResponse)
 async def roster_add(request: Request) -> HTMLResponse:
     ctx = _ctx(request)

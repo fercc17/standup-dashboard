@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 from .. import config
 from ..domain.coloring import is_role_distractor, ticket_color
 from ..domain.models import (
+    PRIORITY_HIGHEST,
+    PS5_BLOCKER_LABELS,
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
@@ -263,6 +265,42 @@ def build_counts(
     if not selected_regions:
         return []
     return _build_counts(selected_regions, data.tickets, data.alerts, data.pulses, now)
+
+
+# --- Colour-rule legend (#143) ---------------------------------------------
+
+# One representative assigned, in-flight (non-Done) ticket per category the
+# colour rules key on. The legend is rendered by running these through the very
+# same coloring functions the dashboard uses, so it can never drift from the
+# real behaviour.
+_LEGEND_TYPES: tuple[tuple[str, Ticket], ...] = (
+    ("ISReq Highest", Ticket("_", "ISReq", "x", "In Progress", PRIORITY_HIGHEST)),
+    ("ISReq [PR/MP Review]", Ticket("_", "ISReq", "[PR/MP Review] x", "In Progress", "Medium")),
+    ("ISReq ps5-blocker",
+     Ticket("_", "ISReq", "x", "In Progress", "Medium", labels=[PS5_BLOCKER_LABELS[0]])),
+    ("ISReq regular", Ticket("_", "ISReq", "x", "In Progress", "Medium")),
+    ("ISDB", Ticket("_", "ISDB", "x", "In Progress", None)),
+)
+_LEGEND_ROLES = (Role.PVG, Role.BVG, Role.GEN, Role.PROJECT, Role.OFF)
+
+
+def build_color_legend() -> dict:
+    """Role × ticket-type colour matrix, derived live from the coloring rules (#143).
+
+    Each cell is the colour an *assigned, in-flight* ticket of that type gets for
+    that role, plus whether the role reclassifies it into the Distractors group.
+    """
+    rows = []
+    for role in _LEGEND_ROLES:
+        cells = []
+        for _, ticket in _LEGEND_TYPES:
+            distractor = is_role_distractor(role, ticket)
+            color = ticket_color(
+                role, ticket, assigned=True, group=ticket.group, role_distractor=distractor
+            )
+            cells.append({"color": color.value, "distractor": distractor})
+        rows.append({"role": role.value, "cells": cells})
+    return {"types": [name for name, _ in _LEGEND_TYPES], "rows": rows}
 
 
 def build_pulse_history(
