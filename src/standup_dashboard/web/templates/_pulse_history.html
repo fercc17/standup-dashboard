@@ -20,6 +20,7 @@
       <th class="stk"><span>Alerts</span><span>Total</span></th>
       <th class="stk" title="Mean time from acknowledgement to resolution this pulse"><span>Alert</span><span>MTTR</span></th>
       <th class="stk" title="Mean time from incident trigger to first acknowledgement this pulse"><span>Alert</span><span>MTTA</span></th>
+      <th class="stk" title="Mean ISReq created→done cycle time (days) for tickets closed this pulse"><span class="proj">ISReq</span><span>Cycle</span></th>
       <th>Region %</th>
     </tr>
   </thead>
@@ -45,6 +46,7 @@
       <td class="sub{% if row.total_level %} lvl-{{ row.total_level.value }}{% endif %}" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
       <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack→resolve time ({{ c.alert_mttr_n.count }} incident{{ 's' if c.alert_mttr_n.count != 1 else '' }})">{{ row.mttr_label }}</td>
       <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger→ack time ({{ c.alert_mtta_n.count }} incident{{ 's' if c.alert_mtta_n.count != 1 else '' }})">{{ row.mtta_label }}</td>
+      <td title="Mean ISReq created→done time ({{ c.ticket_cycle_n.count }} ticket{{ 's' if c.ticket_cycle_n.count != 1 else '' }})">{{ row.cycle_label }}</td>
       <td>{% if row.region_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}

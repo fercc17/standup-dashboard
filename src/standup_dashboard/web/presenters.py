@@ -534,6 +534,10 @@ def build_pulse_history(
             cells["alert_mtta_sum"].count / cells["alert_mtta_n"].count
             if cells["alert_mtta_n"].count else None
         )
+        cycle_d = (
+            cells["ticket_cycle_sum"].count / cells["ticket_cycle_n"].count
+            if cells["ticket_cycle_n"].count else None
+        )
         rows.append(PulseHistoryRow(
             pnum, f"Pulse {pnum}", cells=cells,
             region_pct=(100.0 * total_n / ga) if ga else None,
@@ -541,6 +545,7 @@ def build_pulse_history(
             isdb_closed_pct=(100.0 * cells["isdb_closed"].count / gi) if gi else None,
             alert_mttr_seconds=mttr_s,
             alert_mtta_seconds=mtta_s,
+            ticket_cycle_days=cycle_d,
             ack_level=count_level(ack_n, pulse_cap),
             total_level=count_level(total_n, pulse_cap),
             resolved_level=resolve_rate_level(res_n, ack_n),
