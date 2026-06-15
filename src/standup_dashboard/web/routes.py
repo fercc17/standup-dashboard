@@ -167,10 +167,13 @@ async def index(request: Request) -> HTMLResponse:
     return _templates(request).TemplateResponse(request, "index.html", context)
 
 
-async def _run_refresh_bg(ctx) -> None:
-    """Run a fetch in the background; the UI polls /refresh/status for completion."""
+async def _run_refresh_bg(ctx, window_days: int | None = None) -> None:
+    """Run a fetch in the background; the UI polls /refresh/status for completion.
+
+    ``window_days`` forces a full re-fetch over that many days (default is the
+    incremental window) — used to backfill a metric over the whole pulse."""
     try:
-        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now())
+        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now(), window_days=window_days)
     except Exception:  # noqa: BLE001
         logger.exception("Background refresh failed")
         ctx.refresh.error = "Refresh failed — see server logs."
@@ -189,11 +192,18 @@ async def refresh(request: Request, background: BackgroundTasks) -> Response:
     except ValueError as exc:
         return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
 
+    # Optional full re-fetch (?window_days=N) to backfill a metric over the pulse.
+    try:
+        wd = request.query_params.get("window_days")
+        window_days = int(wd) if wd else None
+    except ValueError:
+        window_days = None
+
     # Fire-and-forget: the fetch runs server-side, the UI keeps reading the DB.
     if not ctx.refresh.running:
         ctx.refresh.running = True
         ctx.refresh.error = None
-        background.add_task(_run_refresh_bg, ctx)
+        background.add_task(_run_refresh_bg, ctx, window_days)
 
     context = _dashboard_context(request, selected, _now())
     context["refreshing"] = True
