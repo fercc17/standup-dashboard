@@ -32,6 +32,7 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..domain.coloring import (
+    ack_vs_triggered_level,
     closed_vs_new_level,
     closed_vs_new_total_level,
     count_level,
@@ -458,7 +459,8 @@ def build_counts(
             alert_mtta_n=mtta_n,
             # Green/yellow/red bands (#143 follow-up). Volumes use the scaled cap;
             # the resolve rate and the MTTR/MTTA means are rates, never scaled.
-            ack_level=count_level(ack.count, green_cap),
+            triggered_level=count_level(triggered.count, green_cap),
+            ack_level=ack_vs_triggered_level(triggered.count, ack.count, region_count),
             total_level=count_level(total.count, green_cap),
             resolved_level=resolve_rate_level(resolved.count, ack.count),
             mttr_level=mttr_level(mttr_seconds),

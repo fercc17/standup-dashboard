@@ -331,7 +331,8 @@ class PulseHistoryRow:
     mttr_delta_seconds: float | None = None  # MTTR change vs the previous pulse, None = no baseline (#149)
     mtta_delta_seconds: float | None = None  # MTTA change vs the previous pulse, None = no baseline (#149)
     ticket_cycle_days: float | None = None   # mean ISReq created→done days this pulse (#147)
-    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    # green/yellow/red bands for the alert cells (None = neutral, no colour).
+    triggered_level: Color | None = None
     ack_level: Color | None = None
     resolved_level: Color | None = None
     total_level: Color | None = None
@@ -438,7 +439,8 @@ class CountsRow:
     # Pulse total vs the previous pulse. None = no baseline / no data.
     mttr_delta_seconds: float | None = None
     mtta_delta_seconds: float | None = None
-    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    # green/yellow/red bands for the alert cells (None = neutral, no colour).
+    triggered_level: Color | None = None
     ack_level: Color | None = None
     resolved_level: Color | None = None
     total_level: Color | None = None

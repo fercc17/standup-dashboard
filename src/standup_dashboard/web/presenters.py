@@ -390,8 +390,10 @@ def build_color_legend() -> dict:
     # rate and MTTR/MTTA means are rates, so they keep fixed thresholds.
     pct = lambda r: f"{int(round(r * 100))}%"  # noqa: E731
     alert_bands = [
-        {"col": "Alerts Ack / Total", "green": "≤ cap",
+        {"col": "Alerts Triggered / Total", "green": "≤ cap",
          "yellow": "cap → 2× cap", "red": "> 2× cap"},
+        {"col": "Alerts Ack (vs Triggered)", "green": "shortfall ≤ 1/region",
+         "yellow": "≤ 2/region", "red": "more behind"},
         {"col": "Alert Res (resolved ÷ ack)", "green": f"≥ {pct(ALERT_RES_GREEN)}",
          "yellow": f"{pct(ALERT_RES_YELLOW)} → {pct(ALERT_RES_GREEN)}",
          "red": f"< {pct(ALERT_RES_YELLOW)}"},
@@ -582,6 +584,7 @@ def build_pulse_history(
             alert_mttr_seconds=mttr_s,
             alert_mtta_seconds=mtta_s,
             ticket_cycle_days=cycle_d,
+            triggered_level=count_level(cells["alerts_triggered"].count, pulse_cap),
             ack_level=count_level(ack_n, pulse_cap),
             total_level=count_level(total_n, pulse_cap),
             resolved_level=resolve_rate_level(res_n, ack_n),
