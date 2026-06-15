@@ -52,6 +52,7 @@ from ..domain.models import (
     TicketGroup,
     TicketVM,
     TouchEvent,
+    TouchKind,
     WeekendOnCall,
     format_duration,
 )
@@ -218,6 +219,39 @@ def _alerts_since(email: str, data: DashboardData, since: datetime) -> tuple[int
         elif a.state is AlertState.RESOLVED:
             resolved += 1
     return ack, resolved
+
+
+def _ticket_time_since(email: str, data: DashboardData, since: datetime) -> int:
+    """Seconds of worklog time on tickets assigned to ``email`` since ``since``
+    (assignee proxy, #167): worklog touches carry the duration, attributed to the
+    ticket's assignee because Tempo logs them under a bot author."""
+    return sum(
+        tc.seconds for tc in data.touches
+        if tc.engineer_email == email and tc.kind is TouchKind.WORKLOG and tc.at >= since
+    )
+
+
+def _alert_time_since(email: str, data: DashboardData, since: datetime) -> int:
+    """Seconds spent on alerts ``email`` resolved since ``since`` (#167): sum of
+    ack→resolve for each incident this SRE resolved (the resolver), measured from
+    the incident's earliest acknowledgement."""
+    ack_at: dict[str, datetime] = {}
+    resolved: dict[str, tuple[datetime, str]] = {}  # incident → (earliest resolve, resolver)
+    for a in data.alerts:
+        if a.state is AlertState.ACKNOWLEDGED:
+            if a.id not in ack_at or a.at < ack_at[a.id]:
+                ack_at[a.id] = a.at
+        elif a.state is AlertState.RESOLVED:
+            if a.id not in resolved or a.at < resolved[a.id][0]:
+                resolved[a.id] = (a.at, a.handler_email)
+    total = 0
+    for iid, (res_at, resolver) in resolved.items():
+        if resolver != email or res_at < since:
+            continue
+        acked = ack_at.get(iid)
+        if acked is not None and res_at >= acked:
+            total += int((res_at - acked).total_seconds())
+    return total
 
 
 def _completed_since(email: str, data: DashboardData, since: date) -> int:
@@ -745,4 +779,9 @@ def build_panel(
         )
         out[target.value].append(vm)
 
-    return DetailPanelVM(email=email, name=eng.name, role=role, groups=out)
+    pulse_start = _pulse_start(now)
+    return DetailPanelVM(
+        email=email, name=eng.name, role=role, groups=out,
+        alert_time_seconds=_alert_time_since(email, data, pulse_start),
+        ticket_time_seconds=_ticket_time_since(email, data, pulse_start),
+    )

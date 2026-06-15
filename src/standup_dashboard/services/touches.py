@@ -134,19 +134,20 @@ def extract_touches(
 ) -> list[TouchEvent]:
     """Derive per-engineer touch events for one issue inside the pulse window."""
     key = issue["key"]
-    seen: set[tuple[str, TouchKind, datetime]] = set()
+    seen: set[tuple[str, TouchKind, datetime, int]] = set()
     out: list[TouchEvent] = []
 
-    def add(email: str | None, kind: TouchKind, at: datetime | None) -> None:
+    def add(email: str | None, kind: TouchKind, at: datetime | None, seconds: int = 0) -> None:
         if not email or at is None or email not in roster_emails:
             return
         if not (window_start <= at <= window_end):
             return
-        sig = (email, kind, at)
+        sig = (email, kind, at, seconds)
         if sig in seen:
             return
         seen.add(sig)
-        out.append(TouchEvent(ticket_id=key, engineer_email=email, kind=kind, at=at))
+        out.append(TouchEvent(ticket_id=key, engineer_email=email, kind=kind, at=at,
+                              seconds=seconds))
 
     # Changelog: status / assignment / link.
     for hist in (issue.get("changelog") or {}).get("histories", []):
@@ -163,8 +164,11 @@ def extract_touches(
     for c in comments or []:
         add(_author_email(c.get("author")), TouchKind.COMMENT, parse_jira_dt(c.get("created")))
 
-    # Worklogs.
+    # Worklogs: Tempo records them under a bot author, so attribute the logged
+    # time to the ticket's assignee (proxy) and carry the duration (#167).
+    assignee = _author_email((issue.get("fields") or {}).get("assignee"))
     for w in worklogs or []:
-        add(_author_email(w.get("author")), TouchKind.WORKLOG, parse_jira_dt(w.get("started")))
+        add(assignee, TouchKind.WORKLOG, parse_jira_dt(w.get("started")),
+            int(w.get("timeSpentSeconds") or 0))
 
     return out

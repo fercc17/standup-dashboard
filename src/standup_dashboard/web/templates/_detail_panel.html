@@ -28,6 +28,10 @@
     </label>
     <button class="close" data-close-panel title="Close">&times;</button>
   </div>
+  <div class="panel-time">
+    <span title="Time on alerts this pulse (ack&rarr;resolve for incidents this SRE resolved)">&#128293; alerts {{ panel.alert_time_label }}</span>
+    <span title="Time on tickets this pulse (worklog logged on tickets assigned to this SRE)">&#128203; tickets {{ panel.ticket_time_label }}</span>
+  </div>
   {% for group, tickets in panel.groups.items() %}
   <div class="group-title">{{ group }}{% if tickets %} <span class="group-count">&times;{{ tickets | length }}</span>{% endif %}</div>
   {% if group in ["WIP", "Success", "Distractors"] %}

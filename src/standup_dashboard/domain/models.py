@@ -176,6 +176,7 @@ class TouchEvent:
     engineer_email: str
     kind: TouchKind
     at: datetime
+    seconds: int = 0  # logged work time (TouchKind.WORKLOG only); 0 otherwise (#167)
 
 
 @dataclass
@@ -256,6 +257,18 @@ class DetailPanelVM:
     name: str
     role: Role
     groups: dict[str, list[TicketVM]] = field(default_factory=dict)
+    # Time spent this pulse so far (#167): alerts = ack→resolve for incidents this
+    # SRE resolved; tickets = worklog time on tickets assigned to them.
+    alert_time_seconds: int = 0
+    ticket_time_seconds: int = 0
+
+    @property
+    def alert_time_label(self) -> str:
+        return hours_label(self.alert_time_seconds)
+
+    @property
+    def ticket_time_label(self) -> str:
+        return hours_label(self.ticket_time_seconds)
 
 
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).
@@ -281,6 +294,18 @@ def format_duration(seconds: float | None) -> str:
         return f"{hours}h {minutes}m" if minutes else f"{hours}h"
     days, hours = divmod(hours, 24)
     return f"{days}d {hours}h" if hours else f"{days}d"
+
+
+def hours_label(seconds: float | None) -> str:
+    """Work-time label like '6h 30m' / '45m' / '0m' — hours never roll into days
+    (a per-pulse effort total reads better as '32h' than '1d 8h')."""
+    if not seconds:
+        return "0m"
+    minutes = int(round(seconds / 60))
+    h, m = divmod(minutes, 60)
+    if h and m:
+        return f"{h}h {m}m"
+    return f"{h}h" if h else f"{m}m"
 
 
 @dataclass

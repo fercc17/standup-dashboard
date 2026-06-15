@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS touch_event (
     engineer_email TEXT NOT NULL,
     kind           TEXT NOT NULL,
     at             TEXT NOT NULL,
+    seconds        INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (fetch_id, ticket_id, engineer_email, kind, at)
 );
 
@@ -215,6 +216,12 @@ class Database:
         for name, decl in (("title", "TEXT"), ("url", "TEXT"), ("number", "INTEGER")):
             if name not in alert_cols:
                 self._conn.execute(f"ALTER TABLE alert ADD COLUMN {name} {decl}")
+        # Worklog duration on touch events (#167): older DBs predate it.
+        te_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(touch_event)")}
+        if "kind" in te_cols and "seconds" not in te_cols:
+            self._conn.execute(
+                "ALTER TABLE touch_event ADD COLUMN seconds INTEGER NOT NULL DEFAULT 0"
+            )
         ps_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(pulse_summary)")}
         if "pulse_number" in ps_cols and "isdb_closed" not in ps_cols:
             self._conn.execute(
@@ -324,10 +331,11 @@ class Database:
 
     def insert_touches(self, fetch_id: int, touches: Iterable[TouchEvent]) -> None:
         self._conn.executemany(
-            "INSERT OR IGNORE INTO touch_event (fetch_id, ticket_id, engineer_email, kind, at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            [(fetch_id, t.ticket_id, t.engineer_email, t.kind.value, t.at.isoformat())
-             for t in touches],
+            "INSERT OR IGNORE INTO touch_event"
+            " (fetch_id, ticket_id, engineer_email, kind, at, seconds)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(fetch_id, t.ticket_id, t.engineer_email, t.kind.value, t.at.isoformat(),
+              t.seconds) for t in touches],
         )
         self._conn.commit()
 
@@ -420,7 +428,8 @@ class Database:
         ).fetchall()
         return [
             TouchEvent(r["ticket_id"], r["engineer_email"], TouchKind(r["kind"]),
-                       datetime.fromisoformat(r["at"]))
+                       datetime.fromisoformat(r["at"]),
+                       seconds=r["seconds"] if "seconds" in r.keys() else 0)
             for r in rows
         ]
 
