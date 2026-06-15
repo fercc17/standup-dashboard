@@ -45,8 +45,8 @@
       <td class="div{% if row.ack_level %} lvl-{{ row.ack_level.value }}{% endif %}" data-tip="{{ row.alerts_ack.tip }}">{{ row.alerts_ack.count }}</td>
       <td class="{% if row.resolved_level %}lvl-{{ row.resolved_level.value }}{% endif %}" data-tip="{{ row.alerts_resolved.tip }}">{{ row.alerts_resolved.count }}</td>
       <td class="sub{% if row.total_level %} lvl-{{ row.total_level.value }}{% endif %}" data-tip="{{ row.alerts_total.tip }}">{{ row.alerts_total.count }}</td>
-      <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack&rarr;resolve time ({{ row.alert_mttr_n }} incident{{ 's' if row.alert_mttr_n != 1 else '' }})">{{ row.mttr_label }}</td>
-      <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger&rarr;ack time ({{ row.alert_mtta_n }} incident{{ 's' if row.alert_mtta_n != 1 else '' }})">{{ row.mtta_label }}</td>
+      <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack&rarr;resolve time ({{ row.alert_mttr_n }} incident{{ 's' if row.alert_mttr_n != 1 else '' }}); {% if row.is_total %}&#9650; vs previous pulse{% else %}&#9650; vs previous day{% endif %}">{{ row.mttr_label }}{% if row.mttr_delta_label %}<span class="delta">{{ row.mttr_delta_label }}</span>{% endif %}</td>
+      <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger&rarr;ack time ({{ row.alert_mtta_n }} incident{{ 's' if row.alert_mtta_n != 1 else '' }}); {% if row.is_total %}&#9650; vs previous pulse{% else %}&#9650; vs previous day{% endif %}">{{ row.mtta_label }}{% if row.mtta_delta_label %}<span class="delta">{{ row.mtta_delta_label }}</span>{% endif %}</td>
       <td>{% if row.region_alert_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_alert_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}
