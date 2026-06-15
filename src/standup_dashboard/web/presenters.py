@@ -25,9 +25,11 @@ from ..domain.coloring import (
     closed_vs_new_level,
     closed_vs_new_total_level,
     count_level,
+    cycle_color,
+    intake_level,
     is_role_distractor,
-    mtta_level,
-    mttr_level,
+    mtta_trend_level,
+    mttr_trend_level,
     pr_mp_review_level,
     resolve_rate_level,
     ticket_color,
@@ -549,8 +551,6 @@ def build_pulse_history(
             ack_level=count_level(ack_n, pulse_cap),
             total_level=count_level(total_n, pulse_cap),
             resolved_level=resolve_rate_level(res_n, ack_n),
-            mttr_level=mttr_level(mttr_s),
-            mtta_level=mtta_level(mtta_s),
             closed_pr_mp_level=pr_mp_review_level(
                 cells["new_pr_mp"].count, cells["closed_pr_mp"].count),
             closed_highest_level=closed_vs_new_level(
@@ -561,6 +561,48 @@ def build_pulse_history(
                 cells["closed_total"].count, cells["new_total"].count,
                 max(len(selected_regions), 1)),
         ))
+
+    # Trend colouring vs the previous pulse that had data (rows are in ascending
+    # pulse order). Days-to-close: green when closed > new (clearing backlog
+    # inflates cycle time) or faster than the previous pulse, red when slower.
+    # MTTA/MTTR: always green at or below their healthy floor (5m / 30m), else
+    # green faster / red slower vs the previous pulse (#149 follow-up) — distinct
+    # from the counts table's fixed thresholds.
+    prev_cycle: float | None = None
+    prev_mtta: float | None = None
+    prev_mttr: float | None = None
+    # Intake (New columns): fewer new tickets than the previous pulse is green.
+    # Every pulse has an intake count (0 is real), so compare to the immediately
+    # previous pulse — no "had data" skip like the alert means above. New Total
+    # also gets a healthy floor: the average New Total across *completed* pulses
+    # (the current/partial pulse is excluded so it can be judged against the norm);
+    # at/below it is green regardless of the pulse-to-pulse change.
+    cur_pnum = max((r.pulse_number for r in rows), default=None)
+    hist_totals = [r.cells["new_total"].count for r in rows if r.pulse_number != cur_pnum]
+    intake_floor = (sum(hist_totals) / len(hist_totals)) if hist_totals else None
+    new_cols = ("new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total")
+    prev_new: dict[str, int | None] = {col: None for col in new_cols}
+    for row in rows:
+        row.cycle_level = cycle_color(
+            row.ticket_cycle_days, prev_cycle,
+            row.cells["closed_total"].count, row.cells["new_total"].count)
+        if row.ticket_cycle_days is not None:
+            prev_cycle = row.ticket_cycle_days
+        row.mtta_level = mtta_trend_level(row.alert_mtta_seconds, prev_mtta)
+        if row.alert_mtta_seconds is not None:
+            if prev_mtta is not None:
+                row.mtta_delta_seconds = row.alert_mtta_seconds - prev_mtta
+            prev_mtta = row.alert_mtta_seconds
+        row.mttr_level = mttr_trend_level(row.alert_mttr_seconds, prev_mttr)
+        if row.alert_mttr_seconds is not None:
+            if prev_mttr is not None:
+                row.mttr_delta_seconds = row.alert_mttr_seconds - prev_mttr
+            prev_mttr = row.alert_mttr_seconds
+        for col in new_cols:
+            cur = row.cells[col].count
+            floor = intake_floor if col == "new_total" else None
+            setattr(row, f"{col}_level", intake_level(cur, prev_new[col], floor))
+            prev_new[col] = cur
     return rows
 
 

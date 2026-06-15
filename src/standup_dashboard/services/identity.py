@@ -8,6 +8,7 @@ setup page instead of the dashboard.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 
 import httpx
 
@@ -25,6 +26,19 @@ async def _unmatched_emails(token: str) -> list[str]:
     return [e for e in config.seed_roster_emails() if e.lower() not in known]
 
 
+def _run_sync(coro):
+    """Run a coroutine to completion from sync code, whether or not an event loop
+    is already running. ``create_app`` validates identities synchronously; under
+    ``--reload`` uvicorn loads the app *inside* its loop, where ``asyncio.run``
+    would raise — so fall back to a one-shot worker thread in that case."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
 def validate_identities(secrets: Secrets) -> None:
     """Raise SetupError if any roster email has no PagerDuty match (FR-005a).
 
@@ -32,7 +46,7 @@ def validate_identities(secrets: Secrets) -> None:
     a blocking setup page rather than crashing startup.
     """
     try:
-        unmatched = asyncio.run(_unmatched_emails(secrets.pagerduty_token))
+        unmatched = _run_sync(_unmatched_emails(secrets.pagerduty_token))
     except httpx.HTTPError as exc:
         raise SetupError(
             "Could not validate engineer identities against PagerDuty — check that "

@@ -16,6 +16,12 @@ from ..domain.coloring import wip_age_level
 from ..domain.models import Color, TicketGroup, Ticket, format_duration
 
 
+# Statuses excluded from Aging WIP even when their Jira statusCategory is
+# "In Progress": a Blocked ticket isn't actively being worked, so it shouldn't
+# age as work-in-progress (#147 follow-up).
+_EXCLUDED_WIP_STATUSES = frozenset({"blocked"})
+
+
 @dataclass
 class AgingRow:
     key: str
@@ -36,6 +42,8 @@ def build_aging_wip(
     for t in tickets:
         if t.assignee_email not in members or t.group is not TicketGroup.WIP:
             continue
+        if (t.status or "").strip().lower() in _EXCLUDED_WIP_STATUSES:
+            continue  # Blocked isn't active work — don't age it as WIP (#147)
         age = t.wip_age_seconds(now)
         eng = config.ENGINEERS_BY_EMAIL.get(t.assignee_email)
         rows.append(AgingRow(

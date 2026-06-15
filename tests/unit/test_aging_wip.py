@@ -84,3 +84,20 @@ def test_build_aging_wip_scopes_to_members_and_sorts_oldest_first():
     assert [r.key for r in rows] == ["A", "B"]            # member WIP only, oldest first
     assert rows[0].level is Color.RED and rows[1].level is Color.GREEN
     assert rows[0].url.endswith("/browse/A")
+
+
+def test_build_aging_wip_excludes_blocked():
+    now = datetime(2026, 6, 14, 12, tzinfo=UTC)
+
+    def tk(key, status, category, days):
+        return Ticket(id=key, project_key="ISReq", title=f"{key} t", status=status,
+                      status_category=category, priority=None, assignee_email=MEMBER,
+                      wip_since=now - timedelta(days=days))
+
+    tickets = [
+        tk("A", "In Progress", "In Progress", 6),  # kept
+        tk("B", "Blocked", "In Progress", 90),      # excluded despite WIP category
+        tk("C", "blocked", "In Progress", 30),      # excluded, case-insensitive
+    ]
+    rows = build_aging_wip(tickets, {MEMBER}, now)
+    assert [r.key for r in rows] == ["A"]
