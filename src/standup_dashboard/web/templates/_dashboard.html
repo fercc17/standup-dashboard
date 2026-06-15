@@ -11,13 +11,13 @@
   {% endif %}
 
   {% if oncall_name %}
-  <div class="oncall-line">&#127958; Weekend on-call: <strong>{{ oncall_name }}</strong></div>
+  <div class="oncall-line">&#127958; Next weekend on-call: <strong>{{ oncall_name }}</strong></div>
   {% endif %}
 
   {% if weekend_recap %}
   <details class="weekend-recap">
     <summary>
-      Weekend recap &middot; {{ weekend_recap.weekend_label }} &middot;
+      Weekend recap &middot; <strong>{{ weekend_recap.oncall_name }}</strong> &middot; {{ weekend_recap.weekend_label }} &middot;
       <strong>{{ weekend_recap.incident_count }}</strong> incident{{ 's' if weekend_recap.incident_count != 1 else '' }}
       ({{ weekend_recap.resolved }} resolved{% if weekend_recap.open_acks %}, <span class="recap-open">{{ weekend_recap.open_acks }} open</span>{% endif %})
       &middot; MTTR {{ weekend_recap.mttr_label }}

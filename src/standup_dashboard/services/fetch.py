@@ -48,7 +48,8 @@ class PagerDutyResult:
 @dataclass
 class ICalResult:
     ok: bool = True
-    oncall: WeekendOnCall | None = None
+    oncall: WeekendOnCall | None = None          # current / just-passed weekend
+    next_oncall: WeekendOnCall | None = None      # the upcoming weekend (#weekend-next)
     raw: str | None = None
 
 
@@ -231,6 +232,7 @@ async def _fetch_ical(secrets: Secrets, now: datetime) -> ICalResult:
         async with ical_mod.make_async_client() as hc:
             res.raw = await ical_mod.ICalClient(hc).fetch(secrets.pagerduty_ical_url)
         res.oncall = resolve_oncall(res.raw, now.date())
+        res.next_oncall = resolve_oncall(res.raw, now.date() + timedelta(days=7))
     except Exception:  # noqa: BLE001
         logger.exception("iCal fetch failed")
         res.ok = False
@@ -293,8 +295,10 @@ async def run_fetch(
     db.insert_tickets(fetch_id, jira_res.tickets)
     db.insert_touches(fetch_id, jira_res.touches)
     db.insert_alerts(fetch_id, pd_res.alerts)
-    if ical_res.oncall is not None:
-        db.insert_weekend_oncall(fetch_id, [ical_res.oncall])
+    # Store the current/just-passed + the upcoming weekend's on-call.
+    oncalls = [oc for oc in (ical_res.oncall, ical_res.next_oncall) if oc is not None]
+    if oncalls:
+        db.insert_weekend_oncall(fetch_id, oncalls)
 
     # Snapshot this fetch's current + previous pulse totals so the pulse-history
     # table accumulates over time (#80). Persist from the whole pulse's

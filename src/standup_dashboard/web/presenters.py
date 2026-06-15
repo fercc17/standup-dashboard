@@ -91,7 +91,18 @@ class DashboardData:
 
     @property
     def oncall_email(self) -> str | None:
-        return self.weekend_oncall[0].engineer_email if self.weekend_oncall else None
+        """Current / just-passed weekend on-call (earliest stored weekend) — drives
+        weekend role assignment and the recap."""
+        if not self.weekend_oncall:
+            return None
+        return min(self.weekend_oncall, key=lambda w: w.weekend_start).engineer_email
+
+    @property
+    def next_oncall_email(self) -> str | None:
+        """The upcoming weekend's on-call (latest stored weekend), for the header."""
+        if not self.weekend_oncall:
+            return None
+        return max(self.weekend_oncall, key=lambda w: w.weekend_start).engineer_email
 
 
 _OPERATIONS_ROLES = (Role.PVG, Role.BVG, Role.GEN)
@@ -450,7 +461,9 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
     """
     if not data.weekend_oncall:
         return None
-    oc = data.weekend_oncall[0]
+    # The recap is about the just-passed weekend → the earliest stored entry
+    # (the latest entry is the upcoming weekend shown in the header).
+    oc = min(data.weekend_oncall, key=lambda w: w.weekend_start)
     name = _display_name(oc.engineer_email)
     tz = _handler_zone(oc.engineer_email) or UTC
     # Half-open weekend window [Sat 00:00, Mon 00:00) in the on-call's timezone.
