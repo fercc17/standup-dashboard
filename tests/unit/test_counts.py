@@ -223,6 +223,20 @@ def test_counts_mttr_mtta_day_over_day_deltas():
     assert fri.mtta_label == "10m" and fri.mtta_delta_label == "▲5m"   # 10m vs 5m
 
 
+def test_alerts_triggered_attributed_to_handler_region():
+    # A handler-less trigger is credited to the region of whoever handled it; an
+    # incident nobody on the team handled isn't attributable and is skipped (#169).
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 5, tzinfo=UTC)),
+        Alert("INC2", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),  # never handled
+    ]
+    total = _total(build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15)))
+    assert total.alerts_triggered.count == 1
+    assert total.alerts_ack.count == 1
+    assert total.alerts_triggered.breakdown == {"Alexandre Gomes": 1}
+
+
 def test_daily_mttr_blank_when_no_resolve_pair():
     # An ack with no matching resolve yields no MTTR pairing → None / em dash.
     alerts = [Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 12, 18))]
@@ -244,18 +258,36 @@ def test_daily_alert_levels_wired():
     assert total.resolved_level is Color.GREEN   # 1 resolved / 1 acked = 100%
 
 
-def test_ack_total_level_scales_with_selected_region_count():
-    # Three weekday acks by AMER members → over the single-region weekday cap (2).
+def test_alert_volume_level_scales_with_selected_region_count():
+    # Three weekday alerts (fired + acked) by AMER → over the single-region
+    # weekday cap (2); selecting a second region doubles the cap to 4.
     fri = utc(2026, 6, 12)
-    alerts = [Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, fri) for i in range(3)]
+    alerts = []
+    for i in range(3):
+        alerts.append(Alert(f"INC{i}", "", AlertState.TRIGGERED, fri))
+        alerts.append(Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, fri))
     amer_fri = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))[1]
-    assert amer_fri.alerts_ack.count == 3
-    assert amer_fri.ack_level is Color.YELLOW     # 3 > cap 2 (one region)
+    assert amer_fri.alerts_triggered.count == 3
+    assert amer_fri.triggered_level is Color.YELLOW   # 3 > cap 2 (one region)
     assert amer_fri.total_level is Color.YELLOW
+    assert amer_fri.ack_level is Color.GREEN          # acked all 3 → matched
     # Selecting a second region doubles the cap to 4 → 3 is healthy again.
     both_fri = build_counts([AMER, "APAC"], [], alerts, _pulses(), utc(2026, 6, 15))[1]
-    assert both_fri.ack_level is Color.GREEN
+    assert both_fri.triggered_level is Color.GREEN
     assert both_fri.total_level is Color.GREEN
+
+
+def test_ack_vs_triggered_level_bands():
+    from standup_dashboard.domain.coloring import ack_vs_triggered_level as lvl
+    assert lvl(0, 0, 1) is None               # nothing fired → neutral
+    assert lvl(5, 5, 1) is Color.GREEN        # acked everything
+    assert lvl(5, 4, 1) is Color.GREEN        # off by one
+    assert lvl(5, 3, 1) is Color.YELLOW       # gap 2
+    assert lvl(5, 2, 1) is Color.RED          # gap 3 (ack below 3)
+    # 2 regions → margin doubles: green ≤2 gap, yellow ≤4, red beyond.
+    assert lvl(10, 8, 2) is Color.GREEN       # gap 2
+    assert lvl(10, 7, 2) is Color.YELLOW      # gap 3
+    assert lvl(10, 5, 2) is Color.RED         # gap 5
 
 
 def test_closed_vs_new_highest_colour():

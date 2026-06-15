@@ -32,6 +32,7 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..domain.coloring import (
+    ack_vs_triggered_level,
     closed_vs_new_level,
     closed_vs_new_total_level,
     count_level,
@@ -167,6 +168,35 @@ def _alert_cell(
         if _local_date(a.at, zone) in dates:
             ids.add(a.id)
             per_person.setdefault(_display_name(a.handler_email), set()).add(a.id)
+    return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
+
+
+def _alert_triggered_cell(alerts: list[Alert], members: set[str], dates: set[date]) -> Cell:
+    """Distinct incidents that fired (TRIGGERED) and were handled by ``members``.
+
+    Triggers are handler-less in PagerDuty, so each fired incident is attributed
+    to the region of the member who acked/resolved it, bucketed by that handler's
+    local trigger day — parallel to ``_alert_cell``. Incidents nobody on the team
+    handled aren't attributable to a region and are skipped (#169).
+    """
+    handler_of: dict[str, str] = {}
+    for a in alerts:
+        if a.handler_email in members and a.state in (
+            AlertState.ACKNOWLEDGED, AlertState.RESOLVED
+        ):
+            handler_of.setdefault(a.id, a.handler_email)
+    ids: set[str] = set()
+    per_person: dict[str, set[str]] = {}
+    for a in alerts:
+        if a.state is not AlertState.TRIGGERED:
+            continue
+        handler = handler_of.get(a.id)
+        if handler is None:
+            continue
+        zone = _handler_zone(handler)
+        if zone is not None and _local_date(a.at, zone) in dates:
+            ids.add(a.id)
+            per_person.setdefault(_display_name(handler), set()).add(a.id)
     return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
 
 
@@ -350,6 +380,7 @@ def build_counts(
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
+        triggered = _alert_triggered_cell(alerts, selected_members, dset)
         total = _merge_cells([ack, resolved])
         mttr_sum, mttr_n = _alert_mttr(alerts, selected_members, dset)
         mtta_sum, mtta_n = _alert_mtta(alerts, selected_members, dset)
@@ -412,6 +443,7 @@ def build_counts(
             closed_ps5=closed_ps5_cell,
             closed_total=closed_total_cell,
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
+            alerts_triggered=triggered,
             alerts_ack=ack,
             alerts_resolved=resolved,
             alerts_total=total,
@@ -427,7 +459,8 @@ def build_counts(
             alert_mtta_n=mtta_n,
             # Green/yellow/red bands (#143 follow-up). Volumes use the scaled cap;
             # the resolve rate and the MTTR/MTTA means are rates, never scaled.
-            ack_level=count_level(ack.count, green_cap),
+            triggered_level=count_level(triggered.count, green_cap),
+            ack_level=ack_vs_triggered_level(triggered.count, ack.count, region_count),
             total_level=count_level(total.count, green_cap),
             resolved_level=resolve_rate_level(resolved.count, ack.count),
             mttr_level=mttr_level(mttr_seconds),
@@ -551,6 +584,7 @@ def region_pulse_summary(
     ]
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
+    triggered = _alert_triggered_cell(alerts, members, dates)
     mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
     mtta_sum, mtta_n = _alert_mtta(alerts, members, dates)
     cycle_sum, cycle_n = _ticket_cycle(closed)
@@ -565,6 +599,7 @@ def region_pulse_summary(
         "closed_ps5": _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
         "closed_total": _ticket_cell(closed, _assignee),
         "isdb_closed": _ticket_cell(isdb_closed, _assignee),
+        "alerts_triggered": triggered,
         "alerts_ack": ack,
         "alerts_resolved": res,
         "alerts_total": _merge_cells([ack, res]),

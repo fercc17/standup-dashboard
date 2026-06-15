@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     closed_ps5      INTEGER NOT NULL,
     closed_total    INTEGER NOT NULL,
     isdb_closed     INTEGER NOT NULL DEFAULT 0,
+    alerts_triggered INTEGER NOT NULL DEFAULT 0,
     alerts_ack      INTEGER NOT NULL,
     alerts_resolved INTEGER NOT NULL,
     alerts_total    INTEGER NOT NULL,
@@ -236,7 +237,7 @@ class Database:
             # column upsert_pulse_summary fails and pulse history never persists.
             self._conn.execute("ALTER TABLE pulse_summary ADD COLUMN breakdowns_json TEXT")
         for col in ("alert_mttr_sum", "alert_mttr_n", "alert_mtta_sum", "alert_mtta_n",
-                    "ticket_cycle_sum", "ticket_cycle_n"):
+                    "ticket_cycle_sum", "ticket_cycle_n", "alerts_triggered"):
             # Mean time-to-resolve / -acknowledge accumulators; older rows default
             # to 0 (shown as "—" until a refresh / backfill re-run populates them).
             if "pulse_number" in ps_cols and col not in ps_cols:
