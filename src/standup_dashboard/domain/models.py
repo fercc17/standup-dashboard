@@ -275,7 +275,7 @@ class DetailPanelVM:
 PULSE_SUMMARY_FIELDS = (
     "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
     "closed_highest", "closed_pr_mp", "closed_ps5", "closed_total", "isdb_closed",
-    "alerts_ack", "alerts_resolved", "alerts_total",
+    "alerts_triggered", "alerts_ack", "alerts_resolved", "alerts_total",
     "alert_mttr_sum", "alert_mttr_n",   # sum-of-seconds / count → mean time to resolve
     "alert_mtta_sum", "alert_mtta_n",   # sum-of-seconds / count → mean time to acknowledge
     "ticket_cycle_sum", "ticket_cycle_n",  # sum-of-days / count → mean ISReq cycle time (#147)
@@ -422,6 +422,7 @@ class CountsRow:
     closed_ps5: Cell = field(default_factory=Cell)
     closed_total: Cell = field(default_factory=Cell)
     isdb_closed: Cell = field(default_factory=Cell)
+    alerts_triggered: Cell = field(default_factory=Cell)
     alerts_ack: Cell = field(default_factory=Cell)
     alerts_resolved: Cell = field(default_factory=Cell)
     alerts_total: Cell = field(default_factory=Cell)

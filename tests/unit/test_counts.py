@@ -223,6 +223,20 @@ def test_counts_mttr_mtta_day_over_day_deltas():
     assert fri.mtta_label == "10m" and fri.mtta_delta_label == "▲5m"   # 10m vs 5m
 
 
+def test_alerts_triggered_attributed_to_handler_region():
+    # A handler-less trigger is credited to the region of whoever handled it; an
+    # incident nobody on the team handled isn't attributable and is skipped (#169).
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 5, tzinfo=UTC)),
+        Alert("INC2", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),  # never handled
+    ]
+    total = _total(build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15)))
+    assert total.alerts_triggered.count == 1
+    assert total.alerts_ack.count == 1
+    assert total.alerts_triggered.breakdown == {"Alexandre Gomes": 1}
+
+
 def test_daily_mttr_blank_when_no_resolve_pair():
     # An ack with no matching resolve yields no MTTR pairing → None / em dash.
     alerts = [Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 12, 18))]
