@@ -329,9 +329,10 @@ def build_counts(
         return _local_date(t.created, zone) in dates
 
     def _closed_on(t: Ticket, dates: set[date]) -> bool:
-        # Closes credit the ticket's creation-time region (fixed at creation).
-        region = _creation_region(t)
-        return region in selected_set and t.is_done_date in dates
+        # Closes credit the ASSIGNEE's region (the engineer who closed it), so
+        # only work done by selected-region members counts — not the creation
+        # region. Matches Closed PR/MP attribution (#163).
+        return t.assignee_email in selected_members and t.is_done_date in dates
 
     def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
         new_tickets = [t for t in scoped if _new_on(t, dset)]
@@ -368,9 +369,9 @@ def build_counts(
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
         # Closed %: the selected region's share of all ISReq closed that day
-        # (denominator = every closed ticket, each owned by its creation region).
+        # (denominator = every ticket closed by a counted member, by assignee).
         global_closed = sum(
-            1 for t in scoped if _creation_region(t) is not None and t.is_done_date in dset
+            1 for t in scoped if t.assignee_email in counted_members and t.is_done_date in dset
         )
         closed_pct = (100.0 * len(closed) / global_closed) if global_closed else None
         # ISDB closed (count + region share) — separate project column.
@@ -517,7 +518,7 @@ def region_pulse_summary(
     for t in new_tickets:
         buckets[_new_bucket(t)].append(t)
     closed = [
-        t for t in scoped if _creation_region(t) == region and t.is_done_date in dates
+        t for t in scoped if t.assignee_email in members and t.is_done_date in dates
     ]
     # Closed [PR/MP Review] credited to the assignee's (owner's) region.
     closed_pr_mp = [

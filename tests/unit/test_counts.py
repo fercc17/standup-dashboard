@@ -157,8 +157,8 @@ def test_days_capped_at_today():
 
 def test_closed_pr_mp_credited_to_assignee_region():
     # A [PR/MP Review] ticket created in the EMEA window but OWNED by an AMER
-    # engineer: its PR/MP-closed credit goes to AMER (owner), while the generic
-    # closed_total still follows EMEA (creation region).
+    # engineer: both its PR/MP-closed credit and the generic closed_total go to
+    # AMER (the assignee who closed it), not the creation region (#163).
     t = Ticket(id="ISReq-PRC", project_key="ISReq", title="[PR/MP Review] done",
                status="Done", priority="Medium", labels=[], created=utc(2026, 6, 5, 10),
                is_done_date=date(2026, 6, 12), assignee_email=MEMBER)
@@ -166,9 +166,23 @@ def test_closed_pr_mp_credited_to_assignee_region():
     emea_fri = build_region_counts("EMEA", [t], [], _pulses(), utc(2026, 6, 15))[1]
     assert amer_fri.closed_pr_mp.count == 1
     assert amer_fri.closed_pr_mp.breakdown == {"Alexandre Gomes": 1}
-    assert amer_fri.closed_total.count == 0      # creation region is EMEA, not AMER
+    assert amer_fri.closed_total.count == 1      # assignee is AMER → AMER's close
     assert emea_fri.closed_pr_mp.count == 0      # owner is AMER, not EMEA
-    assert emea_fri.closed_total.count == 1      # but the generic close is EMEA's
+    assert emea_fri.closed_total.count == 0      # creation region no longer counts
+
+
+def test_closed_ps5_and_total_count_only_selected_region_closers():
+    # A ps5 ticket created in the AMER window but closed by an APAC engineer must
+    # NOT count in AMER's Closed ps5/Total (the closer isn't AMER); it counts in
+    # APAC's (#163) — the bug where out-of-region closers inflated the cells.
+    apac_eng = "barry.price@canonical.com"
+    t = Ticket(id="ISReq-PS5", project_key="ISReq", title="z", status="Done",
+               priority="Medium", labels=["ps5-blocker"], created=utc(2026, 6, 12, 18),
+               is_done_date=date(2026, 6, 12), assignee_email=apac_eng)
+    amer = _total(build_region_counts("AMER", [t], [], _pulses(), utc(2026, 6, 15)))
+    apac = _total(build_region_counts("APAC", [t], [], _pulses(), utc(2026, 6, 15)))
+    assert amer.closed_ps5.count == 0 and amer.closed_total.count == 0
+    assert apac.closed_ps5.count == 1 and apac.closed_total.count == 1
 
 
 def test_daily_mttr_and_mtta_per_row_and_total():
@@ -267,9 +281,10 @@ def test_closed_pr_mp_keep_up_colour():
     assert fri_row.closed_pr_mp.count == 2 and fri_row.closed_pr_mp_level is Color.GREEN
 
 
-def test_region_follows_creation_time_not_assignee():
-    # Ticket created at 10:00 UTC (EMEA window) but assigned to an AMER engineer:
-    # it belongs to EMEA (creation time), not AMER (assignee).
+def test_new_follows_creation_time_closed_follows_assignee():
+    # New tickets are attributed by creation time (follow-the-sun); closed tickets
+    # by the assignee who closed them (#163). A ticket created in the EMEA window
+    # but assigned to an AMER engineer is EMEA's intake but AMER's close.
     fri_emea = utc(2026, 6, 12, 10)   # 10:00 UTC → EMEA window (07–15)
     t_new = Ticket(id="ISReq-E", project_key="ISReq", title="x", status="To Do",
                    priority="Highest", labels=[], created=fri_emea, assignee_email=MEMBER)
@@ -279,9 +294,10 @@ def test_region_follows_creation_time_not_assignee():
     tickets = [t_new, t_closed]
     amer = build_region_counts("AMER", tickets, [], _pulses(), utc(2026, 6, 15))
     emea = build_region_counts("EMEA", tickets, [], _pulses(), utc(2026, 6, 15))
-    # AMER sees neither, despite the AMER assignee.
+    amer_fri, emea_fri = amer[1], emea[1]
+    # New: EMEA owns it (creation time); AMER does not, despite the AMER assignee.
     assert next(r for r in amer if r.is_total and not r.is_previous).new_total.count == 0
-    # EMEA owns both the new and the closed ticket (bucketed in Paris-local days).
-    emea_fri = emea[1]
     assert emea_fri.new_highest.count == 1
-    assert emea_fri.closed_total.count == 1
+    # Closed: AMER owns it (assignee); EMEA no longer counts it.
+    assert amer_fri.closed_total.count == 1
+    assert emea_fri.closed_total.count == 0
