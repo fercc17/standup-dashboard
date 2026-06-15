@@ -7,6 +7,8 @@ MTTR/MTTA means are rates, so they share fixed thresholds. See domain/coloring.p
 from __future__ import annotations
 
 from standup_dashboard.domain.coloring import (
+    closed_vs_new_level,
+    closed_vs_new_total_level,
     count_level,
     mtta_level,
     mttr_level,
@@ -14,6 +16,26 @@ from standup_dashboard.domain.coloring import (
     resolve_rate_level,
 )
 from standup_dashboard.domain.models import Color
+
+
+def test_closed_vs_new_level():
+    assert closed_vs_new_level(0, 0) is Color.YELLOW  # equal (incl. 0=0) → yellow
+    assert closed_vs_new_level(3, 2) is Color.GREEN   # closed more than new
+    assert closed_vs_new_level(2, 2) is Color.YELLOW  # equal
+    assert closed_vs_new_level(1, 2) is Color.RED     # closed fewer
+
+
+def test_closed_vs_new_total_level():
+    assert closed_vs_new_total_level(0, 0, 1) is None
+    # 1 region → ±2 margin.
+    assert closed_vs_new_total_level(12, 10, 1) is Color.GREEN    # +2
+    assert closed_vs_new_total_level(11, 10, 1) is Color.YELLOW   # +1 within
+    assert closed_vs_new_total_level(10, 10, 1) is Color.YELLOW   # equal
+    assert closed_vs_new_total_level(8, 10, 1) is Color.RED       # -2
+    # 2 regions → ±4 margin.
+    assert closed_vs_new_total_level(13, 10, 2) is Color.YELLOW   # +3 < 4
+    assert closed_vs_new_total_level(14, 10, 2) is Color.GREEN    # +4
+    assert closed_vs_new_total_level(6, 10, 2) is Color.RED       # -4
 
 
 def test_count_level_bands_single_region():

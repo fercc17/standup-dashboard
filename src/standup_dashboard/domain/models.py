@@ -301,6 +301,10 @@ class PulseHistoryRow:
     mtta_level: Color | None = None
     # Closed PR/MP vs New PR/MP Review keep-up band (#141), None = no activity.
     closed_pr_mp_level: Color | None = None
+    # Closed-vs-New bands for Highest / ps5 / Total (#155), None = no activity.
+    closed_highest_level: Color | None = None
+    closed_ps5_level: Color | None = None
+    closed_total_level: Color | None = None
 
     @property
     def mttr_label(self) -> str:
@@ -374,6 +378,10 @@ class CountsRow:
     mtta_level: Color | None = None
     # Closed PR/MP vs New PR/MP Review keep-up band (#141), None = no activity.
     closed_pr_mp_level: Color | None = None
+    # Closed-vs-New bands for Highest / ps5 / Total (#155), None = no activity.
+    closed_highest_level: Color | None = None
+    closed_ps5_level: Color | None = None
+    closed_total_level: Color | None = None
 
     @property
     def mttr_label(self) -> str:

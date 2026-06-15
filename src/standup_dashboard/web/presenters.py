@@ -20,7 +20,10 @@ from ..domain.coloring import (
     ALERT_MTTR_YELLOW_S,
     ALERT_RES_GREEN,
     ALERT_RES_YELLOW,
+    alert_classification,
     alert_color,
+    closed_vs_new_level,
+    closed_vs_new_total_level,
     count_level,
     is_role_distractor,
     mtta_level,
@@ -315,6 +318,22 @@ def build_color_legend() -> dict:
     Each cell is the colour an *assigned, in-flight* ticket of that type gets for
     that role, plus whether the role reclassifies it into the Distractors group.
     """
+    # Handled-alert classification per role (#158), derived live from the same
+    # alert_classification() the detail panel uses. PVG is state+age dependent (so
+    # three sub-states); the others collapse to a single colour.
+    def _alert_states(role: Role) -> list[dict]:
+        res, _ = alert_classification(role, resolved=True, recent=False)
+        rec, _ = alert_classification(role, resolved=False, recent=True)
+        old, _ = alert_classification(role, resolved=False, recent=False)
+        if res is rec is old:
+            return [{"color": res.value, "label": "open or resolved"}]
+        return [
+            {"color": res.value, "label": "resolved → Success"},
+            {"color": rec.value, "label": "open ≤24h → WIP"},
+            {"color": old.value, "label": "open >24h → WIP"},
+        ]
+
+    # One combined matrix per role: the five ticket cells + the handled-alert cell.
     rows = []
     for role in _LEGEND_ROLES:
         cells = []
@@ -324,13 +343,10 @@ def build_color_legend() -> dict:
                 role, ticket, assigned=True, group=ticket.group, role_distractor=distractor
             )
             cells.append({"color": color.value, "distractor": distractor})
-        rows.append({"role": role.value, "cells": cells})
-
-    # Alerts are coloured by the handler's role (#143) — one colour per role,
-    # from the same alert_color() the detail panel uses.
-    alert_rows = [
-        {"role": role.value, "color": alert_color(role).value} for role in _LEGEND_ROLES
-    ]
+        rows.append({
+            "role": role.value, "cells": cells, "alert_states": _alert_states(role),
+        })
+    alert_rows = [{"role": r["role"], "states": r["alert_states"]} for r in rows]
 
     # Counts-table alert-cell bands, derived from the same coloring thresholds the
     # tables use (single source of truth). Ack/Total are judged against a "cap"
@@ -532,6 +548,13 @@ def build_pulse_history(
             mtta_level=mtta_level(mtta_s),
             closed_pr_mp_level=pr_mp_review_level(
                 cells["new_pr_mp"].count, cells["closed_pr_mp"].count),
+            closed_highest_level=closed_vs_new_level(
+                cells["closed_highest"].count, cells["new_highest"].count),
+            closed_ps5_level=closed_vs_new_level(
+                cells["closed_ps5"].count, cells["new_ps5"].count),
+            closed_total_level=closed_vs_new_total_level(
+                cells["closed_total"].count, cells["new_total"].count,
+                max(len(selected_regions), 1)),
         ))
     return rows
 
@@ -635,9 +658,11 @@ def build_panel(
             )
         out[group.value] = vms
 
-    # Surface the engineer's own alerts: resolved → green under Success,
-    # acknowledged → yellow under WIP. Dedupe by incident (resolved wins), show
-    # the incident title + a PagerDuty link, sorted alphabetically.
+    # Surface the engineer's own alerts. Dedupe by incident (resolved wins), then
+    # classify per the final matrix (#158): PVG green-resolved / yellow-open≤24h /
+    # red-open>24h, BVG yellow, GEN/Project/OFF red distraction. Many alert events
+    # lack a title/link because they were captured by an early un-enriched fetch,
+    # so back-fill title/number/link from the stored incident table (#157).
     alert_by_incident: dict[str, Alert] = {}
     for a in data.alerts:
         if a.handler_email != email:
@@ -645,28 +670,30 @@ def build_panel(
         prev = alert_by_incident.get(a.id)
         if prev is None or prev.state is not AlertState.RESOLVED:
             alert_by_incident[a.id] = a
-    for a in sorted(alert_by_incident.values(), key=lambda x: (x.title or x.id).lower()):
+    meta = db.incident_meta(alert_by_incident.keys())
+    for a in sorted(alert_by_incident.values(),
+                    key=lambda x: (x.title or meta.get(x.id, (None,))[0] or x.id).lower()):
         recent = a.at >= now - _24H
         resolved = a.state is AlertState.RESOLVED
-        # Colour is role-based (#143); the group still reflects state — except for
-        # GEN, whose alerts are a distraction from their ISReq focus.
-        color = alert_color(role)
-        if role is Role.GEN and not is_management:
-            target = TicketGroup.DISTRACTORS
-        elif resolved:
-            target = TicketGroup.SUCCESS
+        m_title, m_number, m_url = meta.get(a.id, (None, None, None))
+        title = a.title or m_title
+        number = a.number if a.number is not None else m_number
+        url = a.url or m_url
+        if is_management:
+            color = Color.GREEN if resolved else Color.YELLOW
+            target = TicketGroup.SUCCESS if resolved else TicketGroup.WIP
         else:
-            target = TicketGroup.WIP
+            color, target = alert_classification(role, resolved=resolved, recent=recent)
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
-        if a.number is not None:
-            parts.append(f"#{a.number}")
-        parts.append(a.title or "alert")
+        if number is not None:
+            parts.append(f"#{number}")
+        parts.append(title or "alert")
         vm = TicketVM(
             key="⚠",
             title=" — ".join(parts),
             color=color,
-            url=a.url,
+            url=url,
             touched_24h=recent,
         )
         out[target.value].append(vm)

@@ -1,5 +1,5 @@
-"""Alert colour is role-based (#143): a PVG handler's alerts are green whether
-the ack is recent or stale — colour no longer depends on age/state."""
+"""PVG handled alerts are state+age based (#158): an open ack ≤24h is yellow,
+an open ack >24h is red (resolved would be green)."""
 
 from __future__ import annotations
 
@@ -49,12 +49,11 @@ def _scenario(now: datetime) -> Scenario:
     )
 
 
-async def test_pvg_alerts_are_green_regardless_of_age(app, respx_mock):
+async def test_pvg_open_alerts_yellow_then_red_by_age(app, respx_mock):
     now = _utc(2026, 6, 12, 18)
     install(respx_mock, _scenario(now))
     ctx = app.state.ctx
-    # PVG keeps alerts in WIP (GEN routes them to Distractors). Colour is role-
-    # based now, so both the recent and the stale ack are green for a PVG.
+    # PVG keeps open alerts in WIP, coloured by age (#158): ≤24h yellow, >24h red.
     ctx.db.set_weekly_role(PVG, region_weekday(now, AMER_TZ), "PVG", now)
     fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now, window_days=3)
     data = presenters.load_fetch_data(ctx.db, now, fetch_id)
@@ -62,6 +61,6 @@ async def test_pvg_alerts_are_green_regardless_of_age(app, respx_mock):
     wip = panel.groups["WIP"]
     recent = next(t for t in wip if "recent alert" in t.title)
     stale = next(t for t in wip if "stale alert" in t.title)
-    assert recent.color.value == "green"        # PVG → green (was: yellow at <24h)
-    assert stale.color.value == "green"         # PVG → green (was: red once stale)
+    assert recent.color.value == "yellow"       # PVG open ≤24h → yellow
+    assert stale.color.value == "red"           # PVG open >24h → red
     assert recent.title.startswith("ACK")       # line still starts with the status

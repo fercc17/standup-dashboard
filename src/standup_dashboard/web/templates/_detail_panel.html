@@ -29,7 +29,7 @@
     <button class="close" data-close-panel title="Close">&times;</button>
   </div>
   {% for group, tickets in panel.groups.items() %}
-  <div class="group-title">{{ group }}</div>
+  <div class="group-title">{{ group }}{% if tickets %} <span class="group-count">&times;{{ tickets | length }}</span>{% endif %}</div>
   {% if group in ["WIP", "Success", "Distractors"] %}
     {% set recent = tickets | selectattr("touched_24h") | list %}
     {% set older = tickets | rejectattr("touched_24h") | list %}
