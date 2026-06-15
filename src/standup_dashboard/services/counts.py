@@ -234,6 +234,24 @@ def _alert_mtta(alerts: list[Alert], members: set[str], dates: set[date]) -> tup
     return total, n
 
 
+def _ticket_cycle(closed_tickets: list[Ticket]) -> tuple[int, int]:
+    """(sum_days, n) of created→done cycle time for closed tickets (#147).
+
+    Persisting sum + count (not a mean) keeps the pulse cycle time composable
+    across regions, like the alert MTTR accumulator. Tickets missing a created or
+    done date — or with a negative span (clock skew) — are skipped."""
+    total = n = 0
+    for t in closed_tickets:
+        if t.created is None or t.is_done_date is None:
+            continue
+        days = (t.is_done_date - t.created.date()).days
+        if days < 0:
+            continue
+        total += days
+        n += 1
+    return total, n
+
+
 def _merge_cells(cells: list[Cell]) -> Cell:
     """Element-wise sum of cells (count + per-person breakdown)."""
     breakdown: dict[str, int] = {}
@@ -500,6 +518,7 @@ def region_pulse_summary(
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
     mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
     mtta_sum, mtta_n = _alert_mtta(alerts, members, dates)
+    cycle_sum, cycle_n = _ticket_cycle(closed)
     return {
         "new_highest": _ticket_cell(buckets["highest"], _reporter),
         "new_pr_mp": _ticket_cell(buckets["pr_mp"], _reporter),   # requester (#141)
@@ -519,6 +538,9 @@ def region_pulse_summary(
         "alert_mttr_n": Cell(count=mttr_n),
         "alert_mtta_sum": Cell(count=mtta_sum),
         "alert_mtta_n": Cell(count=mtta_n),
+        # Mean ISReq created→done cycle time (days), sum/n composable (#147).
+        "ticket_cycle_sum": Cell(count=cycle_sum),
+        "ticket_cycle_n": Cell(count=cycle_n),
     }
 
 

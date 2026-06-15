@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     alert_mttr_n    INTEGER NOT NULL DEFAULT 0,
     alert_mtta_sum  INTEGER NOT NULL DEFAULT 0,
     alert_mtta_n    INTEGER NOT NULL DEFAULT 0,
+    ticket_cycle_sum INTEGER NOT NULL DEFAULT 0,
+    ticket_cycle_n   INTEGER NOT NULL DEFAULT 0,
     breakdowns_json TEXT,
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (pulse_number, region)
@@ -226,7 +228,8 @@ class Database:
             # Older DBs predate the per-person tooltip breakdowns; without this
             # column upsert_pulse_summary fails and pulse history never persists.
             self._conn.execute("ALTER TABLE pulse_summary ADD COLUMN breakdowns_json TEXT")
-        for col in ("alert_mttr_sum", "alert_mttr_n", "alert_mtta_sum", "alert_mtta_n"):
+        for col in ("alert_mttr_sum", "alert_mttr_n", "alert_mtta_sum", "alert_mtta_n",
+                    "ticket_cycle_sum", "ticket_cycle_n"):
             # Mean time-to-resolve / -acknowledge accumulators; older rows default
             # to 0 (shown as "—" until a refresh / backfill re-run populates them).
             if "pulse_number" in ps_cols and col not in ps_cols:

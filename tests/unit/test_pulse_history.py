@@ -119,6 +119,23 @@ def test_history_ack_level_scales_with_selected_region_count(tmp_path):
     db.close()
 
 
+def test_history_cycle_time_created_to_done(tmp_path):
+    db = Database(tmp_path / "t.db")
+    pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
+    # ISReq-A: created Jun 8 → done Jun 12 = 4 days; ISReq-B: Jun 10 → Jun 12 = 2 days.
+    tickets = [
+        Ticket("ISReq-A", "ISReq", "x", "Done", "Highest", assignee_email=MEMBER,
+               created=utc(8), is_done_date=date(2026, 6, 12)),
+        Ticket("ISReq-B", "ISReq", "y", "Done", "Medium", assignee_email=MEMBER,
+               created=utc(10), is_done_date=date(2026, 6, 12)),
+    ]
+    data = DashboardData(fetched_at=utc(12), tickets=tickets, alerts=[], pulses=pulses)
+    row = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}[12]
+    assert row.ticket_cycle_days == 3.0    # mean of 4 and 2 days
+    assert row.cycle_label == "3.0d"
+    db.close()
+
+
 def test_accumulated_pulse_alerts_unions_fetches(tmp_path):
     # PagerDuty is fetched incrementally, so an incident's ack and resolve can land
     # in different fetch snapshots. The persisted summary must see both (#140).

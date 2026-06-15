@@ -265,6 +265,7 @@ PULSE_SUMMARY_FIELDS = (
     "alerts_ack", "alerts_resolved", "alerts_total",
     "alert_mttr_sum", "alert_mttr_n",   # sum-of-seconds / count → mean time to resolve
     "alert_mtta_sum", "alert_mtta_n",   # sum-of-seconds / count → mean time to acknowledge
+    "ticket_cycle_sum", "ticket_cycle_n",  # sum-of-days / count → mean ISReq cycle time (#147)
 )
 
 
@@ -293,6 +294,7 @@ class PulseHistoryRow:
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
     alert_mttr_seconds: float | None = None  # mean ack→resolve time this pulse, None if no data
     alert_mtta_seconds: float | None = None  # mean trigger→ack time this pulse, None if no data
+    ticket_cycle_days: float | None = None   # mean ISReq created→done days this pulse (#147)
     # green/yellow/red bands for the five alert cells (None = neutral, no colour).
     ack_level: Color | None = None
     resolved_level: Color | None = None
@@ -313,6 +315,13 @@ class PulseHistoryRow:
     @property
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
+
+    @property
+    def cycle_label(self) -> str:
+        """Mean ISReq cycle time, e.g. '3.4d' or '—' (#147)."""
+        if self.ticket_cycle_days is None:
+            return "—"
+        return f"{self.ticket_cycle_days:.1f}d"
 
 
 @dataclass
