@@ -214,6 +214,7 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .panel-head .role-pick select { font-size: 12px; padding: 1px 2px; }
 .panel-head .close { margin-left: auto; cursor: pointer; color: var(--muted); border: none; background: none; font-size: 16px; }
 .group-title { font-size: 12px; font-weight: 600; color: var(--muted); margin: 8px 0 4px; }
+.group-title .group-count { color: var(--fg); font-weight: 700; }
 /* Touched-24h | not-touched split for WIP / Success / Distractors (#17). */
 .split { display: flex; gap: 10px; }
 .split-col { flex: 1 1 0; min-width: 0; }

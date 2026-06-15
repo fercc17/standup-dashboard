@@ -33,10 +33,10 @@
       <td data-tip="{{ c.new_ps5.tip }}">{{ c.new_ps5.count }}</td>
       <td data-tip="{{ c.new_regular.tip }}">{{ c.new_regular.count }}</td>
       <td class="sub" data-tip="{{ c.new_total.tip }}">{{ c.new_total.count }}</td>
-      <td class="grp" data-tip="{{ c.closed_highest.tip }}">{{ c.closed_highest.count }}</td>
+      <td class="grp {% if row.closed_highest_level %}lvl-{{ row.closed_highest_level.value }}{% endif %}" title="Closed Highest vs New Highest: green = closed more, yellow = equal, red = closed fewer" data-tip="{{ c.closed_highest.tip }}">{{ c.closed_highest.count }}</td>
       <td class="{% if row.closed_pr_mp_level %}lvl-{{ row.closed_pr_mp_level.value }}{% endif %}" title="Closed PR/MP vs New PR/MP Review: green = kept up, yellow = 1 behind, red = 2+ behind" data-tip="{{ c.closed_pr_mp.tip }}">{{ c.closed_pr_mp.count }}</td>
-      <td data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
-      <td class="sub" data-tip="{{ c.closed_total.tip }}">{{ c.closed_total.count }}</td>
+      <td class="{% if row.closed_ps5_level %}lvl-{{ row.closed_ps5_level.value }}{% endif %}" title="Closed ps5 vs New ps5: green = closed more, yellow = equal, red = closed fewer" data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
+      <td class="sub {% if row.closed_total_level %}lvl-{{ row.closed_total_level.value }}{% endif %}" title="Closed Total vs New Total (±2 per region): green = ahead by 2+/region, red = behind by 2+/region, yellow within" data-tip="{{ c.closed_total.tip }}">{{ c.closed_total.count }}</td>
       <td>{% if row.closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.closed_pct) }}{% endif %}</td>
       <td class="sub grp" data-tip="{{ c.isdb_closed.tip }}">{{ c.isdb_closed.count }}</td>
       <td>{% if row.isdb_closed_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.isdb_closed_pct) }}{% endif %}</td>

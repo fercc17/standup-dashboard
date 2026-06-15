@@ -14,13 +14,14 @@
       into the <strong>Distractors</strong> group.
     </p>
 
-    <h3 class="legend-subhead">Tickets (assigned, in-flight)</h3>
+    <h3 class="legend-subhead">Role &times; ticket (assigned, in-flight) &amp; handled alert</h3>
     <div class="legend-scroll">
       <table class="legend">
         <thead>
           <tr>
             <th>Role</th>
             {% for t in types %}<th>{{ t }}</th>{% endfor %}
+            <th>Handled alert</th>
           </tr>
         </thead>
         <tbody>
@@ -33,23 +34,11 @@
               {% if c.distractor %}<span class="distractor-tag">Distractor</span>{% endif %}
             </td>
             {% endfor %}
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    <h3 class="legend-subhead">Alerts (coloured by the handler's role)</h3>
-    <div class="legend-scroll">
-      <table class="legend">
-        <thead>
-          <tr><th>Role</th><th>Handled alert</th></tr>
-        </thead>
-        <tbody>
-          {% for row in alert_rows %}
-          <tr>
-            <th class="role">{{ row.role }}</th>
-            <td class="sw-cell sw-{{ row.color }}"><span class="sw-label">{{ row.color }}</span></td>
+            <td>
+              {% for s in row.alert_states %}
+              <span class="sw sw-{{ s.color }}"></span> {{ s.color }}{% if s.label %} &mdash; {{ s.label }}{% endif %}{% if not loop.last %}<br>{% endif %}
+              {% endfor %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>

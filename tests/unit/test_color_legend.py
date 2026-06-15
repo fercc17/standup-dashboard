@@ -1,4 +1,4 @@
-"""Colour-rule legend matrix (#143) — derived live from domain/coloring.py."""
+"""Colour-rule legend matrix (#158) — derived live from domain/coloring.py."""
 
 from __future__ import annotations
 
@@ -15,44 +15,50 @@ def test_legend_matrix_matches_coloring_rules():
     ]
     rows = {r["role"]: r["cells"] for r in legend["rows"]}
 
-    # PVG / OFF: an assigned ticket is always red for these roles.
-    assert all(c["color"] == "red" for c in rows["PVG"])
-    assert all(c["color"] == "red" for c in rows["OFF"])
-
-    # BVG keeps only Highest / [PR/MP Review] (green); the rest are red distractors.
+    # PVG: everything distracts — yellow, except regular (red).
+    pvg = rows["PVG"]
+    assert pvg[0] == {"color": "yellow", "distractor": True}   # Highest
+    assert pvg[3] == {"color": "red", "distractor": True}      # regular
+    assert pvg[4] == {"color": "yellow", "distractor": True}   # ISDB
+    # OFF: all red distractors.
+    assert all(c == {"color": "red", "distractor": True} for c in rows["OFF"])
+    # BVG: Highest / PR-MP / ps5 green; regular + ISDB red distractors.
     bvg = rows["BVG"]
     assert bvg[0] == {"color": "green", "distractor": False}   # Highest
-    assert bvg[1] == {"color": "green", "distractor": False}   # PR/MP
+    assert bvg[2] == {"color": "green", "distractor": False}   # ps5 (now green)
     assert bvg[3] == {"color": "red", "distractor": True}      # regular
-
-    # GEN: green only for ISReq Highest / ps5; others red and NOT reclassified.
+    assert bvg[4] == {"color": "red", "distractor": True}      # ISDB
+    # GEN: Highest / ps5 green; PR-MP yellow distractor; regular + ISDB red.
     gen = rows["GEN"]
-    assert gen[0]["color"] == "green"                          # Highest
-    assert gen[2]["color"] == "green"                          # ps5
-    assert gen[3] == {"color": "red", "distractor": False}     # regular
-    assert gen[4]["color"] == "red"                            # ISDB off-task for GEN
-
-    # Project: only ISDB is green; ISReq work is a red distractor (even Highest).
+    assert gen[0]["color"] == "green"
+    assert gen[1] == {"color": "yellow", "distractor": True}   # PR-MP
+    assert gen[2]["color"] == "green"
+    assert gen[3] == {"color": "red", "distractor": True}      # regular (now distractor)
+    assert gen[4] == {"color": "red", "distractor": True}      # ISDB
+    # Project: only ISDB is green; ISReq work is a red distractor.
     proj = rows["Project"]
     assert proj[4] == {"color": "green", "distractor": False}  # ISDB
     assert proj[0] == {"color": "red", "distractor": True}     # ISReq Highest
 
 
-def test_alert_color_is_role_based():
-    # Alerts are coloured purely by the handler's role, regardless of state.
-    assert alert_color(Role.PVG) is Color.GREEN
+def test_alert_color_representative():
+    # Representative alert colour (a yellow open alert) per role.
+    assert alert_color(Role.PVG) is Color.YELLOW
     assert alert_color(Role.BVG) is Color.YELLOW
-    assert alert_color(Role.GEN) is Color.YELLOW
+    assert alert_color(Role.GEN) is Color.RED
     assert alert_color(Role.PROJECT) is Color.RED
     assert alert_color(Role.OFF) is Color.RED
 
 
-def test_legend_alerts_one_row_per_role_with_yellow():
-    by_role = {r["role"]: r["color"] for r in build_color_legend()["alert_rows"]}
-    assert by_role == {
-        "PVG": "green", "BVG": "yellow", "GEN": "yellow", "Project": "red", "OFF": "red",
-    }
-    assert "yellow" in by_role.values()   # the user's "things on yellow"
+def test_legend_alert_states_per_role():
+    by_role = {r["role"]: r["states"] for r in build_color_legend()["alert_rows"]}
+    # PVG: state+age dependent — green resolved, yellow ≤24h, red >24h.
+    assert [s["color"] for s in by_role["PVG"]] == ["green", "yellow", "red"]
+    # BVG: a single yellow (open or resolved).
+    assert [s["color"] for s in by_role["BVG"]] == ["yellow"]
+    # GEN / Project / OFF: a single red distraction.
+    for role in ("GEN", "Project", "OFF"):
+        assert [s["color"] for s in by_role[role]] == ["red"]
 
 
 def test_legend_route_renders(client):
@@ -60,7 +66,7 @@ def test_legend_route_renders(client):
     assert "Colour rules" in page
     assert "ISReq [PR/MP Review]" in page
     assert "Distractor" in page
-    assert "Alerts (coloured by the handler's role)" in page
-    assert "sw-yellow" in page   # yellow now visible (BVG/GEN alert rows)
+    assert "Handled alert" in page   # the combined matrix's alert column
+    assert "sw-yellow" in page
     for role in ("PVG", "BVG", "GEN", "Project", "OFF"):
         assert role in page

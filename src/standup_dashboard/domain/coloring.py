@@ -33,28 +33,46 @@ _NON_ASSIGNED: dict[Role, Color] = {
     Role.OFF: Color.RED,
 }
 
+TICKET_KINDS = ("highest", "pr_mp", "ps5", "regular", "isdb")
+
+# Final role × ticket-kind colour matrix (#158, supersedes #86). A cell that is
+# not GREEN is an off-task *distraction* for that role.
+_TICKET_MATRIX: dict[Role, dict[str, Color]] = {
+    Role.PVG:     {"highest": Color.YELLOW, "pr_mp": Color.YELLOW, "ps5": Color.YELLOW, "regular": Color.RED,   "isdb": Color.YELLOW},
+    Role.BVG:     {"highest": Color.GREEN,  "pr_mp": Color.GREEN,  "ps5": Color.GREEN,  "regular": Color.RED,   "isdb": Color.RED},
+    Role.GEN:     {"highest": Color.GREEN,  "pr_mp": Color.YELLOW, "ps5": Color.GREEN,  "regular": Color.RED,   "isdb": Color.RED},
+    Role.PROJECT: {"highest": Color.RED,    "pr_mp": Color.RED,    "ps5": Color.RED,    "regular": Color.RED,   "isdb": Color.GREEN},
+    Role.OFF:     {"highest": Color.RED,    "pr_mp": Color.RED,    "ps5": Color.RED,    "regular": Color.RED,   "isdb": Color.RED},
+}
+
+
+def ticket_kind(ticket: Ticket) -> str:
+    """Which matrix column a ticket falls in. ISDB is its own column; ISReq goes
+    by precedence Highest → [PR/MP Review] → ps5-blocker → regular."""
+    if ticket.is_isdb:
+        return "isdb"
+    if ticket.is_highest:
+        return "highest"
+    if ticket.is_pr_mp_review:
+        return "pr_mp"
+    if ticket.has_ps5_blockers:
+        return "ps5"
+    return "regular"
+
+
+def _matrix_color(role: Role, ticket: Ticket) -> Color:
+    return _TICKET_MATRIX.get(role, {}).get(ticket_kind(ticket), Color.RED)
+
 
 def is_role_distractor(role: Role, ticket: Ticket) -> bool:
-    """Whether an assigned ticket is a distraction for ``role`` (#86).
+    """Whether an assigned ticket is an off-task distraction for ``role`` (#158).
 
-    These tickets are regrouped under Distractors instead of To Do / WIP / Success:
-      * Project: any ticket that is NOT ISDB — even when Done. A Project engineer
-        should only work ISDB, so a completed ISReq is still off-task, not a
-        success (overrides the FR-017 Success-green rule for this role).
-      * BVG: any non-Done ticket that is NOT Highest and NOT a ``[PR/MP Review]``.
-      * PVG: any non-Done ticket in Jira status "In Review".
-    For BVG/PVG, finished (Success) work is a success, never a distraction.
-    """
-    # Project: non-ISDB is off-task regardless of status (incl. Done/Success).
-    if role is Role.PROJECT:
-        return not ticket.is_isdb
+    A ticket distracts when its matrix colour is not GREEN. Done (Success) work is
+    never a distraction — except a Project engineer's non-ISDB work, which stays
+    off-task even when completed (FR-017 exception)."""
     if ticket.group is TicketGroup.SUCCESS:
-        return False
-    if role is Role.BVG:
-        return not (ticket.is_highest or ticket.is_pr_mp_review)
-    if role is Role.PVG:
-        return (ticket.status or "").strip().lower() == "in review"
-    return False
+        return role is Role.PROJECT and not ticket.is_isdb
+    return _matrix_color(role, ticket) is not Color.GREEN
 
 
 def ticket_color(
@@ -63,69 +81,43 @@ def ticket_color(
     *,
     assigned: bool,
     group: TicketGroup | None = None,
-    role_distractor: bool = False,
+    role_distractor: bool = False,  # accepted for call-site compatibility; unused
 ) -> Color:
-    """Resolve a ticket's color for an engineer with ``role``.
+    """Resolve a ticket's colour for an engineer with ``role`` (#158 matrix).
 
-    ``assigned`` is True when the ticket is assigned to the engineer in the
-    active sprint (including a role distraction, which is still assigned).
-    ``role_distractor`` marks an assigned ticket reclassified as a distraction
-    by the engineer's role (#86). ``group`` carries the precomputed status group
-    so the FR-017 Success-green override applies.
-    """
-    # Role-based distraction takes precedence over the Success-green rule: for a
-    # Project engineer a completed ISReq is still an off-task RED distraction.
-    # PVG distractions stay yellow; everyone else (Project, BVG) red (#86 / #..).
-    if role_distractor:
-        return Color.YELLOW if role is Role.PVG else Color.RED
-
-    # FR-017 — Success is always green for non-distractor tickets.
-    if group is TicketGroup.SUCCESS or ticket.group is TicketGroup.SUCCESS:
+    Done (Success) is green for everyone except a Project engineer's non-ISDB
+    work. Non-assigned touches use the per-role default; assigned tickets read
+    straight from the matrix (which already encodes the distractor yellow/red)."""
+    eff_group = group or ticket.group
+    if eff_group is TicketGroup.SUCCESS:
+        if role is Role.PROJECT and not ticket.is_isdb:
+            return Color.RED
         return Color.GREEN
-
     if not assigned:
         return _NON_ASSIGNED[role]
+    return _matrix_color(role, ticket)
 
-    if role is Role.OFF:
-        return Color.RED
 
-    # Assigned tickets that survived reclassification are "kept" work.
-    if role is Role.BVG:
-        return Color.GREEN if (ticket.is_highest or ticket.is_pr_mp_review) else Color.RED
+def alert_classification(role: Role, *, resolved: bool, recent: bool) -> tuple[Color, TicketGroup]:
+    """(colour, group) for an alert handled by ``role`` (#158). ``recent`` = ≤24h.
 
-    if role is Role.PROJECT:
-        return Color.GREEN if ticket.is_isdb else Color.RED
-
+    PVG own alert duty, so their alerts are real work: green resolved (Success),
+    yellow open ≤24h / red open >24h (WIP). BVG yellow either way. GEN / Project /
+    OFF: alerts are an off-task distraction (red, Distractors)."""
     if role is Role.PVG:
-        return Color.RED
-
-    if role is Role.GEN:
-        is_priority = ticket.is_highest or ticket.has_ps5_blockers
-        return Color.GREEN if (ticket.is_isreq and is_priority) else Color.RED
-
-    return Color.RED  # defensive; all roles handled above
-
-
-# Alerts are coloured by the handler's role — whether handling alerts is on-task
-# for them — independent of acked/resolved/age (#143): PVG green (alert duty is
-# their job), BVG/GEN yellow (secondary), Project/OFF red (off-task).
-_ALERT_ROLE_COLOR: dict[Role, Color] = {
-    Role.PVG: Color.GREEN,
-    Role.BVG: Color.YELLOW,
-    Role.GEN: Color.YELLOW,
-    Role.PROJECT: Color.RED,
-    Role.OFF: Color.RED,
-}
+        if resolved:
+            return Color.GREEN, TicketGroup.SUCCESS
+        return (Color.YELLOW if recent else Color.RED), TicketGroup.WIP
+    if role is Role.BVG:
+        return Color.YELLOW, (TicketGroup.SUCCESS if resolved else TicketGroup.WIP)
+    return Color.RED, TicketGroup.DISTRACTORS
 
 
 def alert_color(role: Role) -> Color:
-    """Colour of an alert handled by an engineer with ``role`` (#143).
-
-    Single source of truth for both the detail panel and the colour legend. The
-    panel still groups alerts (resolved → Success, open → WIP, GEN → Distractors);
-    only the colour is role-based.
-    """
-    return _ALERT_ROLE_COLOR.get(role, Color.RED)
+    """Representative alert colour for ``role`` (a yellow open alert), for non-
+    stateful uses such as a legend swatch."""
+    color, _ = alert_classification(role, resolved=False, recent=True)
+    return color
 
 
 # --- Alert counts-table cell coloring (green / yellow / red bands) ----------
@@ -200,6 +192,30 @@ def wip_age_level(age_seconds: float | None) -> Color | None:
     if days <= ALERT_WIP_YELLOW_DAYS:
         return Color.YELLOW
     return Color.RED
+
+
+def closed_vs_new_level(closed: int, new: int) -> Color | None:
+    """Closed vs New for Highest / ps5 (#155): more closed than new is green,
+    equal yellow (including 0 = 0), fewer red."""
+    if closed > new:
+        return Color.GREEN
+    if closed == new:
+        return Color.YELLOW
+    return Color.RED
+
+
+def closed_vs_new_total_level(closed: int, new: int, regions: int) -> Color | None:
+    """Closed vs New Total with a ±2-per-region margin (#155): green when closed
+    leads new by ≥2×regions, red when it trails by ≥2×regions, yellow in between."""
+    if closed == 0 and new == 0:
+        return None
+    margin = 2 * max(regions, 1)
+    diff = closed - new
+    if diff >= margin:
+        return Color.GREEN
+    if diff <= -margin:
+        return Color.RED
+    return Color.YELLOW
 
 
 def pr_mp_review_level(review_new: int, closed: int) -> Color | None:

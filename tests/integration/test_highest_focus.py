@@ -28,7 +28,10 @@ def _scenario(now: datetime) -> Scenario:
         sprint_issues={
             101: [],
             201: [
-                issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201),
+                # ps5 is green for GEN, so the Highest-only toggle is what demotes
+                # it (a plain regular ISReq would already be a GEN distractor, #158).
+                issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201,
+                      labels=["ps5-blocker"]),
                 issue("ISReq-6", assignee=COLIN, status="Untriaged", sprint_id=201),
             ],
         },

@@ -358,6 +358,24 @@ class Database:
         )
         self._conn.commit()
 
+    def incident_meta(self, ids: Iterable[str]) -> dict[str, tuple[str | None, int | None, str | None]]:
+        """incident id → (title, number, url) from the long-lived incident table.
+
+        Used to enrich alerts whose own event rows lack a title/link because they
+        were captured by an early, un-enriched incremental fetch (#157)."""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return {}
+        out: dict[str, tuple[str | None, int | None, str | None]] = {}
+        for i in range(0, len(ids), 500):  # chunk to stay under SQLite's variable cap
+            chunk = ids[i:i + 500]
+            qs = ",".join("?" * len(chunk))
+            for r in self._conn.execute(
+                f"SELECT id, title, number, url FROM incident WHERE id IN ({qs})", chunk
+            ):
+                out[r["id"]] = (r["title"], r["number"], r["url"])
+        return out
+
     def get_incidents_since(self, since: datetime) -> list[sqlite3.Row]:
         """Raw incident rows fired at/after ``since`` (the service maps them)."""
         return self._conn.execute(

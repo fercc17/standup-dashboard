@@ -32,6 +32,8 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..domain.coloring import (
+    closed_vs_new_level,
+    closed_vs_new_total_level,
     count_level,
     mtta_level,
     mttr_level,
@@ -356,19 +358,26 @@ def build_counts(
         # assignee (owner). Their counts drive the PR/MP keep-up colour (#141).
         new_pr_mp_cell = _ticket_cell(buckets["pr_mp"], _reporter)
         closed_pr_mp_cell = _ticket_cell(closed_pr_mp, _assignee)
+        # Closed-vs-New colouring (#155) needs the New/Closed pairs for each bucket.
+        new_highest_cell = _ticket_cell(buckets["highest"], _assignee)
+        closed_highest_cell = _ticket_cell([t for t in closed if t.is_highest], _assignee)
+        new_ps5_cell = _ticket_cell(buckets["ps5"], _assignee)
+        closed_ps5_cell = _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee)
+        new_total_cell = _ticket_cell(new_tickets, _assignee)
+        closed_total_cell = _ticket_cell(closed, _assignee)
         return CountsRow(
             label=label,
             is_weekend=is_weekend,
             is_total=is_total,
-            new_highest=_ticket_cell(buckets["highest"], _assignee),
+            new_highest=new_highest_cell,
             new_pr_mp=new_pr_mp_cell,
-            new_ps5=_ticket_cell(buckets["ps5"], _assignee),
+            new_ps5=new_ps5_cell,
             new_regular=_ticket_cell(buckets["regular"], _assignee),
-            new_total=_ticket_cell(new_tickets, _assignee),
-            closed_highest=_ticket_cell([t for t in closed if t.is_highest], _assignee),
+            new_total=new_total_cell,
+            closed_highest=closed_highest_cell,
             closed_pr_mp=closed_pr_mp_cell,
-            closed_ps5=_ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
-            closed_total=_ticket_cell(closed, _assignee),
+            closed_ps5=closed_ps5_cell,
+            closed_total=closed_total_cell,
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
             alerts_ack=ack,
             alerts_resolved=resolved,
@@ -392,6 +401,11 @@ def build_counts(
             mtta_level=mtta_level(mtta_seconds),
             # PR/MP keep-up: did Closed keep pace with reviews requested? (#141)
             closed_pr_mp_level=pr_mp_review_level(new_pr_mp_cell.count, closed_pr_mp_cell.count),
+            # Closed-vs-New for Highest / ps5 / Total (#155).
+            closed_highest_level=closed_vs_new_level(closed_highest_cell.count, new_highest_cell.count),
+            closed_ps5_level=closed_vs_new_level(closed_ps5_cell.count, new_ps5_cell.count),
+            closed_total_level=closed_vs_new_total_level(
+                closed_total_cell.count, new_total_cell.count, region_count),
         )
 
     rows: list[CountsRow] = []

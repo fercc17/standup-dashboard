@@ -224,6 +224,24 @@ def test_ack_total_level_scales_with_selected_region_count():
     assert both_fri.total_level is Color.GREEN
 
 
+def test_closed_vs_new_highest_colour():
+    # 1 new Highest, 2 Highest closed → closed more than new → green (#155).
+    fri = utc(2026, 6, 12)
+    tickets = [
+        Ticket(id="ISReq-NH", project_key="ISReq", title="x", status="To Do",
+               priority="Highest", labels=[], created=fri, assignee_email=MEMBER),
+        Ticket(id="ISReq-CH1", project_key="ISReq", title="a", status="Done",
+               priority="Highest", labels=[], created=utc(2026, 6, 5),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
+        Ticket(id="ISReq-CH2", project_key="ISReq", title="b", status="Done",
+               priority="Highest", labels=[], created=utc(2026, 6, 5),
+               is_done_date=date(2026, 6, 12), assignee_email=MEMBER),
+    ]
+    fri_row = build_region_counts(AMER, tickets, [], _pulses(), utc(2026, 6, 15))[1]
+    assert fri_row.new_highest.count == 1 and fri_row.closed_highest.count == 2
+    assert fri_row.closed_highest_level is Color.GREEN
+
+
 def test_closed_pr_mp_keep_up_colour():
     # 2 reviews requested Friday, 1 closed → 1 behind → yellow ("ok to leave one").
     fri = utc(2026, 6, 12)
