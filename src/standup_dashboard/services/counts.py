@@ -465,6 +465,26 @@ def build_counts(
         prev.is_previous = True
         prev.region_alert_pct = None
         rows.append(prev)
+
+        # MTTR/MTTA deltas: each day row vs the previous day that had data
+        # (intra-pulse momentum); the Pulse total vs the previous pulse — the same
+        # vs-previous-pulse comparison the pulse-history table shows.
+        prev_mttr = prev_mtta = None
+        for r in rows:
+            if r.is_total:
+                continue
+            if prev_mttr is not None and r.alert_mttr_seconds is not None:
+                r.mttr_delta_seconds = r.alert_mttr_seconds - prev_mttr
+            if prev_mtta is not None and r.alert_mtta_seconds is not None:
+                r.mtta_delta_seconds = r.alert_mtta_seconds - prev_mtta
+            if r.alert_mttr_seconds is not None:
+                prev_mttr = r.alert_mttr_seconds
+            if r.alert_mtta_seconds is not None:
+                prev_mtta = r.alert_mtta_seconds
+        if total.alert_mttr_seconds is not None and prev.alert_mttr_seconds is not None:
+            total.mttr_delta_seconds = total.alert_mttr_seconds - prev.alert_mttr_seconds
+        if total.alert_mtta_seconds is not None and prev.alert_mtta_seconds is not None:
+            total.mtta_delta_seconds = total.alert_mtta_seconds - prev.alert_mtta_seconds
     return rows
 
 

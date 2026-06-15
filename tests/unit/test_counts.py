@@ -203,6 +203,26 @@ def test_daily_mttr_and_mtta_per_row_and_total():
     assert total.alert_mtta_seconds == 600 and total.mtta_label == "10m"
 
 
+def test_counts_mttr_mtta_day_over_day_deltas():
+    # Thursday then Friday incidents: Friday's MTTR/MTTA show the change vs Thu.
+    alerts = [
+        # Thu Jun 11: MTTA 5m (18:00→18:05), MTTR 15m (18:05→18:20).
+        Alert("T", "", AlertState.TRIGGERED, datetime(2026, 6, 11, 18, 0, tzinfo=UTC)),
+        Alert("T", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 11, 18, 5, tzinfo=UTC)),
+        Alert("T", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 11, 18, 20, tzinfo=UTC)),
+        # Fri Jun 12: MTTA 10m, MTTR 30m.
+        Alert("F", "", AlertState.TRIGGERED, datetime(2026, 6, 12, 18, 0, tzinfo=UTC)),
+        Alert("F", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 10, tzinfo=UTC)),
+        Alert("F", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 40, tzinfo=UTC)),
+    ]
+    rows = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))
+    thu = next(r for r in rows if not r.is_total and r.label.startswith("Thu"))
+    fri = next(r for r in rows if not r.is_total and r.label.startswith("Fri"))
+    assert thu.mttr_delta_label == "" and thu.mtta_delta_label == ""  # first day, no baseline
+    assert fri.mttr_label == "30m" and fri.mttr_delta_label == "▲15m"  # 30m vs 15m
+    assert fri.mtta_label == "10m" and fri.mtta_delta_label == "▲5m"   # 10m vs 5m
+
+
 def test_daily_mttr_blank_when_no_resolve_pair():
     # An ack with no matching resolve yields no MTTR pairing → None / em dash.
     alerts = [Alert("INC", MEMBER, AlertState.ACKNOWLEDGED, utc(2026, 6, 12, 18))]

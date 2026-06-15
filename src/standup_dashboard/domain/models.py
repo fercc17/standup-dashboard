@@ -283,6 +283,15 @@ def format_duration(seconds: float | None) -> str:
     return f"{days}d {hours}h" if hours else f"{days}d"
 
 
+def delta_label(delta_s: float | None) -> str:
+    """Signed duration change vs a previous bucket, e.g. '▲2m' (up, worse for
+    MTTR/MTTA) / '▼3m' (down). Blank when there's no baseline or the change
+    rounds to under a minute. Shared by the pulse-history and counts tables."""
+    if delta_s is None or round(abs(delta_s) / 60) == 0:
+        return ""
+    return f"{'▲' if delta_s > 0 else '▼'}{format_duration(abs(delta_s))}"
+
+
 @dataclass
 class PulseHistoryRow:
     pulse_number: int
@@ -326,21 +335,15 @@ class PulseHistoryRow:
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
 
-    @staticmethod
-    def _delta_label(delta_s: float | None) -> str:
-        """Signed change vs the previous pulse, e.g. '▲2m' (slower) / '▼3m'
-        (faster). Blank with no baseline or when the change rounds to <1m."""
-        if delta_s is None or round(abs(delta_s) / 60) == 0:
-            return ""
-        return f"{'▲' if delta_s > 0 else '▼'}{format_duration(abs(delta_s))}"
+    _delta_label = staticmethod(delta_label)  # back-compat alias
 
     @property
     def mttr_delta_label(self) -> str:
-        return self._delta_label(self.mttr_delta_seconds)
+        return delta_label(self.mttr_delta_seconds)
 
     @property
     def mtta_delta_label(self) -> str:
-        return self._delta_label(self.mtta_delta_seconds)
+        return delta_label(self.mtta_delta_seconds)
 
     @property
     def cycle_label(self) -> str:
@@ -405,6 +408,10 @@ class CountsRow:
     alert_mtta_seconds: float | None = None  # mean trigger→ack time this row, None if no data
     alert_mttr_n: int = 0  # incidents behind the MTTR mean (for the tooltip)
     alert_mtta_n: int = 0  # incidents behind the MTTA mean (for the tooltip)
+    # MTTR/MTTA change vs the previous bucket: a day row vs the previous day, the
+    # Pulse total vs the previous pulse. None = no baseline / no data.
+    mttr_delta_seconds: float | None = None
+    mtta_delta_seconds: float | None = None
     # green/yellow/red bands for the five alert cells (None = neutral, no colour).
     ack_level: Color | None = None
     resolved_level: Color | None = None
@@ -425,3 +432,11 @@ class CountsRow:
     @property
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
+
+    @property
+    def mttr_delta_label(self) -> str:
+        return delta_label(self.mttr_delta_seconds)
+
+    @property
+    def mtta_delta_label(self) -> str:
+        return delta_label(self.mtta_delta_seconds)
