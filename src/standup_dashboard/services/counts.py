@@ -234,20 +234,34 @@ def _alert_mtta(alerts: list[Alert], members: set[str], dates: set[date]) -> tup
     return total, n
 
 
+def _business_days(start: date, end: date) -> int:
+    """Weekdays (Mon–Fri) from ``start`` up to ``end`` — weekend days don't count,
+    so Fri→Mon is 1 and same-day is 0. Half-open [start, end); 0 if end <= start."""
+    if end <= start:
+        return 0
+    full_weeks, rem = divmod((end - start).days, 7)
+    count = full_weeks * 5
+    start_wd = start.weekday()  # Mon=0 … Sun=6
+    for i in range(rem):
+        if (start_wd + i) % 7 < 5:
+            count += 1
+    return count
+
+
 def _ticket_cycle(closed_tickets: list[Ticket]) -> tuple[int, int]:
-    """(sum_days, n) of created→done cycle time for closed tickets (#147).
+    """(sum_days, n) of created→done cycle time for closed tickets, counting
+    weekdays only — weekend days don't count, so Fri→Mon is 1 day (#147).
 
     Persisting sum + count (not a mean) keeps the pulse cycle time composable
     across regions, like the alert MTTR accumulator. Tickets missing a created or
-    done date — or with a negative span (clock skew) — are skipped."""
+    done date — or done before they were created (clock skew) — are skipped."""
     total = n = 0
     for t in closed_tickets:
         if t.created is None or t.is_done_date is None:
             continue
-        days = (t.is_done_date - t.created.date()).days
-        if days < 0:
+        if t.is_done_date < t.created.date():
             continue
-        total += days
+        total += _business_days(t.created.date(), t.is_done_date)
         n += 1
     return total, n
 

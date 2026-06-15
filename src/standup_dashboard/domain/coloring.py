@@ -178,6 +178,49 @@ def mtta_level(seconds: float | None) -> Color | None:
     return _duration_level(seconds, ALERT_MTTA_GREEN_S, ALERT_MTTA_YELLOW_S)
 
 
+ALERT_MTTA_TREND_TOLERANCE = 0.10  # within ±10% of the previous pulse counts as "same"
+ALERT_MTTR_TREND_TOLERANCE = 0.10  # within ±10% of the previous pulse counts as "same"
+
+
+def _floored_trend_level(
+    current_s: float | None, previous_s: float | None, floor_s: float, tolerance: float
+) -> Color | None:
+    """Lower-is-better trend band with a green floor (#149 follow-up): green at or
+    below ``floor_s``; above it, colour vs the *previous pulse* — green when
+    meaningfully faster (lower), red when slower, yellow when about the same
+    (±``tolerance``). Neutral if there's no current data, or above the floor with
+    no previous-pulse baseline."""
+    if current_s is None:
+        return None
+    if current_s <= floor_s:
+        return Color.GREEN
+    if previous_s is None or previous_s <= 0:
+        return None
+    if current_s < previous_s * (1 - tolerance):
+        return Color.GREEN
+    if current_s > previous_s * (1 + tolerance):
+        return Color.RED
+    return Color.YELLOW
+
+
+def mtta_trend_level(
+    current_s: float | None, previous_s: float | None
+) -> Color | None:
+    """Pulse-history MTTA colour: always green at or below the healthy 5m floor
+    (ALERT_MTTA_GREEN_S); above it, green/red/yellow vs the previous pulse."""
+    return _floored_trend_level(
+        current_s, previous_s, ALERT_MTTA_GREEN_S, ALERT_MTTA_TREND_TOLERANCE)
+
+
+def mttr_trend_level(
+    current_s: float | None, previous_s: float | None
+) -> Color | None:
+    """Pulse-history MTTR colour: always green at or below the healthy 30m floor
+    (ALERT_MTTR_GREEN_S); above it, green/red/yellow vs the previous pulse."""
+    return _floored_trend_level(
+        current_s, previous_s, ALERT_MTTR_GREEN_S, ALERT_MTTR_TREND_TOLERANCE)
+
+
 ALERT_WIP_GREEN_DAYS = 2     # ≤2 days in progress is healthy
 ALERT_WIP_YELLOW_DAYS = 5    # 3–5 days is ageing; >5 days is stale (red)
 
@@ -216,6 +259,64 @@ def closed_vs_new_total_level(closed: int, new: int, regions: int) -> Color | No
     if diff <= -margin:
         return Color.RED
     return Color.YELLOW
+
+
+INTAKE_TREND_MIN_MARGIN = 2  # ignore a ±1-ticket wobble between pulses
+
+
+def intake_level(
+    current: int, previous: int | None, floor: float | None = None
+) -> Color | None:
+    """New-column (intake) colour (#147). When a healthy ``floor`` is given (the
+    historical average New Total), a positive intake at or below it is green —
+    normal load. Otherwise colour by the change vs the previous pulse: fewer new
+    tickets than last pulse is green (less incoming work), more is red, about the
+    same yellow. The 'same' band is ±max(2, 10% of the previous count) so small-
+    count noise stays yellow. Neutral with no previous pulse, or when both this
+    and the previous pulse are zero (a sustained quiet/no-data stretch)."""
+    if floor is not None and 0 < current <= floor:
+        return Color.GREEN
+    if previous is None or (current == 0 and previous == 0):
+        return None
+    margin = max(INTAKE_TREND_MIN_MARGIN, round(0.10 * previous))
+    diff = current - previous
+    if diff <= -margin:
+        return Color.GREEN
+    if diff >= margin:
+        return Color.RED
+    return Color.YELLOW
+
+
+CYCLE_TREND_TOLERANCE = 0.10   # within ±10% of the previous pulse counts as "same"
+
+
+def cycle_trend_level(
+    current_days: float | None, previous_days: float | None
+) -> Color | None:
+    """Days-to-close trend vs the previous pulse (#147): green when meaningfully
+    faster (lower), red when slower, yellow when about the same (±10%). Neutral
+    without a previous-pulse baseline."""
+    if current_days is None or previous_days is None or previous_days <= 0:
+        return None
+    if current_days < previous_days * (1 - CYCLE_TREND_TOLERANCE):
+        return Color.GREEN
+    if current_days > previous_days * (1 + CYCLE_TREND_TOLERANCE):
+        return Color.RED
+    return Color.YELLOW
+
+
+def cycle_color(
+    current_days: float | None, previous_days: float | None, closed: int, new: int
+) -> Color | None:
+    """Days-to-close cell colour (#147): green when this pulse out-closed intake
+    (closed > new) — clearing a backlog of *old* tickets inflates cycle time, so a
+    rise there is a win, not a regression — otherwise colour by trend vs the
+    previous pulse (see ``cycle_trend_level``). Neutral when there's no cycle data."""
+    if current_days is None:
+        return None
+    if closed > new:
+        return Color.GREEN
+    return cycle_trend_level(current_days, previous_days)
 
 
 def pr_mp_review_level(review_new: int, closed: int) -> Color | None:

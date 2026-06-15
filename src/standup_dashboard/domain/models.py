@@ -294,6 +294,8 @@ class PulseHistoryRow:
     isdb_closed_pct: float | None = None   # selected regions' share of all ISDB closed
     alert_mttr_seconds: float | None = None  # mean ack→resolve time this pulse, None if no data
     alert_mtta_seconds: float | None = None  # mean trigger→ack time this pulse, None if no data
+    mttr_delta_seconds: float | None = None  # MTTR change vs the previous pulse, None = no baseline (#149)
+    mtta_delta_seconds: float | None = None  # MTTA change vs the previous pulse, None = no baseline (#149)
     ticket_cycle_days: float | None = None   # mean ISReq created→done days this pulse (#147)
     # green/yellow/red bands for the five alert cells (None = neutral, no colour).
     ack_level: Color | None = None
@@ -301,12 +303,20 @@ class PulseHistoryRow:
     total_level: Color | None = None
     mttr_level: Color | None = None
     mtta_level: Color | None = None
+    # Days-to-close trend band vs the previous pulse (#147), None = no baseline.
+    cycle_level: Color | None = None
     # Closed PR/MP vs New PR/MP Review keep-up band (#141), None = no activity.
     closed_pr_mp_level: Color | None = None
     # Closed-vs-New bands for Highest / ps5 / Total (#155), None = no activity.
     closed_highest_level: Color | None = None
     closed_ps5_level: Color | None = None
     closed_total_level: Color | None = None
+    # Intake (New columns) trend vs the previous pulse (#147): fewer new = green.
+    new_highest_level: Color | None = None
+    new_pr_mp_level: Color | None = None
+    new_ps5_level: Color | None = None
+    new_regular_level: Color | None = None
+    new_total_level: Color | None = None
 
     @property
     def mttr_label(self) -> str:
@@ -315,6 +325,22 @@ class PulseHistoryRow:
     @property
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
+
+    @staticmethod
+    def _delta_label(delta_s: float | None) -> str:
+        """Signed change vs the previous pulse, e.g. '▲2m' (slower) / '▼3m'
+        (faster). Blank with no baseline or when the change rounds to <1m."""
+        if delta_s is None or round(abs(delta_s) / 60) == 0:
+            return ""
+        return f"{'▲' if delta_s > 0 else '▼'}{format_duration(abs(delta_s))}"
+
+    @property
+    def mttr_delta_label(self) -> str:
+        return self._delta_label(self.mttr_delta_seconds)
+
+    @property
+    def mtta_delta_label(self) -> str:
+        return self._delta_label(self.mtta_delta_seconds)
 
     @property
     def cycle_label(self) -> str:

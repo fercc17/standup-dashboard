@@ -139,6 +139,8 @@ table.counts th.div, table.counts td.div { border-left: 2px solid var(--muted); 
 table.counts th.grp, table.counts td.grp { border-left: 1px solid var(--border); }
 /* Per-group subtotal columns (new total / closed total / alerts total). */
 table.counts td.sub { font-weight: 600; }
+/* Per-cell change vs the previous pulse (pulse-history MTTR/MTTA), e.g. "▲2m". */
+table.counts td .delta { font-size: 0.82em; opacity: 0.65; margin-left: 3px; white-space: nowrap; font-weight: 400; }
 /* Numbers with a per-person breakdown tooltip get a hint cursor (#91). */
 table.counts td[data-tip]:not([data-tip=""]) { cursor: help; }
 /* Alert health bands (ack/res/total/MTTR/MTTA): green within the on-call

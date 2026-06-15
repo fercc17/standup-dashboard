@@ -18,9 +18,9 @@
       <th class="stk div"><span>Alerts</span><span>Ack</span></th>
       <th class="stk"><span>Alert</span><span>Res</span></th>
       <th class="stk"><span>Alerts</span><span>Total</span></th>
-      <th class="stk" title="Mean time from acknowledgement to resolution this pulse"><span>Alert</span><span>MTTR</span></th>
-      <th class="stk" title="Mean time from incident trigger to first acknowledgement this pulse"><span>Alert</span><span>MTTA</span></th>
-      <th class="stk" title="Mean ISReq created→done cycle time (days) for tickets closed this pulse"><span class="proj">ISReq</span><span>Cycle</span></th>
+      <th class="stk" title="Mean ack→resolve time this pulse — coloured vs the previous pulse (green ≤30m or faster, yellow about the same, red slower)"><span>Alert</span><span>MTTR</span></th>
+      <th class="stk" title="Mean trigger→ack time this pulse — coloured vs the previous pulse (green ≤5m or faster, yellow about the same, red slower)"><span>Alert</span><span>MTTA</span></th>
+      <th class="stk" title="Mean weekdays from created to done for ISReq tickets closed this pulse (weekends excluded) — green if we closed more than we received or were faster than the previous pulse, red if slower"><span class="proj">ISReq</span><span>Days to</span><span>Close</span></th>
       <th>Region %</th>
     </tr>
   </thead>
@@ -29,11 +29,11 @@
     {% set c = row.cells %}
     <tr>
       <td>{{ row.label }}</td>
-      <td data-tip="{{ c.new_highest.tip }}">{{ c.new_highest.count }}</td>
-      <td data-tip="{{ c.new_pr_mp.tip }}">{{ c.new_pr_mp.count }}</td>
-      <td data-tip="{{ c.new_ps5.tip }}">{{ c.new_ps5.count }}</td>
-      <td data-tip="{{ c.new_regular.tip }}">{{ c.new_regular.count }}</td>
-      <td class="sub" data-tip="{{ c.new_total.tip }}">{{ c.new_total.count }}</td>
+      <td class="{% if row.new_highest_level %}lvl-{{ row.new_highest_level.value }}{% endif %}" title="New Highest vs previous pulse: fewer = green, more = red" data-tip="{{ c.new_highest.tip }}">{{ c.new_highest.count }}</td>
+      <td class="{% if row.new_pr_mp_level %}lvl-{{ row.new_pr_mp_level.value }}{% endif %}" title="New PR/MP Review vs previous pulse: fewer = green, more = red" data-tip="{{ c.new_pr_mp.tip }}">{{ c.new_pr_mp.count }}</td>
+      <td class="{% if row.new_ps5_level %}lvl-{{ row.new_ps5_level.value }}{% endif %}" title="New ps5 vs previous pulse: fewer = green, more = red" data-tip="{{ c.new_ps5.tip }}">{{ c.new_ps5.count }}</td>
+      <td class="{% if row.new_regular_level %}lvl-{{ row.new_regular_level.value }}{% endif %}" title="New Regular vs previous pulse: fewer = green, more = red" data-tip="{{ c.new_regular.tip }}">{{ c.new_regular.count }}</td>
+      <td class="sub {% if row.new_total_level %}lvl-{{ row.new_total_level.value }}{% endif %}" title="New Total: green at/below the historical average intake, else coloured vs the previous pulse (fewer = green, more = red)" data-tip="{{ c.new_total.tip }}">{{ c.new_total.count }}</td>
       <td class="grp {% if row.closed_highest_level %}lvl-{{ row.closed_highest_level.value }}{% endif %}" title="Closed Highest vs New Highest: green = closed more, yellow = equal, red = closed fewer" data-tip="{{ c.closed_highest.tip }}">{{ c.closed_highest.count }}</td>
       <td class="{% if row.closed_pr_mp_level %}lvl-{{ row.closed_pr_mp_level.value }}{% endif %}" title="Closed PR/MP vs New PR/MP Review: green = kept up, yellow = 1 behind, red = 2+ behind" data-tip="{{ c.closed_pr_mp.tip }}">{{ c.closed_pr_mp.count }}</td>
       <td class="{% if row.closed_ps5_level %}lvl-{{ row.closed_ps5_level.value }}{% endif %}" title="Closed ps5 vs New ps5: green = closed more, yellow = equal, red = closed fewer" data-tip="{{ c.closed_ps5.tip }}">{{ c.closed_ps5.count }}</td>
@@ -44,9 +44,9 @@
       <td class="div{% if row.ack_level %} lvl-{{ row.ack_level.value }}{% endif %}" data-tip="{{ c.alerts_ack.tip }}">{{ c.alerts_ack.count }}</td>
       <td class="{% if row.resolved_level %}lvl-{{ row.resolved_level.value }}{% endif %}" data-tip="{{ c.alerts_resolved.tip }}">{{ c.alerts_resolved.count }}</td>
       <td class="sub{% if row.total_level %} lvl-{{ row.total_level.value }}{% endif %}" data-tip="{{ c.alerts_total.tip }}">{{ c.alerts_total.count }}</td>
-      <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack→resolve time ({{ c.alert_mttr_n.count }} incident{{ 's' if c.alert_mttr_n.count != 1 else '' }})">{{ row.mttr_label }}</td>
-      <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger→ack time ({{ c.alert_mtta_n.count }} incident{{ 's' if c.alert_mtta_n.count != 1 else '' }})">{{ row.mtta_label }}</td>
-      <td title="Mean ISReq created→done time ({{ c.ticket_cycle_n.count }} ticket{{ 's' if c.ticket_cycle_n.count != 1 else '' }})">{{ row.cycle_label }}</td>
+      <td class="{% if row.mttr_level %}lvl-{{ row.mttr_level.value }}{% endif %}" title="Mean ack→resolve time ({{ c.alert_mttr_n.count }} incident{{ 's' if c.alert_mttr_n.count != 1 else '' }}); green ≤30m or faster than previous pulse, red slower. ▲ = up vs previous pulse">{{ row.mttr_label }}{% if row.mttr_delta_label %}<span class="delta">{{ row.mttr_delta_label }}</span>{% endif %}</td>
+      <td class="{% if row.mtta_level %}lvl-{{ row.mtta_level.value }}{% endif %}" title="Mean trigger→ack time ({{ c.alert_mtta_n.count }} incident{{ 's' if c.alert_mtta_n.count != 1 else '' }}); green ≤5m or faster than previous pulse, red slower. ▲ = up vs previous pulse">{{ row.mtta_label }}{% if row.mtta_delta_label %}<span class="delta">{{ row.mtta_delta_label }}</span>{% endif %}</td>
+      <td class="{% if row.cycle_level %}lvl-{{ row.cycle_level.value }}{% endif %}" title="Mean weekdays created→done ({{ c.ticket_cycle_n.count }} ticket{{ 's' if c.ticket_cycle_n.count != 1 else '' }}); green if closed&gt;new or faster than previous pulse, red if slower">{{ row.cycle_label }}</td>
       <td>{% if row.region_pct is none %}&mdash;{% else %}{{ "%.0f%%"|format(row.region_pct) }}{% endif %}</td>
     </tr>
     {% endfor %}

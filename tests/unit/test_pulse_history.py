@@ -136,6 +136,45 @@ def test_history_cycle_time_created_to_done(tmp_path):
     db.close()
 
 
+def test_mttr_mtta_delta_label():
+    from standup_dashboard.domain.models import PulseHistoryRow
+    f = PulseHistoryRow._delta_label
+    assert f(None) == ""        # no baseline
+    assert f(0) == ""           # no change
+    assert f(20) == ""          # <1m rounds away
+    assert f(120) == "▲2m"      # slower by 2m vs previous pulse
+    assert f(-180) == "▼3m"     # faster by 3m
+    assert f(3600) == "▲1h"     # larger gap
+
+
+def test_history_mttr_mtta_delta_vs_previous_pulse(tmp_path):
+    db = Database(tmp_path / "t.db")
+    # Two stored historical pulses: MTTA 4m→7m (▲3m), MTTR 1h→1h20m (▲20m).
+    db.upsert_pulse_summary(10, "AMER", {
+        "alert_mtta_sum": 240, "alert_mtta_n": 1,
+        "alert_mttr_sum": 3600, "alert_mttr_n": 1}, {}, utc(12))
+    db.upsert_pulse_summary(11, "AMER", {
+        "alert_mtta_sum": 420, "alert_mtta_n": 1,
+        "alert_mttr_sum": 4800, "alert_mttr_n": 1}, {}, utc(12))
+    data = DashboardData(fetched_at=utc(12), tickets=[], alerts=[],
+                         pulses=[Pulse("ISReq", 201, "s", utc(8), utc(20))])
+    rows = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER"], utc(12, 19))}
+    assert rows[10].mtta_delta_label == "" and rows[10].mttr_delta_label == ""  # no baseline
+    assert rows[11].mtta_delta_label == "▲3m"   # 7m vs 4m
+    assert rows[11].mttr_delta_label == "▲20m"  # 1h20m vs 1h
+    db.close()
+
+
+def test_business_days_excludes_weekends():
+    from standup_dashboard.services.counts import _business_days
+    assert _business_days(date(2026, 6, 5), date(2026, 6, 8)) == 1   # Fri → Mon
+    assert _business_days(date(2026, 6, 8), date(2026, 6, 8)) == 0   # same day
+    assert _business_days(date(2026, 6, 8), date(2026, 6, 12)) == 4  # Mon → Fri
+    assert _business_days(date(2026, 6, 8), date(2026, 6, 9)) == 1   # Mon → Tue
+    assert _business_days(date(2026, 6, 8), date(2026, 6, 22)) == 10 # +2 full weeks
+    assert _business_days(date(2026, 6, 12), date(2026, 6, 5)) == 0  # done before created
+
+
 def test_accumulated_pulse_alerts_unions_fetches(tmp_path):
     # PagerDuty is fetched incrementally, so an incident's ack and resolve can land
     # in different fetch snapshots. The persisted summary must see both (#140).
