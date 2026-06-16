@@ -277,8 +277,8 @@ class CalendarAvail:
     meeting.
 
     ``busy`` = the meetings only (≤1h blocks, merged); blockers and SD are not
-    counted as busy. ``open`` = capacity (40h/week, minus PTO) − everything
-    booked (meetings + blockers + SD).
+    counted as busy. ``open`` = capacity (40h/week) − busy; >1h blockers (off-time
+    between shifts) and PTO do not reduce it.
     """
     busy_seconds: int = 0
     open_seconds: int = 0

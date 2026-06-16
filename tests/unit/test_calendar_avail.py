@@ -42,9 +42,8 @@ def test_classifies_and_computes():
     assert a.busy_seconds == 30 * 60                  # only the ≤1h meeting; blocker+SD excluded
     assert a.pto_seconds == 8 * 3600
     assert a.sd_days == ("Wed",)
-    capacity = 40 * 3600 * 2 - 8 * 3600
-    occupied = (30 * 60) + (2 * 3600) + (4 * 3600)    # meeting + blocker + SD all remove "open"
-    assert a.open_seconds == capacity - occupied
+    # open = 40h/week capacity − busy; blockers and PTO don't reduce it.
+    assert a.open_seconds == 40 * 3600 * 2 - 30 * 60
 
 
 def test_long_block_is_pto_not_busy():

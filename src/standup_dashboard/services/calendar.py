@@ -9,10 +9,10 @@ attendees, or types), so events are classified **purely by duration**:
   * ≤ 1h             → a real meeting
 
 ``busy`` = merged wall-clock of the **meetings** only (≤1h blocks); blockers and
-SD are *not* counted as busy. ``open`` = capacity (40h/week, minus PTO weekdays)
-− everything booked (meetings + blockers + SD), so a blocker still removes that
-time from what's open. Pure over the feed text + a window so it is
-deterministically unit-testable (mirrors ``services/oncall.py``).
+SD are *not* counted as busy. ``open`` = capacity (40h/week) − busy. Blockers and
+PTO don't reduce ``open``: a >1h blocker is off-time *between* shifts, not part of
+the working capacity, and PTO is tracked separately. Pure over the feed text + a
+window so it is deterministically unit-testable (mirrors ``services/oncall.py``).
 """
 
 from __future__ import annotations
@@ -53,7 +53,6 @@ def compute_availability(
     """Busy/open/PTO/SD for the pulse window from a free/busy iCal feed."""
     cal = Calendar.from_ical(ical_text)
     meetings: list[tuple[datetime, datetime]] = []   # ≤1h blocks → the busy number
-    occupied: list[tuple[datetime, datetime]] = []   # all non-PTO booked → drives open
     pto_weekdays: set = set()
     sd_by_week: dict = {}  # (iso-year, iso-week) → weekday abbrev of its 4h block
 
@@ -91,18 +90,18 @@ def compute_availability(
         if dur > PTO_THRESHOLD_S:
             _mark_pto(clip_s.date(), clip_e.date() + timedelta(days=1))
             continue
-        occupied.append((clip_s, clip_e))      # every non-PTO block removes "open" time
         if dur <= MEETING_MAX_S:
             meetings.append((clip_s, clip_e))  # only ≤1h blocks are "busy" meetings
         elif SD_MIN_S <= dur <= SD_MAX_S:
             # Weekday in the event's own (local) time — "their particular day".
             sd_by_week.setdefault(start.isocalendar()[:2], start.strftime("%a"))
+        # >1h blockers (between-shift holds) are neither busy nor counted vs open.
 
     busy_s = _merge_seconds(meetings)
     pto_s = len(pto_weekdays) * 8 * 3600
     weeks = (window_end - window_start).days / 7
-    capacity = int(WEEKLY_CAPACITY_H * 3600 * weeks) - pto_s
-    open_s = max(0, capacity - _merge_seconds(occupied))
+    capacity = int(WEEKLY_CAPACITY_H * 3600 * weeks)
+    open_s = max(0, capacity - busy_s)
     sd_days = tuple(sorted(set(sd_by_week.values()), key=_WEEKDAYS.index))
     return CalendarAvail(
         busy_seconds=busy_s, open_seconds=open_s, pto_seconds=pto_s,
