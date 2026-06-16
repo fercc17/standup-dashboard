@@ -15,6 +15,9 @@ DEFAULT_SECRETS_DIR = Path("secrets")
 JIRA_TOKEN_FILE = "jira_token.txt"
 PAGERDUTY_TOKEN_FILE = "pagerduty_token.txt"
 PAGERDUTY_ICAL_URL_FILE = "pagerduty_ical_url.txt"
+# Optional: a read-only GitHub token enables the "GH PRs" card line (#173). Its
+# absence never blocks startup — the line just stays at 0.
+GITHUB_TOKEN_FILE = "github_token.txt"
 
 
 class SetupError(Exception):
@@ -33,6 +36,17 @@ class Secrets:
     jira_token: str
     pagerduty_token: str
     pagerduty_ical_url: str
+    github_token: str | None = None  # optional — gates the GH PRs line (#173)
+
+
+def _read_optional_secret(secrets_dir: Path, filename: str) -> str | None:
+    """Read a secret that may be absent — returns None if missing or empty,
+    never raising (used for optional integrations that must not block startup)."""
+    path = secrets_dir / filename
+    if not path.exists():
+        return None
+    value = path.read_text(encoding="utf-8").strip()
+    return value or None
 
 
 def _read_secret(secrets_dir: Path, filename: str) -> str:
@@ -59,4 +73,5 @@ def load_secrets(secrets_dir: str | Path = DEFAULT_SECRETS_DIR) -> Secrets:
         jira_token=_read_secret(d, JIRA_TOKEN_FILE),
         pagerduty_token=_read_secret(d, PAGERDUTY_TOKEN_FILE),
         pagerduty_ical_url=_read_secret(d, PAGERDUTY_ICAL_URL_FILE),
+        github_token=_read_optional_secret(d, GITHUB_TOKEN_FILE),
     )

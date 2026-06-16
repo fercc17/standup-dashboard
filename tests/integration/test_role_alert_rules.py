@@ -72,12 +72,16 @@ def test_project_completed_isreq_is_red_distractor(tmp_path):
     # it moves out of Success into Distractors as RED, while a completed ISDB
     # stays a Success.
     db = _db_with_role(tmp_path, "Project")
-    data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], tickets=[
-        Ticket("ISReq-1", "ISReq", "x", "Done", None, assignee_email=E, sprint_id=201,
-               is_done_date=date(2026, 6, 12)),
-        Ticket("ISDB-1", "ISDB", "y", "Done", None, assignee_email=E, sprint_id=None,
-               is_done_date=date(2026, 6, 12)),
-    ])
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW), Pulse("ISDB", 202, "s", NOW, NOW)],
+        tickets=[
+            Ticket("ISReq-1", "ISReq", "x", "Done", None, assignee_email=E, sprint_id=201,
+                   is_done_date=date(2026, 6, 12)),
+            Ticket("ISDB-1", "ISDB", "y", "Done", None, assignee_email=E, sprint_id=202,
+                   is_done_date=date(2026, 6, 12)),
+        ],
+    )
     panel = build_panel(db, E, data, NOW, region_key="AMER")
     dist = {t.key: t.color.value for t in panel.groups["Distractors"]}
     succ = {t.key for t in panel.groups["Success"]}

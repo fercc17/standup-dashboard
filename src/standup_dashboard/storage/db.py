@@ -19,6 +19,7 @@ from ..domain.models import (
     Alert,
     AlertState,
     FetchSnapshot,
+    GitHubPRStats,
     Pulse,
     Ticket,
     TouchEvent,
@@ -86,7 +87,10 @@ CREATE TABLE IF NOT EXISTS pulse (
     start        TEXT NOT NULL,
     end          TEXT NOT NULL,
     state        TEXT NOT NULL,
-    PRIMARY KEY (fetch_id, project_key)
+    -- Keyed by sprint, not project: a board can run several concurrent active
+    -- sprints (its own + a shared cross-team one), and all of them belong to the
+    -- pulse, so each must persist (#172).
+    PRIMARY KEY (fetch_id, sprint_id)
 );
 
 -- One row per distinct PagerDuty incident, deduped across fetches and NOT
@@ -109,6 +113,19 @@ CREATE TABLE IF NOT EXISTS weekend_oncall (
     weekend_start  TEXT NOT NULL,
     weekend_end    TEXT NOT NULL,
     PRIMARY KEY (fetch_id, engineer_email, weekend_start)
+);
+
+-- Per-engineer per-pulse PR activity for the "GH PRs" card line (#173): PRs
+-- created / merged / touched, plus PRs reviewed. One row per engineer per fetch;
+-- absent when GitHub isn't configured/failed or the engineer isn't mapped.
+CREATE TABLE IF NOT EXISTS github_pr (
+    fetch_id       INTEGER NOT NULL REFERENCES fetch_snapshot(id),
+    engineer_email TEXT NOT NULL,
+    created        INTEGER NOT NULL DEFAULT 0,
+    merged         INTEGER NOT NULL DEFAULT 0,
+    updated        INTEGER NOT NULL DEFAULT 0,
+    reviewed       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (fetch_id, engineer_email)
 );
 
 CREATE TABLE IF NOT EXISTS role_schedule (
@@ -244,6 +261,50 @@ class Database:
                 self._conn.execute(
                     f"ALTER TABLE pulse_summary ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
                 )
+        # Pulse PK widened from (fetch_id, project_key) to (fetch_id, sprint_id)
+        # so a board's several concurrent active sprints (its own + a shared
+        # cross-team one) all persist, not just the first (#172). Rebuild in
+        # place for DBs created under the old key.
+        pulse_info = list(self._conn.execute("PRAGMA table_info(pulse)"))
+        if pulse_info and not any(r["name"] == "sprint_id" and r["pk"] for r in pulse_info):
+            self._conn.executescript(
+                """
+                CREATE TABLE pulse_new (
+                    fetch_id     INTEGER NOT NULL REFERENCES fetch_snapshot(id),
+                    project_key  TEXT NOT NULL,
+                    sprint_id    INTEGER NOT NULL,
+                    name         TEXT NOT NULL,
+                    start        TEXT NOT NULL,
+                    end          TEXT NOT NULL,
+                    state        TEXT NOT NULL,
+                    PRIMARY KEY (fetch_id, sprint_id)
+                );
+                INSERT OR IGNORE INTO pulse_new
+                    SELECT fetch_id, project_key, sprint_id, name, start, end, state FROM pulse;
+                DROP TABLE pulse;
+                ALTER TABLE pulse_new RENAME TO pulse;
+                """
+            )
+        # The GH PRs card line changed from a single "open PRs awaiting review"
+        # count to per-pulse PR-activity metrics (#173). The data is a disposable
+        # snapshot (repopulated each refresh), so rebuild the table to the new
+        # shape for DBs created under the old single-column schema.
+        gh_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(github_pr)")}
+        if "open_prs" in gh_cols:
+            self._conn.executescript(
+                """
+                DROP TABLE github_pr;
+                CREATE TABLE github_pr (
+                    fetch_id       INTEGER NOT NULL REFERENCES fetch_snapshot(id),
+                    engineer_email TEXT NOT NULL,
+                    created        INTEGER NOT NULL DEFAULT 0,
+                    merged         INTEGER NOT NULL DEFAULT 0,
+                    updated        INTEGER NOT NULL DEFAULT 0,
+                    reviewed       INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (fetch_id, engineer_email)
+                );
+                """
+            )
 
     def close(self) -> None:
         self._conn.close()
@@ -414,6 +475,29 @@ class Database:
              for w in entries],
         )
         self._conn.commit()
+
+    def insert_github_prs(self, fetch_id: int, stats: dict[str, GitHubPRStats]) -> None:
+        """Persist per-engineer per-pulse PR activity for this fetch (#173)."""
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO github_pr"
+            " (fetch_id, engineer_email, created, merged, updated, reviewed)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(fetch_id, email, s.created, s.merged, s.updated, s.reviewed)
+             for email, s in stats.items()],
+        )
+        self._conn.commit()
+
+    def get_github_prs(self, fetch_id: int) -> dict[str, GitHubPRStats]:
+        rows = self._conn.execute(
+            "SELECT engineer_email, created, merged, updated, reviewed"
+            " FROM github_pr WHERE fetch_id = ?", (fetch_id,)
+        ).fetchall()
+        return {
+            r["engineer_email"]: GitHubPRStats(
+                created=r["created"], merged=r["merged"],
+                updated=r["updated"], reviewed=r["reviewed"])
+            for r in rows
+        }
 
     # -- reads of a fetch layer ----------------------------------------------
 

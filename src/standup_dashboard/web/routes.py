@@ -124,7 +124,10 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         context["last_fetch_label"] = "No fetch yet — showing roster"
 
     chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
-    oncall_eng = config.ENGINEERS_BY_EMAIL.get(data.oncall_email) if data.oncall_email else None
+    # Header shows the UPCOMING weekend's on-call; the just-passed one is named in
+    # the recap line below it.
+    next_email = data.next_oncall_email
+    next_eng = config.ENGINEERS_BY_EMAIL.get(next_email) if next_email else None
     counts_full = presenters.build_counts(data, selected_regions, now)
     context.update(
         chip_groups=chip_groups,
@@ -132,7 +135,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         # The previous-pulse row moves to its own growing history table (#80).
         counts_rows=[r for r in counts_full if not r.is_previous],
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
-        oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
+        oncall_name=(next_eng.name if next_eng else next_email),
         weekend_recap=presenters.build_weekend_recap(db, data, now),
     )
 
