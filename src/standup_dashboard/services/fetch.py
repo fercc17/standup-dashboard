@@ -23,6 +23,7 @@ from ..clients import pagerduty as pd_mod
 from ..domain.models import (
     Alert,
     AlertState,
+    CalendarAvail,
     GitHubPRStats,
     Pulse,
     Ticket,
@@ -32,6 +33,7 @@ from ..domain.models import (
 from ..settings import Secrets
 from ..storage.db import Database
 from ..storage.snapshots import SnapshotWriter
+from .calendar import compute_availability
 from .oncall import resolve_oncall
 from .pulse import current_pulse, parse_jira_dt, previous_pulse, resolve_pulses
 from .touches import extract_touches, parse_ticket
@@ -66,6 +68,12 @@ class ICalResult:
 class GitHubResult:
     ok: bool = True
     pr_stats: dict[str, GitHubPRStats] = field(default_factory=dict)  # email → pulse PR stats
+
+
+@dataclass
+class CalendarResult:
+    ok: bool = True
+    avail: dict[str, CalendarAvail] = field(default_factory=dict)  # email → calendar busy/open
 
 
 async def _fetch_jira(
@@ -321,6 +329,48 @@ async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
     return res
 
 
+async def _fetch_calendar(now: datetime) -> CalendarResult:
+    """Per-engineer calendar busy/open for the current pulse (#cal).
+
+    Derives each engineer's public iCal URL from their email and computes
+    occupancy over the pulse window. Inert unless ``STANDUP_CALENDAR`` is set.
+    A calendar that isn't public 404s — that engineer simply has no calendar
+    data; one failure never blocks the others or the rest of the refresh.
+    """
+    res = CalendarResult()
+    if not config.CALENDAR_ENABLED:
+        return res
+    _, pstart, pend = current_pulse(now.astimezone(UTC).date())
+    ws = datetime(pstart.year, pstart.month, pstart.day, tzinfo=UTC)
+    we = datetime(pend.year, pend.month, pend.day, tzinfo=UTC)
+    try:
+        async with ical_mod.make_async_client() as hc:
+            client = ical_mod.ICalClient(hc)
+            sem = asyncio.Semaphore(6)
+
+            async def _one(email: str) -> tuple[str, CalendarAvail | None]:
+                async with sem:
+                    try:
+                        text = await client.fetch(config.calendar_ical_url(email))
+                    except Exception:  # noqa: BLE001 — not public / unreachable
+                        return email, None
+                    try:
+                        return email, compute_availability(text, ws, we)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("Calendar parse failed for %s", email)
+                        return email, None
+
+            for email, av in await asyncio.gather(
+                *(_one(e) for e in config.all_roster_emails())
+            ):
+                if av is not None:
+                    res.avail[email] = av
+    except Exception:  # noqa: BLE001
+        logger.exception("Calendar fetch failed")
+        res.ok = False
+    return res
+
+
 async def _fetch_ical(secrets: Secrets, now: datetime) -> ICalResult:
     res = ICalResult()
     try:
@@ -378,11 +428,12 @@ async def run_fetch(
         - {a.id for a in prior_alerts if a.state is AlertState.RESOLVED}
     )
 
-    jira_res, pd_res, ical_res, gh_res = await asyncio.gather(
+    jira_res, pd_res, ical_res, gh_res, cal_res = await asyncio.gather(
         _fetch_jira(secrets, now, jira_window_start, roster),
         _fetch_pagerduty(secrets, now, pd_window_start, roster, recheck_ids),
         _fetch_ical(secrets, now),
         _fetch_github(secrets, now),
+        _fetch_calendar(now),
     )
 
     raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
@@ -408,6 +459,8 @@ async def run_fetch(
         db.insert_weekend_oncall(fetch_id, oncalls)
     if gh_res.pr_stats:
         db.insert_github_prs(fetch_id, gh_res.pr_stats)
+    if cal_res.avail:
+        db.insert_calendar_avail(fetch_id, cal_res.avail)
 
     # Snapshot this fetch's current + previous pulse totals so the pulse-history
     # table accumulates over time (#80). Persist from the whole pulse's

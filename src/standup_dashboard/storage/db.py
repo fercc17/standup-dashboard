@@ -18,6 +18,7 @@ from ..domain.models import (
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
+    CalendarAvail,
     FetchSnapshot,
     GitHubPRStats,
     Pulse,
@@ -125,6 +126,18 @@ CREATE TABLE IF NOT EXISTS github_pr (
     merged         INTEGER NOT NULL DEFAULT 0,
     updated        INTEGER NOT NULL DEFAULT 0,
     reviewed       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (fetch_id, engineer_email)
+);
+
+-- Per-engineer calendar occupancy this pulse from the free/busy iCal feed (#cal).
+-- Absent when calendar fetch is disabled or the calendar isn't public/reachable.
+CREATE TABLE IF NOT EXISTS calendar_avail (
+    fetch_id       INTEGER NOT NULL REFERENCES fetch_snapshot(id),
+    engineer_email TEXT NOT NULL,
+    busy_seconds   INTEGER NOT NULL DEFAULT 0,
+    open_seconds   INTEGER NOT NULL DEFAULT 0,
+    pto_seconds    INTEGER NOT NULL DEFAULT 0,
+    sd_days        TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (fetch_id, engineer_email)
 );
 
@@ -496,6 +509,31 @@ class Database:
             r["engineer_email"]: GitHubPRStats(
                 created=r["created"], merged=r["merged"],
                 updated=r["updated"], reviewed=r["reviewed"])
+            for r in rows
+        }
+
+    def insert_calendar_avail(self, fetch_id: int, avail: dict[str, CalendarAvail]) -> None:
+        """Persist per-engineer calendar busy/open for this fetch (#cal)."""
+        self._conn.executemany(
+            "INSERT OR IGNORE INTO calendar_avail"
+            " (fetch_id, engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [(fetch_id, email, a.busy_seconds, a.open_seconds, a.pto_seconds,
+              ",".join(a.sd_days)) for email, a in avail.items()],
+        )
+        self._conn.commit()
+
+    def get_calendar_avail(self, fetch_id: int) -> dict[str, CalendarAvail]:
+        rows = self._conn.execute(
+            "SELECT engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days"
+            " FROM calendar_avail WHERE fetch_id = ?", (fetch_id,)
+        ).fetchall()
+        return {
+            r["engineer_email"]: CalendarAvail(
+                busy_seconds=r["busy_seconds"], open_seconds=r["open_seconds"],
+                pto_seconds=r["pto_seconds"],
+                sd_days=tuple(d for d in r["sd_days"].split(",") if d),
+                has_data=True)
             for r in rows
         }
 

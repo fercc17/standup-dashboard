@@ -270,6 +270,22 @@ class GitHubPRStats:
 
 
 @dataclass
+class CalendarAvail:
+    """Per-engineer calendar occupancy this pulse, from the free/busy iCal feed
+    (#cal). Classified by duration only (the public feed has no titles): >8h or
+    all-day = PTO, ~4h = SD time (one/week, day marked), the rest = busy.
+
+    ``busy`` = meetings + blockers + SD (merged wall-clock, PTO excluded);
+    ``open`` = capacity (40h/week, minus PTO) − busy.
+    """
+    busy_seconds: int = 0
+    open_seconds: int = 0
+    pto_seconds: int = 0
+    sd_days: tuple[str, ...] = ()  # weekday abbrevs carrying the 4h SD block
+    has_data: bool = False         # False when the calendar isn't reachable/public
+
+
+@dataclass
 class DetailPanelVM:
     email: str
     name: str
@@ -290,6 +306,8 @@ class DetailPanelVM:
     # Per-pulse GitHub PR activity for this SRE (#173); zeros when GitHub isn't
     # configured or the engineer isn't mapped to a login.
     pr_stats: GitHubPRStats = field(default_factory=GitHubPRStats)
+    # Calendar occupancy this pulse (#cal); has_data False when not public/reachable.
+    calendar: CalendarAvail = field(default_factory=CalendarAvail)
 
     @property
     def alert_time_label(self) -> str:
@@ -320,6 +338,14 @@ class DetailPanelVM:
     @property
     def total_time_label(self) -> str:
         return hours_label(self.total_time_seconds)
+
+    @property
+    def cal_busy_label(self) -> str:
+        return hours_label(self.calendar.busy_seconds)
+
+    @property
+    def cal_open_label(self) -> str:
+        return hours_label(self.calendar.open_seconds)
 
 
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).

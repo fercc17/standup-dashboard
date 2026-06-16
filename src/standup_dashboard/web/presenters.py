@@ -40,6 +40,7 @@ from ..domain.models import (
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
+    CalendarAvail,
     Cell,
     ChipVM,
     Color,
@@ -87,6 +88,8 @@ class DashboardData:
     weekend_oncall: list[WeekendOnCall] = field(default_factory=list)
     # email → per-pulse PR stats (#173)
     github_prs: dict[str, GitHubPRStats] = field(default_factory=dict)
+    # email → calendar busy/open this pulse (#cal)
+    calendar: dict[str, CalendarAvail] = field(default_factory=dict)
 
     @property
     def active_sprint_ids(self) -> set[int]:
@@ -166,6 +169,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     pulses: list[Pulse] = []
     oncall: list[WeekendOnCall] = []
     github_prs: dict[str, GitHubPRStats] = {}
+    calendar: dict[str, CalendarAvail] = {}
     for snap in snaps:  # oldest → newest, so later layers win
         for t in db.get_tickets(snap.id):
             tickets[t.id] = t
@@ -181,6 +185,10 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         snap_prs = db.get_github_prs(snap.id)
         if snap_prs:
             github_prs = snap_prs
+        # Calendar busy/open is also a current snapshot: latest wins.
+        snap_cal = db.get_calendar_avail(snap.id)
+        if snap_cal:
+            calendar = snap_cal
 
     # Alerts: PagerDuty is fetched incrementally (only since the last refresh),
     # so each snapshot holds just its window's alerts — accumulate across every
@@ -211,6 +219,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         pulses=pulses,
         weekend_oncall=oncall,
         github_prs=github_prs,
+        calendar=calendar,
     )
 
 
@@ -868,4 +877,5 @@ def build_panel(
         jira_project_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISDB),
         jira_request_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISREQ),
         pr_stats=data.github_prs.get(email) or GitHubPRStats(),
+        calendar=data.calendar.get(email) or CalendarAvail(),
     )

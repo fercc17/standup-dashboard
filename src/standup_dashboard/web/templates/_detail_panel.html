@@ -44,6 +44,13 @@
       <span title="PRs this SRE authored with any activity during the current pulse">&#128279; PRs touched {{ panel.pr_stats.updated }}</span>
       <span title="PRs this SRE reviewed that were active during the current pulse (GitHub can't date-filter reviews, so this is approximated by review activity within the pulse)">&#128279; PRs reviewed {{ panel.pr_stats.reviewed }}</span>
     </div>
+    {% if panel.calendar.has_data %}
+    <div class="time-row">
+      <span title="Time booked on the calendar this pulse (meetings + blockers + SD); PTO excluded">&#128197; busy {{ panel.cal_busy_label }}</span>
+      <span title="Open time this pulse: 40h/week capacity, minus PTO days, minus busy">&#128197; open {{ panel.cal_open_label }}</span>
+      {% if panel.calendar.sd_days %}<span title="Self-development block (4h once per week) — the day it falls on">&#127891; SD {{ panel.calendar.sd_days | join(', ') }}</span>{% endif %}
+    </div>
+    {% endif %}
   </div>
   {% for group, tickets in panel.groups.items() %}
   <div class="group-title">{{ group }}{% if tickets %} <span class="group-count">&times;{{ tickets | length }}</span>{% endif %}</div>

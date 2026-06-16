@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
+from urllib.parse import quote
 
 # ---------------------------------------------------------------------------
 # Jira / project configuration (Assumptions in spec.md)
@@ -241,6 +242,21 @@ _set_roster(_SEED_ROSTER)
 def jira_browse_url(issue_key: str) -> str:
     """Public Jira URL that opens a single issue (FR: clickable ticket links)."""
     return f"{JIRA_BASE_URL}/browse/{issue_key}"
+
+
+# Whether to pull per-engineer calendar free/busy (#cal). The public Google iCal
+# URL is derivable from the email, but only resolves for calendars the person has
+# made public — off by default; enable with STANDUP_CALENDAR=1.
+CALENDAR_ENABLED = os.environ.get("STANDUP_CALENDAR", "") not in ("", "0", "false")
+
+
+def calendar_ical_url(email: str) -> str:
+    """Public Google iCal (free/busy) feed URL for an engineer's calendar (#cal).
+
+    Resolves to real data only when that person has made their calendar public
+    ("see all" or free/busy); otherwise the fetch 404s and the card shows no
+    calendar data. No secret/token needed — derived purely from the email."""
+    return f"https://calendar.google.com/calendar/ical/{quote(email)}/public/basic.ics"
 
 
 def region_timezone(region_key: str) -> str:
