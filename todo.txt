@@ -1,12 +1,4 @@
 After you work on that , send me the open github issues in a table with the following field. GH Issue,Title,Brief description,URL/ Page to check,Status ( You worked on it or not)
 
 
-When I open the card for somebody I see "🔥 alerts 0m 📋 tickets 0m", I want to see  more
-🔥 alerts overlap Xm= This is the current way, that's fine
-🔥 alerts no overlap Xm= This is because if 2 alerts happens at the same time, let's say 10AM and one last 5 min and the other 10, normal count will be 15m on alerts and it should be less than.
-You should add the values but substract the overlap
-Jira project Xm= This is the sum of the jira logged time(ISDB)
-Jira ticket Xm= This is the sum of the jira logged time (ISReq)
-Meetings Xm= This should be the sum of the accepted meetings for this week. This will need data from everybody's google calendar
-GH PRs
-Cards updates for each line
+

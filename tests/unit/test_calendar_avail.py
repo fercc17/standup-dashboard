@@ -39,11 +39,12 @@ def test_classifies_and_computes():
     ])
     a = compute_availability(ics, WS, WE)
     assert a.has_data
-    assert a.busy_seconds == (30 * 60) + (2 * 3600) + (4 * 3600)
+    assert a.busy_seconds == 30 * 60                  # only the ≤1h meeting; blocker+SD excluded
     assert a.pto_seconds == 8 * 3600
     assert a.sd_days == ("Wed",)
     capacity = 40 * 3600 * 2 - 8 * 3600
-    assert a.open_seconds == capacity - a.busy_seconds
+    occupied = (30 * 60) + (2 * 3600) + (4 * 3600)    # meeting + blocker + SD all remove "open"
+    assert a.open_seconds == capacity - occupied
 
 
 def test_long_block_is_pto_not_busy():

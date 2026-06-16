@@ -46,8 +46,8 @@
     </div>
     {% if panel.calendar.has_data %}
     <div class="time-row">
-      <span title="Time booked on the calendar this pulse (meetings + blockers + SD); PTO excluded">&#128197; busy {{ panel.cal_busy_label }}</span>
-      <span title="Open time this pulse: 40h/week capacity, minus PTO days, minus busy">&#128197; open {{ panel.cal_open_label }}</span>
+      <span title="Meeting time this pulse — only blocks of 1h or less; your &gt;1h blockers, SD and PTO are excluded">&#128197; busy {{ panel.cal_busy_label }}</span>
+      <span title="Free time this pulse: 40h/week capacity, minus PTO days, minus everything booked (meetings + blockers + SD)">&#128197; open {{ panel.cal_open_label }}</span>
       {% if panel.calendar.sd_days %}<span title="Self-development block (4h once per week) — the day it falls on">&#127891; SD {{ panel.calendar.sd_days | join(', ') }}</span>{% endif %}
     </div>
     {% endif %}

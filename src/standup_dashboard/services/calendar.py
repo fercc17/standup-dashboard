@@ -3,13 +3,16 @@
 The public Google iCal feed exposes only opaque "Busy" blocks (no titles,
 attendees, or types), so events are classified **purely by duration**:
 
-  * all-day or > 8h  → PTO (excluded from busy; its weekdays drop from capacity)
+  * all-day or > 8h  → PTO (excluded; its weekdays drop from capacity)
   * ~4h              → SD time (one per ISO week; its weekday is marked)
-  * everything else  → busy (meetings + blockers + the SD block)
+  * > 1h (≤8h)       → blocker (a "do not book" hold between shifts)
+  * ≤ 1h             → a real meeting
 
-``busy`` = merged wall-clock of all non-PTO blocks; ``open`` = capacity
-(40h/week, minus PTO weekdays) − busy. Pure over the feed text + a window so it
-is deterministically unit-testable (mirrors ``services/oncall.py``).
+``busy`` = merged wall-clock of the **meetings** only (≤1h blocks); blockers and
+SD are *not* counted as busy. ``open`` = capacity (40h/week, minus PTO weekdays)
+− everything booked (meetings + blockers + SD), so a blocker still removes that
+time from what's open. Pure over the feed text + a window so it is
+deterministically unit-testable (mirrors ``services/oncall.py``).
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from ..domain.models import CalendarAvail
 
 WEEKLY_CAPACITY_H = 40
 PTO_THRESHOLD_S = 8 * 3600
+MEETING_MAX_S = 3600         # ≤1h is a real meeting; longer is a blocker/SD hold
 SD_MIN_S = int(3.5 * 3600)   # a "4h" SD block, with tolerance
 SD_MAX_S = int(4.5 * 3600)
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -48,7 +52,8 @@ def compute_availability(
 ) -> CalendarAvail:
     """Busy/open/PTO/SD for the pulse window from a free/busy iCal feed."""
     cal = Calendar.from_ical(ical_text)
-    busy: list[tuple[datetime, datetime]] = []
+    meetings: list[tuple[datetime, datetime]] = []   # ≤1h blocks → the busy number
+    occupied: list[tuple[datetime, datetime]] = []   # all non-PTO booked → drives open
     pto_weekdays: set = set()
     sd_by_week: dict = {}  # (iso-year, iso-week) → weekday abbrev of its 4h block
 
@@ -86,16 +91,18 @@ def compute_availability(
         if dur > PTO_THRESHOLD_S:
             _mark_pto(clip_s.date(), clip_e.date() + timedelta(days=1))
             continue
-        busy.append((clip_s, clip_e))
-        if SD_MIN_S <= dur <= SD_MAX_S:
+        occupied.append((clip_s, clip_e))      # every non-PTO block removes "open" time
+        if dur <= MEETING_MAX_S:
+            meetings.append((clip_s, clip_e))  # only ≤1h blocks are "busy" meetings
+        elif SD_MIN_S <= dur <= SD_MAX_S:
             # Weekday in the event's own (local) time — "their particular day".
             sd_by_week.setdefault(start.isocalendar()[:2], start.strftime("%a"))
 
-    busy_s = _merge_seconds(busy)
+    busy_s = _merge_seconds(meetings)
     pto_s = len(pto_weekdays) * 8 * 3600
     weeks = (window_end - window_start).days / 7
     capacity = int(WEEKLY_CAPACITY_H * 3600 * weeks) - pto_s
-    open_s = max(0, capacity - busy_s)
+    open_s = max(0, capacity - _merge_seconds(occupied))
     sd_days = tuple(sorted(set(sd_by_week.values()), key=_WEEKDAYS.index))
     return CalendarAvail(
         busy_seconds=busy_s, open_seconds=open_s, pto_seconds=pto_s,

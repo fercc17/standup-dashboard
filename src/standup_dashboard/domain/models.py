@@ -273,10 +273,12 @@ class GitHubPRStats:
 class CalendarAvail:
     """Per-engineer calendar occupancy this pulse, from the free/busy iCal feed
     (#cal). Classified by duration only (the public feed has no titles): >8h or
-    all-day = PTO, ~4h = SD time (one/week, day marked), the rest = busy.
+    all-day = PTO, ~4h = SD time (one/week, day marked), >1h = blocker, ≤1h =
+    meeting.
 
-    ``busy`` = meetings + blockers + SD (merged wall-clock, PTO excluded);
-    ``open`` = capacity (40h/week, minus PTO) − busy.
+    ``busy`` = the meetings only (≤1h blocks, merged); blockers and SD are not
+    counted as busy. ``open`` = capacity (40h/week, minus PTO) − everything
+    booked (meetings + blockers + SD).
     """
     busy_seconds: int = 0
     open_seconds: int = 0
