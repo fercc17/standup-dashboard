@@ -45,6 +45,7 @@ from ..domain.models import (
     Color,
     CountsRow,
     DetailPanelVM,
+    GitHubPRStats,
     Pulse,
     PulseHistoryRow,
     Role,
@@ -52,6 +53,7 @@ from ..domain.models import (
     TicketGroup,
     TicketVM,
     TouchEvent,
+    TouchKind,
     WeekendOnCall,
     format_duration,
 )
@@ -83,14 +85,30 @@ class DashboardData:
     alerts: list[Alert] = field(default_factory=list)
     pulses: list[Pulse] = field(default_factory=list)
     weekend_oncall: list[WeekendOnCall] = field(default_factory=list)
+    # email → per-pulse PR stats (#173)
+    github_prs: dict[str, GitHubPRStats] = field(default_factory=dict)
 
     @property
-    def pulse_sprint_ids(self) -> dict[str, int]:
-        return {p.project_key: p.sprint_id for p in self.pulses}
+    def active_sprint_ids(self) -> set[int]:
+        """Every active sprint making up the current pulse. A board can run its
+        own sprint plus a shared cross-team one, so a ticket is this-pulse work
+        when it belongs to any of them (see ``classification.in_pulse``)."""
+        return {p.sprint_id for p in self.pulses}
 
     @property
     def oncall_email(self) -> str | None:
-        return self.weekend_oncall[0].engineer_email if self.weekend_oncall else None
+        """Current / just-passed weekend on-call (earliest stored weekend) — drives
+        weekend role assignment and the recap."""
+        if not self.weekend_oncall:
+            return None
+        return min(self.weekend_oncall, key=lambda w: w.weekend_start).engineer_email
+
+    @property
+    def next_oncall_email(self) -> str | None:
+        """The upcoming weekend's on-call (latest stored weekend), for the header."""
+        if not self.weekend_oncall:
+            return None
+        return max(self.weekend_oncall, key=lambda w: w.weekend_start).engineer_email
 
 
 _OPERATIONS_ROLES = (Role.PVG, Role.BVG, Role.GEN)
@@ -135,7 +153,8 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     accumulating would just resurface stale, pre-enrichment alerts from old
     fetches (e.g. "ACK — alert" rows with no incident title/number).
     """
-    snaps = db.fetches_since(_pulse_start(now))
+    pulse_start = _pulse_start(now)
+    snaps = db.fetches_since(pulse_start)
     if not snaps:
         latest = db.latest_fetch()
         snaps = [latest] if latest is not None else []
@@ -146,6 +165,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     touches: dict[tuple, TouchEvent] = {}
     pulses: list[Pulse] = []
     oncall: list[WeekendOnCall] = []
+    github_prs: dict[str, GitHubPRStats] = {}
     for snap in snaps:  # oldest → newest, so later layers win
         for t in db.get_tickets(snap.id):
             tickets[t.id] = t
@@ -157,17 +177,26 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         snap_oncall = db.get_weekend_oncall(snap.id)
         if snap_oncall:
             oncall = snap_oncall
+        # Open-PR counts are a current snapshot (not accumulated): latest wins.
+        snap_prs = db.get_github_prs(snap.id)
+        if snap_prs:
+            github_prs = snap_prs
 
     # Alerts: PagerDuty is fetched incrementally (only since the last refresh),
     # so each snapshot holds just its window's alerts — accumulate across every
     # PagerDuty-ok snapshot in the pulse. Dedup by (incident, handler, state,
     # time); the 1h fetch overlap re-emits some events, so prefer the enriched
-    # copy (with incident title/number) when the same event recurs.
+    # copy (with incident title/number) when the same event recurs. Scope by the
+    # alert's own timestamp, not just the snapshot's fetch time: early/wide-window
+    # fetches (or the recheck) can carry events from before the pulse, which must
+    # not show on this-pulse cards (#stale-prev-pulse).
     alerts_by_key: dict[tuple, Alert] = {}
     for snap in snaps:  # oldest → newest
         if not snap.pagerduty_ok:
             continue
         for a in db.get_alerts(snap.id):
+            if a.at < pulse_start:
+                continue
             key = (a.id, a.handler_email, a.state, a.at)
             existing = alerts_by_key.get(key)
             if existing is None or (a.title and not existing.title):
@@ -181,6 +210,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         alerts=alerts,
         pulses=pulses,
         weekend_oncall=oncall,
+        github_prs=github_prs,
     )
 
 
@@ -220,6 +250,85 @@ def _alerts_since(email: str, data: DashboardData, since: datetime) -> tuple[int
     return ack, resolved
 
 
+def _project_of(ticket_id: str) -> str:
+    """Canonical project key for a Jira key (``ISDB-3341`` → ``ISDB``)."""
+    prefix = ticket_id.split("-", 1)[0]
+    for key in config.PROJECT_KEYS:
+        if key.upper() == prefix.upper():
+            return key
+    return prefix
+
+
+def _ticket_time_since(
+    email: str, data: DashboardData, since: datetime, project: str | None = None
+) -> int:
+    """Seconds of worklog time on tickets assigned to ``email`` since ``since``
+    (assignee proxy, #167): worklog touches carry the duration, attributed to the
+    ticket's assignee because Tempo logs them under a bot author. ``project``
+    restricts the sum to one Jira project (ISDB vs ISReq, #173); None = all."""
+    return sum(
+        tc.seconds for tc in data.touches
+        if tc.engineer_email == email and tc.kind is TouchKind.WORKLOG and tc.at >= since
+        and (project is None or _project_of(tc.ticket_id) == project)
+    )
+
+
+def _alert_intervals_since(
+    email: str, data: DashboardData, since: datetime
+) -> list[tuple[datetime, datetime]]:
+    """``(ack, resolve)`` spans for incidents ``email`` resolved since ``since``.
+
+    Each incident contributes one span, from its earliest acknowledgement to its
+    earliest resolution, credited to the resolver (the same scope as the alert
+    counts). Shared by the overlap (sum) and no-overlap (union) time metrics.
+    """
+    ack_at: dict[str, datetime] = {}
+    resolved: dict[str, tuple[datetime, str]] = {}  # incident → (earliest resolve, resolver)
+    for a in data.alerts:
+        if a.state is AlertState.ACKNOWLEDGED:
+            if a.id not in ack_at or a.at < ack_at[a.id]:
+                ack_at[a.id] = a.at
+        elif a.state is AlertState.RESOLVED:
+            if a.id not in resolved or a.at < resolved[a.id][0]:
+                resolved[a.id] = (a.at, a.handler_email)
+    spans: list[tuple[datetime, datetime]] = []
+    for iid, (res_at, resolver) in resolved.items():
+        if resolver != email or res_at < since:
+            continue
+        acked = ack_at.get(iid)
+        if acked is not None and res_at >= acked:
+            spans.append((acked, res_at))
+    return spans
+
+
+def _alert_time_since(email: str, data: DashboardData, since: datetime) -> int:
+    """Alert time summed per incident (#167) — concurrent incidents are counted
+    in each of their spans, so this can exceed the wall-clock total."""
+    return sum(
+        int((res - ack).total_seconds())
+        for ack, res in _alert_intervals_since(email, data, since)
+    )
+
+
+def _alert_union_time_since(email: str, data: DashboardData, since: datetime) -> int:
+    """Alert time with overlapping incident spans merged into wall-clock (#173):
+    when two incidents are handled at once, their shared time is counted once."""
+    spans = sorted(_alert_intervals_since(email, data, since))
+    total = 0
+    cur_start: datetime | None = None
+    cur_end: datetime | None = None
+    for ack, res in spans:
+        if cur_end is None or ack > cur_end:
+            if cur_end is not None:
+                total += int((cur_end - cur_start).total_seconds())
+            cur_start, cur_end = ack, res
+        elif res > cur_end:
+            cur_end = res
+    if cur_end is not None:
+        total += int((cur_end - cur_start).total_seconds())
+    return total
+
+
 def _completed_since(email: str, data: DashboardData, since: date) -> int:
     return sum(
         1 for t in data.tickets
@@ -229,10 +338,10 @@ def _completed_since(email: str, data: DashboardData, since: date) -> int:
 
 def _assigned_open(email: str, data: DashboardData) -> int:
     """Open assigned work (To Do + WIP) that is in this pulse's scope."""
-    psids = data.pulse_sprint_ids
+    active = data.active_sprint_ids
     return sum(
         1 for t in data.tickets
-        if t.assignee_email == email and in_scope(t, psids)
+        if t.assignee_email == email and in_scope(t, active)
         and t.group in (TicketGroup.TODO, TicketGroup.WIP)
     )
 
@@ -356,8 +465,10 @@ def build_color_legend() -> dict:
     # rate and MTTR/MTTA means are rates, so they keep fixed thresholds.
     pct = lambda r: f"{int(round(r * 100))}%"  # noqa: E731
     alert_bands = [
-        {"col": "Alerts Ack / Total", "green": "≤ cap",
+        {"col": "Alerts Triggered / Total", "green": "≤ cap",
          "yellow": "cap → 2× cap", "red": "> 2× cap"},
+        {"col": "Alerts Ack (vs Triggered)", "green": "shortfall ≤ 1/region",
+         "yellow": "≤ 2/region", "red": "more behind"},
         {"col": "Alert Res (resolved ÷ ack)", "green": f"≥ {pct(ALERT_RES_GREEN)}",
          "yellow": f"{pct(ALERT_RES_YELLOW)} → {pct(ALERT_RES_GREEN)}",
          "red": f"< {pct(ALERT_RES_YELLOW)}"},
@@ -414,7 +525,9 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
     """
     if not data.weekend_oncall:
         return None
-    oc = data.weekend_oncall[0]
+    # The recap is about the just-passed weekend → the earliest stored entry
+    # (the latest entry is the upcoming weekend shown in the header).
+    oc = min(data.weekend_oncall, key=lambda w: w.weekend_start)
     name = _display_name(oc.engineer_email)
     tz = _handler_zone(oc.engineer_email) or UTC
     # Half-open weekend window [Sat 00:00, Mon 00:00) in the on-call's timezone.
@@ -548,6 +661,7 @@ def build_pulse_history(
             alert_mttr_seconds=mttr_s,
             alert_mtta_seconds=mtta_s,
             ticket_cycle_days=cycle_d,
+            triggered_level=count_level(cells["alerts_triggered"].count, pulse_cap),
             ack_level=count_level(ack_n, pulse_cap),
             total_level=count_level(total_n, pulse_cap),
             resolved_level=resolve_rate_level(res_n, ack_n),
@@ -622,12 +736,12 @@ def build_panel(
     # / Done, no Distractors and no role-based reclassification (#72 follow-up).
     is_management = eng.is_manager or eng.is_global
 
-    # Sprintless ISDB completions count as Success only if done this pulse, so
-    # pass the anchored pulse window (region-local) to the classifier (#ISDB).
+    # ISDB completions count as Success only if done this pulse, so pass the
+    # anchored pulse window (region-local) to the classifier (#172).
     today = now.astimezone(ZoneInfo(region.timezone)).date()
     _, pstart, pend = current_pulse(today)
     grouped = classify_for_engineer(
-        email, data.tickets, data.touches, data.pulse_sprint_ids, (pstart, pend)
+        email, data.tickets, data.touches, data.active_sprint_ids, (pstart, pend)
     )
 
     # Reclassify assigned tickets into Distractors (To Do / queued work is never a
@@ -745,4 +859,13 @@ def build_panel(
         )
         out[target.value].append(vm)
 
-    return DetailPanelVM(email=email, name=eng.name, role=role, groups=out)
+    pulse_start = _pulse_start(now)
+    return DetailPanelVM(
+        email=email, name=eng.name, role=role, groups=out,
+        alert_time_seconds=_alert_time_since(email, data, pulse_start),
+        alert_union_seconds=_alert_union_time_since(email, data, pulse_start),
+        ticket_time_seconds=_ticket_time_since(email, data, pulse_start),
+        jira_project_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISDB),
+        jira_request_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISREQ),
+        pr_stats=data.github_prs.get(email) or GitHubPRStats(),
+    )

@@ -176,6 +176,7 @@ class TouchEvent:
     engineer_email: str
     kind: TouchKind
     at: datetime
+    seconds: int = 0  # logged work time (TouchKind.WORKLOG only); 0 otherwise (#167)
 
 
 @dataclass
@@ -251,18 +252,81 @@ class TicketVM:
 
 
 @dataclass
+class GitHubPRStats:
+    """Per-engineer GitHub PR activity within the current pulse window (#173).
+
+    Four Search-API counts, scoped to the configured org:
+      * ``created``  — PRs the engineer opened this pulse;
+      * ``merged``   — PRs they authored that merged this pulse;
+      * ``updated``  — PRs they authored with any activity this pulse;
+      * ``reviewed`` — PRs they reviewed that were active this pulse. GitHub has
+        no review-date qualifier, so this is approximated by ``reviewed-by`` over
+        the pulse's ``updated`` window (a review bumps the PR's updated time).
+    """
+    created: int = 0
+    merged: int = 0
+    updated: int = 0
+    reviewed: int = 0
+
+
+@dataclass
 class DetailPanelVM:
     email: str
     name: str
     role: Role
     groups: dict[str, list[TicketVM]] = field(default_factory=dict)
+    # Time spent this pulse so far (#167, #173). Alerts come two ways:
+    #   * ``alert_time_seconds`` — ack→resolve summed per incident this SRE
+    #     resolved (overlapping incidents counted in both, the original metric);
+    #   * ``alert_union_seconds`` — the same intervals merged into wall-clock
+    #     time, so concurrent incidents aren't double-counted (≤ the overlap one).
+    # Jira worklog time, split by project: ISDB (``jira_project_seconds``) vs
+    # ISReq (``jira_request_seconds``); ``ticket_time_seconds`` is their total.
+    alert_time_seconds: int = 0
+    alert_union_seconds: int = 0
+    ticket_time_seconds: int = 0
+    jira_project_seconds: int = 0
+    jira_request_seconds: int = 0
+    # Per-pulse GitHub PR activity for this SRE (#173); zeros when GitHub isn't
+    # configured or the engineer isn't mapped to a login.
+    pr_stats: GitHubPRStats = field(default_factory=GitHubPRStats)
+
+    @property
+    def alert_time_label(self) -> str:
+        return hours_label(self.alert_time_seconds)
+
+    @property
+    def alert_union_label(self) -> str:
+        return hours_label(self.alert_union_seconds)
+
+    @property
+    def ticket_time_label(self) -> str:
+        return hours_label(self.ticket_time_seconds)
+
+    @property
+    def jira_project_label(self) -> str:
+        return hours_label(self.jira_project_seconds)
+
+    @property
+    def jira_request_label(self) -> str:
+        return hours_label(self.jira_request_seconds)
+
+    @property
+    def total_time_seconds(self) -> int:
+        """Headline hands-on time this pulse: alert wall-clock (no-overlap) + Jira
+        worklog on ISDB + ISReq. Shown next to the role (#173)."""
+        return self.alert_union_seconds + self.jira_project_seconds + self.jira_request_seconds
+
+    @property
+    def total_time_label(self) -> str:
+        return hours_label(self.total_time_seconds)
 
 
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).
 PULSE_SUMMARY_FIELDS = (
     "new_highest", "new_pr_mp", "new_ps5", "new_regular", "new_total",
     "closed_highest", "closed_pr_mp", "closed_ps5", "closed_total", "isdb_closed",
-    "alerts_ack", "alerts_resolved", "alerts_total",
+    "alerts_triggered", "alerts_ack", "alerts_resolved", "alerts_total",
     "alert_mttr_sum", "alert_mttr_n",   # sum-of-seconds / count → mean time to resolve
     "alert_mtta_sum", "alert_mtta_n",   # sum-of-seconds / count → mean time to acknowledge
     "ticket_cycle_sum", "ticket_cycle_n",  # sum-of-days / count → mean ISReq cycle time (#147)
@@ -283,6 +347,27 @@ def format_duration(seconds: float | None) -> str:
     return f"{days}d {hours}h" if hours else f"{days}d"
 
 
+def hours_label(seconds: float | None) -> str:
+    """Work-time label like '6h 30m' / '45m' / '0m' — hours never roll into days
+    (a per-pulse effort total reads better as '32h' than '1d 8h')."""
+    if not seconds:
+        return "0m"
+    minutes = int(round(seconds / 60))
+    h, m = divmod(minutes, 60)
+    if h and m:
+        return f"{h}h {m}m"
+    return f"{h}h" if h else f"{m}m"
+
+
+def delta_label(delta_s: float | None) -> str:
+    """Signed duration change vs a previous bucket, e.g. '▲2m' (up, worse for
+    MTTR/MTTA) / '▼3m' (down). Blank when there's no baseline or the change
+    rounds to under a minute. Shared by the pulse-history and counts tables."""
+    if delta_s is None or round(abs(delta_s) / 60) == 0:
+        return ""
+    return f"{'▲' if delta_s > 0 else '▼'}{format_duration(abs(delta_s))}"
+
+
 @dataclass
 class PulseHistoryRow:
     pulse_number: int
@@ -297,7 +382,8 @@ class PulseHistoryRow:
     mttr_delta_seconds: float | None = None  # MTTR change vs the previous pulse, None = no baseline (#149)
     mtta_delta_seconds: float | None = None  # MTTA change vs the previous pulse, None = no baseline (#149)
     ticket_cycle_days: float | None = None   # mean ISReq created→done days this pulse (#147)
-    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    # green/yellow/red bands for the alert cells (None = neutral, no colour).
+    triggered_level: Color | None = None
     ack_level: Color | None = None
     resolved_level: Color | None = None
     total_level: Color | None = None
@@ -326,21 +412,15 @@ class PulseHistoryRow:
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
 
-    @staticmethod
-    def _delta_label(delta_s: float | None) -> str:
-        """Signed change vs the previous pulse, e.g. '▲2m' (slower) / '▼3m'
-        (faster). Blank with no baseline or when the change rounds to <1m."""
-        if delta_s is None or round(abs(delta_s) / 60) == 0:
-            return ""
-        return f"{'▲' if delta_s > 0 else '▼'}{format_duration(abs(delta_s))}"
+    _delta_label = staticmethod(delta_label)  # back-compat alias
 
     @property
     def mttr_delta_label(self) -> str:
-        return self._delta_label(self.mttr_delta_seconds)
+        return delta_label(self.mttr_delta_seconds)
 
     @property
     def mtta_delta_label(self) -> str:
-        return self._delta_label(self.mtta_delta_seconds)
+        return delta_label(self.mtta_delta_seconds)
 
     @property
     def cycle_label(self) -> str:
@@ -394,6 +474,7 @@ class CountsRow:
     closed_ps5: Cell = field(default_factory=Cell)
     closed_total: Cell = field(default_factory=Cell)
     isdb_closed: Cell = field(default_factory=Cell)
+    alerts_triggered: Cell = field(default_factory=Cell)
     alerts_ack: Cell = field(default_factory=Cell)
     alerts_resolved: Cell = field(default_factory=Cell)
     alerts_total: Cell = field(default_factory=Cell)
@@ -405,7 +486,12 @@ class CountsRow:
     alert_mtta_seconds: float | None = None  # mean trigger→ack time this row, None if no data
     alert_mttr_n: int = 0  # incidents behind the MTTR mean (for the tooltip)
     alert_mtta_n: int = 0  # incidents behind the MTTA mean (for the tooltip)
-    # green/yellow/red bands for the five alert cells (None = neutral, no colour).
+    # MTTR/MTTA change vs the previous bucket: a day row vs the previous day, the
+    # Pulse total vs the previous pulse. None = no baseline / no data.
+    mttr_delta_seconds: float | None = None
+    mtta_delta_seconds: float | None = None
+    # green/yellow/red bands for the alert cells (None = neutral, no colour).
+    triggered_level: Color | None = None
     ack_level: Color | None = None
     resolved_level: Color | None = None
     total_level: Color | None = None
@@ -425,3 +511,11 @@ class CountsRow:
     @property
     def mtta_label(self) -> str:
         return format_duration(self.alert_mtta_seconds)
+
+    @property
+    def mttr_delta_label(self) -> str:
+        return delta_label(self.mttr_delta_seconds)
+
+    @property
+    def mtta_delta_label(self) -> str:
+        return delta_label(self.mtta_delta_seconds)

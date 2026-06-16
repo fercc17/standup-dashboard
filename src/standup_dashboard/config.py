@@ -54,6 +54,18 @@ PAGERDUTY_TEAM_IDS = tuple(
     t for t in os.environ.get("STANDUP_PD_TEAM_IDS", "PQ4ZG3S").split(",") if t
 )
 
+# GitHub org whose open PRs feed the "GH PRs" card line (#173). Empty disables
+# the lookup (the line stays 0). Per-engineer GitHub logins live on the roster
+# (``EngineerConfig.github_login``); both that and a read-only token in
+# ``secrets/github_token.txt`` must be set for an engineer's count to populate.
+GITHUB_ORG = os.environ.get("STANDUP_GITHUB_ORG", "canonical")
+
+# Concurrency for the GitHub PR fetch. Each engineer needs four Search-API
+# queries and that endpoint rate-limits aggressively (low primary cap + a
+# burst-based secondary limit), so keep this small. Override with
+# STANDUP_GITHUB_CONCURRENCY.
+GITHUB_FETCH_CONCURRENCY = int(os.environ.get("STANDUP_GITHUB_CONCURRENCY", "2"))
+
 # Server bind. Defaults to loopback (single-user, localhost-only per FR-011).
 # Set STANDUP_HOST=0.0.0.0 to expose the dashboard on the LAN (no auth — only
 # do this on a trusted network), and STANDUP_PORT to change the port.
@@ -93,6 +105,9 @@ class EngineerConfig:
     # Short names used in the manager's spreadsheet headers, for schedule paste
     # (#71). Matched case-insensitively alongside email/full-name/first-name.
     aliases: tuple[str, ...] = ()
+    # GitHub login for the "GH PRs" card line (#173); empty = not mapped yet, so
+    # that engineer's open-PR count stays 0.
+    github_login: str = ""
 
 
 @dataclass(frozen=True)
@@ -112,34 +127,50 @@ class RegionConfig:
 _SEED_ROSTER: tuple[EngineerConfig, ...] = (
     # AMER
     EngineerConfig("Fernando Carrillo", "fernando.carrillo.castro@canonical.com",
-                   ("AMER", "APAC"), is_manager=True),
+                   ("AMER", "APAC"), is_manager=True, github_login="fercc17"),
     EngineerConfig("Alexandre Gomes", "alexandre.gomes@canonical.com", ("AMER",),
-                   aliases=("Alejdg", "Alex G")),
-    EngineerConfig("Colin Misare", "colin.misare@canonical.com", ("AMER",)),
+                   aliases=("Alejdg", "Alex G"), github_login="alejdg"),
+    EngineerConfig("Colin Misare", "colin.misare@canonical.com", ("AMER",),
+                   github_login="cmisare"),
     EngineerConfig("Matheus Carvalho", "matheus.carvalho@canonical.com", ("AMER",),
-                   aliases=("Matt",)),
+                   aliases=("Matt",), github_login="mcarvalhor"),
     EngineerConfig("Nikolaos Sakkos", "nikolaos.sakkos@canonical.com", ("AMER",),
-                   aliases=("Nick", "Niko")),
+                   aliases=("Nick", "Niko"), github_login="nsakkos"),
     EngineerConfig("Alex Lukens", "alex.lukens@canonical.com", ("AMER",),
-                   aliases=("Alex L",)),
-    EngineerConfig("Afif Refrizal", "afif.refrizal@canonical.com", ("AMER",)),
+                   aliases=("Alex L",), github_login="alexdlukens-canonical"),
+    EngineerConfig("Afif Refrizal", "afif.refrizal@canonical.com", ("AMER",),
+                   github_login="afiffahreza"),
     # APAC
-    EngineerConfig("James Simpson", "james.simpson@canonical.com", ("APAC",)),
-    EngineerConfig("Loic Gomez", "loic.gomez@canonical.com", ("APAC",)),
-    EngineerConfig("Paul Collins", "paul.collins@canonical.com", ("APAC",)),
-    EngineerConfig("Haw Loeung", "haw.loeung@canonical.com", ("APAC",)),
-    EngineerConfig("Barry Price", "barry.price@canonical.com", ("APAC",)),
+    EngineerConfig("James Simpson", "james.simpson@canonical.com", ("APAC",),
+                   github_login="jsimps"),
+    EngineerConfig("Loic Gomez", "loic.gomez@canonical.com", ("APAC",),
+                   github_login="kot0dama"),
+    EngineerConfig("Paul Collins", "paul.collins@canonical.com", ("APAC",),
+                   github_login="vmpjdc"),
+    EngineerConfig("Haw Loeung", "haw.loeung@canonical.com", ("APAC",),
+                   github_login="hloeung"),
+    EngineerConfig("Barry Price", "barry.price@canonical.com", ("APAC",),
+                   github_login="barryprice"),
     # EMEA
-    EngineerConfig("Javier Arregui", "javier.arregui@canonical.com", ("EMEA",), is_manager=True),
-    EngineerConfig("Benjamin Allot", "benjamin.allot@canonical.com", ("EMEA",)),
-    EngineerConfig("Gianluca Perna", "gianluca.perna@canonical.com", ("EMEA",)),
-    EngineerConfig("Christos Betzelos", "christos.betzelos@canonical.com", ("EMEA",)),
-    EngineerConfig("Giorgos Apostolopoulos", "giorgos.apostolopoulos@canonical.com", ("EMEA",)),
-    EngineerConfig("Junien Fridrick", "junien.fridrick@canonical.com", ("EMEA",)),
-    EngineerConfig("Laurent Sesques", "laurent.sesques@canonical.com", ("EMEA",)),
+    EngineerConfig("Javier Arregui", "javier.arregui@canonical.com", ("EMEA",),
+                   is_manager=True, github_login="javier-arregui"),
+    EngineerConfig("Benjamin Allot", "benjamin.allot@canonical.com", ("EMEA",),
+                   github_login="ben-ballot"),
+    EngineerConfig("Gianluca Perna", "gianluca.perna@canonical.com", ("EMEA",),
+                   github_login="gianlucaperna"),
+    EngineerConfig("Christos Betzelos", "christos.betzelos@canonical.com", ("EMEA",),
+                   github_login="chrisbetze"),
+    EngineerConfig("Giorgos Apostolopoulos", "giorgos.apostolopoulos@canonical.com", ("EMEA",),
+                   github_login="joj0s"),
+    EngineerConfig("Junien Fridrick", "junien.fridrick@canonical.com", ("EMEA",),
+                   github_login="axinojolais"),
+    EngineerConfig("Laurent Sesques", "laurent.sesques@canonical.com", ("EMEA",),
+                   github_login="sajoupa"),
     # Global management (visible but excluded from counts — FR-004)
-    EngineerConfig("Kristofer Tingdahl", "kristofer.tingdahl@canonical.com", (), is_global=True),
-    EngineerConfig("Alexandre Micouleau", "alexandre.micouleau@canonical.com", (), is_global=True),
+    EngineerConfig("Kristofer Tingdahl", "kristofer.tingdahl@canonical.com", (),
+                   is_global=True, github_login="tingdahl"),
+    EngineerConfig("Alexandre Micouleau", "alexandre.micouleau@canonical.com", (),
+                   is_global=True, github_login="alexmicouleau"),
 )
 
 
@@ -240,6 +271,11 @@ def is_counted(engineer: EngineerConfig) -> bool:
 
 def all_roster_emails() -> list[str]:
     return [e.email for e in ROSTER]
+
+
+def github_logins() -> dict[str, str]:
+    """email → GitHub login for every roster member that has one (#173)."""
+    return {e.email: e.github_login for e in ROSTER if e.github_login}
 
 
 def seed_roster_emails() -> list[str]:

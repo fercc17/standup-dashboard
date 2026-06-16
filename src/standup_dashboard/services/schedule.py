@@ -136,17 +136,28 @@ def _classify_cell(cell: str) -> tuple[str | None, str | None]:
 def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
     """Parse a tab-separated schedule paste into actions + human-readable errors.
 
-    Format (matches the transposed modal grid — engineers as columns, days as
-    rows):
+    Two layouts are supported (engineers as columns, days as rows):
 
-        Date<TAB>Afif<TAB>Alejdg<TAB>Alex L<TAB>Colin<TAB>Matt<TAB>Nick
-        Wed, Jun 10<TAB>OK<TAB>PVG<TAB>GEN<TAB>PS7+<TAB>BVG<TAB>OFF
+    1. **Day/Role layout** — the manager's spreadsheet, where each engineer spans
+       two columns (a blank ``Day`` and a ``Role``)::
 
-    The first row names each engineer (display name, first name, alias or email).
-    Each later row starts with a day label (Mon..Fri; weekend rows are ignored).
-    Role cells are right-aligned to the engineer columns, so a leading status
-    column (e.g. ``OK``) is ignored. PVG/GEN/BVG/OFF map directly; any other
-    non-blank value is treated as Project (keeping the raw text as a day note).
+           Date<TAB>Afif<TAB><TAB>Alejdg<TAB><TAB>Alex L...
+           <TAB>Day<TAB>Role<TAB>Day<TAB>Role...
+           Wed, Jun 10<TAB><TAB>PVG<TAB><TAB>GEN...
+
+       Detected by a ``Role`` sub-header or by non-adjacent name columns; each
+       engineer's role is read from the column to the right of their name, so a
+       trailing empty role never shifts the others.
+
+    2. **Simple layout** — names directly above role cells, with an optional
+       leading status column that is right-aligned away::
+
+           Date<TAB>Afif<TAB>Alejdg<TAB>Alex L<TAB>Colin<TAB>Matt<TAB>Nick
+           Wed, Jun 10<TAB>OK<TAB>PVG<TAB>GEN<TAB>PS7+<TAB>BVG<TAB>OFF
+
+    Names match on email, full/first name or alias. Day rows start with a weekday
+    label (Mon..Fri; weekend/unrecognised rows are ignored). PVG/GEN/BVG/OFF map
+    directly; any other non-blank value is Project (raw text kept as a day note).
     """
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if len(lines) < 2:
@@ -154,7 +165,9 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
 
     lookup = _roster_lookup()
     header = lines[0].split("\t")
-    engineers: list[str | None] = []  # emails, positionally (header[1:] = engineers)
+
+    # Positional emails over header[1:] (None for a blank or unknown column).
+    engineers: list[str | None] = []
     errors: list[str] = []
     for name in header[1:]:
         nm = name.strip()
@@ -166,6 +179,18 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
             errors.append(f"unknown engineer in header: {nm!r}")
         engineers.append(email)
 
+    # Paired Day/Role layout: a 'Role' sub-header, or names sitting at every-other
+    # column (a blank Day column between them). Then the role is the cell to the
+    # right of each name — robust to trailing empty cells trimmed on copy.
+    positions = [i for i, e in enumerate(engineers) if e is not None]
+    has_role_subheader = any(
+        c.strip().lower() == "role" for ln in lines[1:] for c in ln.split("\t")
+    )
+    non_adjacent = len(positions) >= 2 and all(
+        b - a >= 2 for a, b in zip(positions, positions[1:])
+    )
+    paired = has_role_subheader or non_adjacent
+
     n = len(engineers)
     actions: list[PasteAction] = []
     for line in lines[1:]:
@@ -173,13 +198,25 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
         weekday = _weekday_of(cells[0]) if cells else None
         if weekday is None:
             continue  # weekend or unrecognized day row → skipped
-        values = cells[1:]
-        if len(values) > n:
-            values = values[-n:]  # drop leading extras (e.g. an 'OK' status column)
-        for i, cell in enumerate(values):
-            email = engineers[i] if i < n else None
-            if email is None:
-                continue
+        if paired:
+            # engineers[i] sits at header column i+1; its role is the next column.
+            pairs = []
+            for i, email in enumerate(engineers):
+                if email is None:
+                    continue
+                col = i + 2
+                pairs.append((email, cells[col] if col < len(cells) else ""))
+        else:
+            # Right-align role cells so a leading status column (e.g. 'OK') drops.
+            values = cells[1:]
+            if len(values) > n:
+                values = values[-n:]
+            pairs = [
+                (engineers[i], values[i])
+                for i in range(min(n, len(values)))
+                if engineers[i] is not None
+            ]
+        for email, cell in pairs:
             role, note = _classify_cell(cell)
             if role is not None or note is not None:
                 actions.append(PasteAction(email=email, weekday=weekday, role=role, note=note))

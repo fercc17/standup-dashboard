@@ -124,7 +124,10 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         context["last_fetch_label"] = "No fetch yet — showing roster"
 
     chip_groups, management_chips = presenters.build_chip_groups(db, data, selected_regions, now)
-    oncall_eng = config.ENGINEERS_BY_EMAIL.get(data.oncall_email) if data.oncall_email else None
+    # Header shows the UPCOMING weekend's on-call; the just-passed one is named in
+    # the recap line below it.
+    next_email = data.next_oncall_email
+    next_eng = config.ENGINEERS_BY_EMAIL.get(next_email) if next_email else None
     counts_full = presenters.build_counts(data, selected_regions, now)
     context.update(
         chip_groups=chip_groups,
@@ -132,7 +135,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         # The previous-pulse row moves to its own growing history table (#80).
         counts_rows=[r for r in counts_full if not r.is_previous],
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
-        oncall_name=(oncall_eng.name if oncall_eng else data.oncall_email),
+        oncall_name=(next_eng.name if next_eng else next_email),
         weekend_recap=presenters.build_weekend_recap(db, data, now),
     )
 
@@ -167,10 +170,13 @@ async def index(request: Request) -> HTMLResponse:
     return _templates(request).TemplateResponse(request, "index.html", context)
 
 
-async def _run_refresh_bg(ctx) -> None:
-    """Run a fetch in the background; the UI polls /refresh/status for completion."""
+async def _run_refresh_bg(ctx, window_days: int | None = None) -> None:
+    """Run a fetch in the background; the UI polls /refresh/status for completion.
+
+    ``window_days`` forces a full re-fetch over that many days (default is the
+    incremental window) — used to backfill a metric over the whole pulse."""
     try:
-        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now())
+        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now(), window_days=window_days)
     except Exception:  # noqa: BLE001
         logger.exception("Background refresh failed")
         ctx.refresh.error = "Refresh failed — see server logs."
@@ -189,11 +195,18 @@ async def refresh(request: Request, background: BackgroundTasks) -> Response:
     except ValueError as exc:
         return PlainTextResponse(f"Unknown region: {exc}", status_code=400)
 
+    # Optional full re-fetch (?window_days=N) to backfill a metric over the pulse.
+    try:
+        wd = request.query_params.get("window_days")
+        window_days = int(wd) if wd else None
+    except ValueError:
+        window_days = None
+
     # Fire-and-forget: the fetch runs server-side, the UI keeps reading the DB.
     if not ctx.refresh.running:
         ctx.refresh.running = True
         ctx.refresh.error = None
-        background.add_task(_run_refresh_bg, ctx)
+        background.add_task(_run_refresh_bg, ctx, window_days)
 
     context = _dashboard_context(request, selected, _now())
     context["refreshing"] = True

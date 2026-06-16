@@ -145,6 +145,22 @@ def count_level(count: int, green_cap: int) -> Color | None:
     return Color.RED
 
 
+def ack_vs_triggered_level(triggered: int, ack: int, regions: int) -> Color | None:
+    """Ack-vs-Triggered keep-up (#169): acks should track what fired. Green when
+    the shortfall (triggered − ack) is within 1 per region, yellow within 2 per
+    region, red beyond — e.g. for one region Trig 5 / Ack 3 is yellow, Ack ≤ 2 is
+    red. Neutral when nothing fired (or it isn't attributable)."""
+    if triggered <= 0:
+        return None
+    margin = max(regions, 1)
+    gap = triggered - ack
+    if gap <= margin:
+        return Color.GREEN
+    if gap <= 2 * margin:
+        return Color.YELLOW
+    return Color.RED
+
+
 def resolve_rate_level(resolved: int, acked: int) -> Color | None:
     """Resolved-vs-acked band; None when there was nothing to acknowledge."""
     if acked <= 0:

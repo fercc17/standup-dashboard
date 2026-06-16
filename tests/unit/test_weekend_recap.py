@@ -26,6 +26,19 @@ def _db(tmp_path, alerts):
     return db
 
 
+def test_next_vs_current_oncall_split(tmp_path):
+    # Two stored weekends: the header shows the upcoming one, the recap the passed.
+    cur = WeekendOnCall(engineer_email=MEMBER, weekend_start=date(2026, 6, 13),
+                        weekend_end=date(2026, 6, 14))
+    nxt = WeekendOnCall(engineer_email="haw.loeung@canonical.com",
+                        weekend_start=date(2026, 6, 20), weekend_end=date(2026, 6, 21))
+    data = DashboardData(fetched_at=_at(15, 9), weekend_oncall=[nxt, cur])  # order-independent
+    assert data.oncall_email == MEMBER                            # earliest = current/passed
+    assert data.next_oncall_email == "haw.loeung@canonical.com"   # latest = upcoming (header)
+    recap = build_weekend_recap(_db(tmp_path, []), data, _at(15, 9))
+    assert recap.oncall_name == "Alexandre Gomes"                 # recap names the passed weekend
+
+
 def test_recap_summarizes_oncall_incidents(tmp_path):
     alerts = [
         # INC1: ack 15:00 → resolve 16:00 Sat (1h).

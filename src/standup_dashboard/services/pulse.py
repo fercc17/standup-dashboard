@@ -82,13 +82,25 @@ def _sprint_to_pulse(project_key: str, sprint: dict[str, Any]) -> Pulse | None:
 
 
 async def resolve_pulses(jira: JiraClient, project_keys: tuple[str, ...]) -> list[Pulse]:
-    """Resolve the active sprint for each project, skipping projects with none."""
+    """Resolve **every** active sprint across the projects' boards (deduped).
+
+    A pinned scrum board can run several concurrent active sprints — its own plus
+    a shared cross-team one (e.g. ISDB's board carries the shared "IS Pulse"
+    sprint that originates on the ISReq board AND ISDB's own sprint). All of them
+    make up the current pulse, so a ticket is this-pulse work when it belongs to
+    ANY of them (see ``classification.in_pulse``). Recording only the first
+    sprint per project — the old behaviour — silently dropped a board's own
+    sprint, so ISDB tickets fell out of pulse scope (#172).
+    """
     pulses: list[Pulse] = []
+    seen: set[int] = set()
     for key in project_keys:
-        sprint = await jira.active_sprint(key)
-        if sprint is None:
-            continue
-        pulse = _sprint_to_pulse(key, sprint)
-        if pulse is not None:
-            pulses.append(pulse)
+        for sprint in await jira.active_sprints(key):
+            sid = int(sprint["id"])
+            if sid in seen:
+                continue
+            pulse = _sprint_to_pulse(key, sprint)
+            if pulse is not None:
+                seen.add(sid)
+                pulses.append(pulse)
     return pulses

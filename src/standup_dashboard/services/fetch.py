@@ -16,15 +16,24 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .. import config
+from ..clients import github as gh_mod
 from ..clients import ical as ical_mod
 from ..clients import jira as jira_mod
 from ..clients import pagerduty as pd_mod
-from ..domain.models import Alert, AlertState, Pulse, Ticket, TouchEvent, WeekendOnCall
+from ..domain.models import (
+    Alert,
+    AlertState,
+    GitHubPRStats,
+    Pulse,
+    Ticket,
+    TouchEvent,
+    WeekendOnCall,
+)
 from ..settings import Secrets
 from ..storage.db import Database
 from ..storage.snapshots import SnapshotWriter
 from .oncall import resolve_oncall
-from .pulse import parse_jira_dt, previous_pulse, resolve_pulses
+from .pulse import current_pulse, parse_jira_dt, previous_pulse, resolve_pulses
 from .touches import extract_touches, parse_ticket
 
 logger = logging.getLogger("standup_dashboard.fetch")
@@ -48,8 +57,15 @@ class PagerDutyResult:
 @dataclass
 class ICalResult:
     ok: bool = True
-    oncall: WeekendOnCall | None = None
+    oncall: WeekendOnCall | None = None          # current / just-passed weekend
+    next_oncall: WeekendOnCall | None = None      # the upcoming weekend (#weekend-next)
     raw: str | None = None
+
+
+@dataclass
+class GitHubResult:
+    ok: bool = True
+    pr_stats: dict[str, GitHubPRStats] = field(default_factory=dict)  # email → pulse PR stats
 
 
 async def _fetch_jira(
@@ -156,33 +172,57 @@ def _alerts_from_logs(
     number: int | None = None,
 ) -> list[Alert]:
     out: list[Alert] = []
-    state_for = {
-        "trigger_log_entry": AlertState.TRIGGERED,
-        "acknowledge_log_entry": AlertState.ACKNOWLEDGED,
-        "resolve_log_entry": AlertState.RESOLVED,
-    }
+    ackers: dict[str, datetime] = {}          # roster acker → earliest ack time
+    roster_resolved = False                    # resolved by a roster user?
+    auto_resolve_at: datetime | None = None    # earliest resolve with no roster agent
     for entry in log_entries:
-        state = state_for.get(entry.get("type", ""))
+        etype = entry.get("type", "")
         at = parse_jira_dt(entry.get("created_at"))
-        if state is None or at is None:
+        if at is None:
             continue
-        if state is AlertState.TRIGGERED:
+        if etype == "trigger_log_entry":
             # The trigger has no engineer agent; capture only the fire time so MTTA
             # (trigger→ack) is computable. Handler-less, so it never affects the
             # ack/resolve counts, which filter by member handler.
-            out.append(Alert(id=incident_id, handler_email="", state=state, at=at,
-                             title=title, url=url, number=number))
+            out.append(Alert(id=incident_id, handler_email="", state=AlertState.TRIGGERED,
+                             at=at, title=title, url=url, number=number))
+            continue
+        if etype not in ("acknowledge_log_entry", "resolve_log_entry"):
             continue
         agent = entry.get("agent") or {}
         email = id_to_email.get(agent.get("id", ""))
-        if email and email in roster:
-            out.append(Alert(id=incident_id, handler_email=email, state=state, at=at,
+        roster_member = email if (email and email in roster) else None
+        if etype == "acknowledge_log_entry":
+            if roster_member:
+                out.append(Alert(id=incident_id, handler_email=roster_member,
+                                 state=AlertState.ACKNOWLEDGED, at=at,
+                                 title=title, url=url, number=number))
+                if roster_member not in ackers or at < ackers[roster_member]:
+                    ackers[roster_member] = at
+        elif roster_member:  # resolve by a roster user — credit the resolver
+            out.append(Alert(id=incident_id, handler_email=roster_member,
+                             state=AlertState.RESOLVED, at=at,
+                             title=title, url=url, number=number))
+            roster_resolved = True
+        elif auto_resolve_at is None or at < auto_resolve_at:
+            # Resolve with no roster agent: an integration/auto-resolve (the common
+            # Prometheus "FIRING" case, agent = events_api_v2_inbound_integration)
+            # or a non-roster user. Recorded to attribute to the acker(s) below.
+            auto_resolve_at = at
+    # An incident resolved without a roster resolver still has to leave the acker's
+    # ACK bucket and count as resolved — otherwise an auto-resolved alert shows ACK
+    # forever (#stale-ack). Attribute the resolve to each roster acker at its time.
+    if auto_resolve_at is not None and not roster_resolved:
+        for email, acked_at in ackers.items():
+            out.append(Alert(id=incident_id, handler_email=email,
+                             state=AlertState.RESOLVED, at=max(auto_resolve_at, acked_at),
                              title=title, url=url, number=number))
     return out
 
 
 async def _fetch_pagerduty(
-    secrets: Secrets, now: datetime, since: datetime, roster: set[str]
+    secrets: Secrets, now: datetime, since: datetime, roster: set[str],
+    recheck_ids: frozenset[str] = frozenset(),
 ) -> PagerDutyResult:
     res = PagerDutyResult()
     try:
@@ -204,15 +244,24 @@ async def _fetch_pagerduty(
                 for i in incidents
             }
 
+            # Re-check incidents still showing ACK from earlier in the pulse: the
+            # PagerDuty window above filters by created_at, so an incident created
+            # before this incremental window isn't returned even after it resolves
+            # — most are auto-resolved by the alerting integration. Fetch their log
+            # entries too so they move ACK→RESOLVED (#stale-ack).
+            window_ids = {i["id"] for i in incidents}
+            ids_to_fetch = [i["id"] for i in incidents]
+            ids_to_fetch += [iid for iid in recheck_ids if iid not in window_ids]
+
             # Fetch each incident's log entries concurrently (bounded).
             sem = asyncio.Semaphore(10)
 
-            async def _logs(inc: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+            async def _logs(iid: str) -> tuple[str, list[dict[str, Any]]]:
                 async with sem:
-                    return inc["id"], await pd.log_entries(inc["id"])
+                    return iid, await pd.log_entries(iid)
 
             all_logs: dict[str, Any] = {}
-            for incident_id, logs in await asyncio.gather(*(_logs(i) for i in incidents)):
+            for incident_id, logs in await asyncio.gather(*(_logs(i) for i in ids_to_fetch)):
                 all_logs[incident_id] = logs
                 title, url, number = inc_meta.get(incident_id, (None, None, None))
                 res.alerts.extend(
@@ -225,12 +274,60 @@ async def _fetch_pagerduty(
     return res
 
 
+async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
+    """Per-engineer PR activity for the current pulse (#173).
+
+    For each mapped login, counts PRs created / merged / touched plus PRs
+    reviewed within the pulse's date window (``current_pulse``). Inert unless a
+    token, a ``GITHUB_ORG`` and at least one mapped login are all present. Search
+    rate-limits hard, so concurrency is small (``GITHUB_FETCH_CONCURRENCY``) and
+    each login's four queries run sequentially with retry/backoff in the client.
+    A per-login failure is isolated; a total failure marks the source down but
+    never blocks the rest of the refresh.
+    """
+    res = GitHubResult()
+    logins = config.github_logins()
+    if not secrets.github_token or not config.GITHUB_ORG or not logins:
+        return res
+    # Pulse window is the global anchored 2-week span; the Search API date
+    # qualifiers are inclusive, so the upper bound is the pulse's last day.
+    _, pstart, pend = current_pulse(now.astimezone(UTC).date())
+    until = pend - timedelta(days=1)
+    try:
+        async with gh_mod.make_async_client(secrets.github_token) as hc:
+            gh = gh_mod.GitHubClient(hc)
+            sem = asyncio.Semaphore(config.GITHUB_FETCH_CONCURRENCY)
+
+            async def _stats(email: str, login: str) -> tuple[str, GitHubPRStats | None]:
+                # Isolate per-login failures (e.g. an unsearchable handle 422s):
+                # one bad login must not abort the gather and zero out everyone.
+                async with sem:
+                    try:
+                        return email, await gh.pr_pulse_stats(
+                            login, since=pstart, until=until, org=config.GITHUB_ORG
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("GitHub PR stats failed for %s (%s)", login, email)
+                        return email, None
+
+            for email, st in await asyncio.gather(
+                *(_stats(e, login) for e, login in logins.items())
+            ):
+                if st is not None:
+                    res.pr_stats[email] = st
+    except Exception:  # noqa: BLE001
+        logger.exception("GitHub fetch failed")
+        res.ok = False
+    return res
+
+
 async def _fetch_ical(secrets: Secrets, now: datetime) -> ICalResult:
     res = ICalResult()
     try:
         async with ical_mod.make_async_client() as hc:
             res.raw = await ical_mod.ICalClient(hc).fetch(secrets.pagerduty_ical_url)
         res.oncall = resolve_oncall(res.raw, now.date())
+        res.next_oncall = resolve_oncall(res.raw, now.date() + timedelta(days=7))
     except Exception:  # noqa: BLE001
         logger.exception("iCal fetch failed")
         res.ok = False
@@ -270,10 +367,22 @@ async def run_fetch(
         )
     roster = set(config.all_roster_emails())
 
-    jira_res, pd_res, ical_res = await asyncio.gather(
+    # Incidents still showing ACK (acked, never seen resolved) from earlier in this
+    # pulse. Their created_at predates the incremental PagerDuty window, so re-check
+    # them for a resolve that landed since (usually an integration auto-resolve) and
+    # move them ACK→RESOLVED (#stale-ack). Empty on a cold/full-window fetch.
+    from .counts import accumulated_pulse_alerts, persist_pulse_summaries
+    prior_alerts = accumulated_pulse_alerts(db, now)
+    recheck_ids = frozenset(
+        {a.id for a in prior_alerts if a.state is AlertState.ACKNOWLEDGED}
+        - {a.id for a in prior_alerts if a.state is AlertState.RESOLVED}
+    )
+
+    jira_res, pd_res, ical_res, gh_res = await asyncio.gather(
         _fetch_jira(secrets, now, jira_window_start, roster),
-        _fetch_pagerduty(secrets, now, pd_window_start, roster),
+        _fetch_pagerduty(secrets, now, pd_window_start, roster, recheck_ids),
         _fetch_ical(secrets, now),
+        _fetch_github(secrets, now),
     )
 
     raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
@@ -293,14 +402,17 @@ async def run_fetch(
     db.insert_tickets(fetch_id, jira_res.tickets)
     db.insert_touches(fetch_id, jira_res.touches)
     db.insert_alerts(fetch_id, pd_res.alerts)
-    if ical_res.oncall is not None:
-        db.insert_weekend_oncall(fetch_id, [ical_res.oncall])
+    # Store the current/just-passed + the upcoming weekend's on-call.
+    oncalls = [oc for oc in (ical_res.oncall, ical_res.next_oncall) if oc is not None]
+    if oncalls:
+        db.insert_weekend_oncall(fetch_id, oncalls)
+    if gh_res.pr_stats:
+        db.insert_github_prs(fetch_id, gh_res.pr_stats)
 
     # Snapshot this fetch's current + previous pulse totals so the pulse-history
     # table accumulates over time (#80). Persist from the whole pulse's
     # accumulated alerts, not just this fetch's incremental window, so MTTR and
-    # alert totals reflect the full pulse (#140).
-    from .counts import accumulated_pulse_alerts, persist_pulse_summaries
+    # alert totals reflect the full pulse (#140). (counts imported above.)
     pulse_alerts = accumulated_pulse_alerts(db, now)
     persist_pulse_summaries(db, jira_res.tickets, pulse_alerts, jira_res.pulses, now)
 
@@ -310,8 +422,10 @@ async def run_fetch(
     db.upsert_incidents(incidents_from_alerts(pulse_alerts))
 
     logger.info(
-        "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s tickets=%d alerts=%d oncall=%s",
-        fetch_id, jira_res.ok, pd_res.ok, ical_res.ok, len(jira_res.tickets),
+        "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s github_ok=%s "
+        "tickets=%d alerts=%d oncall=%s gh_engineers=%d gh_created=%d",
+        fetch_id, jira_res.ok, pd_res.ok, ical_res.ok, gh_res.ok, len(jira_res.tickets),
         len(pd_res.alerts), ical_res.oncall.engineer_email if ical_res.oncall else None,
+        len(gh_res.pr_stats), sum(s.created for s in gh_res.pr_stats.values()),
     )
     return fetch_id

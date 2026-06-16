@@ -157,8 +157,8 @@ def test_days_capped_at_today():
 
 def test_closed_pr_mp_credited_to_assignee_region():
     # A [PR/MP Review] ticket created in the EMEA window but OWNED by an AMER
-    # engineer: its PR/MP-closed credit goes to AMER (owner), while the generic
-    # closed_total still follows EMEA (creation region).
+    # engineer: both its PR/MP-closed credit and the generic closed_total go to
+    # AMER (the assignee who closed it), not the creation region (#163).
     t = Ticket(id="ISReq-PRC", project_key="ISReq", title="[PR/MP Review] done",
                status="Done", priority="Medium", labels=[], created=utc(2026, 6, 5, 10),
                is_done_date=date(2026, 6, 12), assignee_email=MEMBER)
@@ -166,9 +166,23 @@ def test_closed_pr_mp_credited_to_assignee_region():
     emea_fri = build_region_counts("EMEA", [t], [], _pulses(), utc(2026, 6, 15))[1]
     assert amer_fri.closed_pr_mp.count == 1
     assert amer_fri.closed_pr_mp.breakdown == {"Alexandre Gomes": 1}
-    assert amer_fri.closed_total.count == 0      # creation region is EMEA, not AMER
+    assert amer_fri.closed_total.count == 1      # assignee is AMER → AMER's close
     assert emea_fri.closed_pr_mp.count == 0      # owner is AMER, not EMEA
-    assert emea_fri.closed_total.count == 1      # but the generic close is EMEA's
+    assert emea_fri.closed_total.count == 0      # creation region no longer counts
+
+
+def test_closed_ps5_and_total_count_only_selected_region_closers():
+    # A ps5 ticket created in the AMER window but closed by an APAC engineer must
+    # NOT count in AMER's Closed ps5/Total (the closer isn't AMER); it counts in
+    # APAC's (#163) — the bug where out-of-region closers inflated the cells.
+    apac_eng = "barry.price@canonical.com"
+    t = Ticket(id="ISReq-PS5", project_key="ISReq", title="z", status="Done",
+               priority="Medium", labels=["ps5-blocker"], created=utc(2026, 6, 12, 18),
+               is_done_date=date(2026, 6, 12), assignee_email=apac_eng)
+    amer = _total(build_region_counts("AMER", [t], [], _pulses(), utc(2026, 6, 15)))
+    apac = _total(build_region_counts("APAC", [t], [], _pulses(), utc(2026, 6, 15)))
+    assert amer.closed_ps5.count == 0 and amer.closed_total.count == 0
+    assert apac.closed_ps5.count == 1 and apac.closed_total.count == 1
 
 
 def test_daily_mttr_and_mtta_per_row_and_total():
@@ -187,6 +201,40 @@ def test_daily_mttr_and_mtta_per_row_and_total():
     total = _total(rows)
     assert total.alert_mttr_seconds == 1800 and total.mttr_label == "30m"
     assert total.alert_mtta_seconds == 600 and total.mtta_label == "10m"
+
+
+def test_counts_mttr_mtta_day_over_day_deltas():
+    # Thursday then Friday incidents: Friday's MTTR/MTTA show the change vs Thu.
+    alerts = [
+        # Thu Jun 11: MTTA 5m (18:00→18:05), MTTR 15m (18:05→18:20).
+        Alert("T", "", AlertState.TRIGGERED, datetime(2026, 6, 11, 18, 0, tzinfo=UTC)),
+        Alert("T", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 11, 18, 5, tzinfo=UTC)),
+        Alert("T", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 11, 18, 20, tzinfo=UTC)),
+        # Fri Jun 12: MTTA 10m, MTTR 30m.
+        Alert("F", "", AlertState.TRIGGERED, datetime(2026, 6, 12, 18, 0, tzinfo=UTC)),
+        Alert("F", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 10, tzinfo=UTC)),
+        Alert("F", MEMBER, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 40, tzinfo=UTC)),
+    ]
+    rows = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))
+    thu = next(r for r in rows if not r.is_total and r.label.startswith("Thu"))
+    fri = next(r for r in rows if not r.is_total and r.label.startswith("Fri"))
+    assert thu.mttr_delta_label == "" and thu.mtta_delta_label == ""  # first day, no baseline
+    assert fri.mttr_label == "30m" and fri.mttr_delta_label == "▲15m"  # 30m vs 15m
+    assert fri.mtta_label == "10m" and fri.mtta_delta_label == "▲5m"   # 10m vs 5m
+
+
+def test_alerts_triggered_attributed_to_handler_region():
+    # A handler-less trigger is credited to the region of whoever handled it; an
+    # incident nobody on the team handled isn't attributable and is skipped (#169).
+    alerts = [
+        Alert("INC1", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),
+        Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 5, tzinfo=UTC)),
+        Alert("INC2", "", AlertState.TRIGGERED, utc(2026, 6, 12, 18)),  # never handled
+    ]
+    total = _total(build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15)))
+    assert total.alerts_triggered.count == 1
+    assert total.alerts_ack.count == 1
+    assert total.alerts_triggered.breakdown == {"Alexandre Gomes": 1}
 
 
 def test_daily_mttr_blank_when_no_resolve_pair():
@@ -210,18 +258,36 @@ def test_daily_alert_levels_wired():
     assert total.resolved_level is Color.GREEN   # 1 resolved / 1 acked = 100%
 
 
-def test_ack_total_level_scales_with_selected_region_count():
-    # Three weekday acks by AMER members → over the single-region weekday cap (2).
+def test_alert_volume_level_scales_with_selected_region_count():
+    # Three weekday alerts (fired + acked) by AMER → over the single-region
+    # weekday cap (2); selecting a second region doubles the cap to 4.
     fri = utc(2026, 6, 12)
-    alerts = [Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, fri) for i in range(3)]
+    alerts = []
+    for i in range(3):
+        alerts.append(Alert(f"INC{i}", "", AlertState.TRIGGERED, fri))
+        alerts.append(Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, fri))
     amer_fri = build_region_counts(AMER, [], alerts, _pulses(), utc(2026, 6, 15))[1]
-    assert amer_fri.alerts_ack.count == 3
-    assert amer_fri.ack_level is Color.YELLOW     # 3 > cap 2 (one region)
+    assert amer_fri.alerts_triggered.count == 3
+    assert amer_fri.triggered_level is Color.YELLOW   # 3 > cap 2 (one region)
     assert amer_fri.total_level is Color.YELLOW
+    assert amer_fri.ack_level is Color.GREEN          # acked all 3 → matched
     # Selecting a second region doubles the cap to 4 → 3 is healthy again.
     both_fri = build_counts([AMER, "APAC"], [], alerts, _pulses(), utc(2026, 6, 15))[1]
-    assert both_fri.ack_level is Color.GREEN
+    assert both_fri.triggered_level is Color.GREEN
     assert both_fri.total_level is Color.GREEN
+
+
+def test_ack_vs_triggered_level_bands():
+    from standup_dashboard.domain.coloring import ack_vs_triggered_level as lvl
+    assert lvl(0, 0, 1) is None               # nothing fired → neutral
+    assert lvl(5, 5, 1) is Color.GREEN        # acked everything
+    assert lvl(5, 4, 1) is Color.GREEN        # off by one
+    assert lvl(5, 3, 1) is Color.YELLOW       # gap 2
+    assert lvl(5, 2, 1) is Color.RED          # gap 3 (ack below 3)
+    # 2 regions → margin doubles: green ≤2 gap, yellow ≤4, red beyond.
+    assert lvl(10, 8, 2) is Color.GREEN       # gap 2
+    assert lvl(10, 7, 2) is Color.YELLOW      # gap 3
+    assert lvl(10, 5, 2) is Color.RED         # gap 5
 
 
 def test_closed_vs_new_highest_colour():
@@ -267,9 +333,10 @@ def test_closed_pr_mp_keep_up_colour():
     assert fri_row.closed_pr_mp.count == 2 and fri_row.closed_pr_mp_level is Color.GREEN
 
 
-def test_region_follows_creation_time_not_assignee():
-    # Ticket created at 10:00 UTC (EMEA window) but assigned to an AMER engineer:
-    # it belongs to EMEA (creation time), not AMER (assignee).
+def test_new_follows_creation_time_closed_follows_assignee():
+    # New tickets are attributed by creation time (follow-the-sun); closed tickets
+    # by the assignee who closed them (#163). A ticket created in the EMEA window
+    # but assigned to an AMER engineer is EMEA's intake but AMER's close.
     fri_emea = utc(2026, 6, 12, 10)   # 10:00 UTC → EMEA window (07–15)
     t_new = Ticket(id="ISReq-E", project_key="ISReq", title="x", status="To Do",
                    priority="Highest", labels=[], created=fri_emea, assignee_email=MEMBER)
@@ -279,9 +346,10 @@ def test_region_follows_creation_time_not_assignee():
     tickets = [t_new, t_closed]
     amer = build_region_counts("AMER", tickets, [], _pulses(), utc(2026, 6, 15))
     emea = build_region_counts("EMEA", tickets, [], _pulses(), utc(2026, 6, 15))
-    # AMER sees neither, despite the AMER assignee.
+    amer_fri, emea_fri = amer[1], emea[1]
+    # New: EMEA owns it (creation time); AMER does not, despite the AMER assignee.
     assert next(r for r in amer if r.is_total and not r.is_previous).new_total.count == 0
-    # EMEA owns both the new and the closed ticket (bucketed in Paris-local days).
-    emea_fri = emea[1]
     assert emea_fri.new_highest.count == 1
-    assert emea_fri.closed_total.count == 1
+    # Closed: AMER owns it (assignee); EMEA no longer counts it.
+    assert amer_fri.closed_total.count == 1
+    assert emea_fri.closed_total.count == 0

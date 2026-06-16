@@ -32,6 +32,63 @@ def test_parse_aliases_rightalign_and_project():
     assert got[NICK] == ("WED", "Project", "PS7+")  # alias "Nick", on a project
 
 
+PAUL = "paul.collins@canonical.com"
+HAW = "haw.loeung@canonical.com"
+JAMES = "james.simpson@canonical.com"
+LOIC = "loic.gomez@canonical.com"
+BARRY = "barry.price@canonical.com"
+
+
+def test_parse_amer_day_role_layout():
+    # The manager's real AMER paste: each engineer spans two columns (Day, Role).
+    text = (
+        "Date\tAfif\t\tAlejdg\t\tAlex L\t\tColin\t\tMatt\t\tNick\n"
+        "\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\n"
+        "Wed, Jun 10\t\tPVG\t\tGEN\t\tPS7+\t\tBVG\t\tOFF\t\tPS7+\n"
+    )
+    actions, errors = parse_schedule_paste(text)
+    assert errors == []
+    got = {a.email: (a.weekday, a.role, a.note) for a in actions}
+    assert got[AFIF] == ("WED", "PVG", None)
+    assert got[ALEXG] == ("WED", "GEN", None)
+    assert got[ALEXL] == ("WED", "Project", "PS7+")
+    assert got[COLIN] == ("WED", "BVG", None)
+    assert got[MATT] == ("WED", "OFF", None)
+    assert got[NICK] == ("WED", "Project", "PS7+")
+
+
+def test_parse_apac_day_role_layout():
+    text = (
+        "Date\tPaul\t\tHaw\t\tJames\t\tLoic\t\tBarry\n"
+        "\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\n"
+        "Thu, Jun 11\t\tGEN\t\tPS7+\t\tPS7+\t\tBVG\t\tPVG\n"
+    )
+    actions, errors = parse_schedule_paste(text)
+    assert errors == []
+    got = {a.email: (a.weekday, a.role, a.note) for a in actions}
+    assert got[PAUL] == ("THU", "GEN", None)
+    assert got[HAW] == ("THU", "Project", "PS7+")
+    assert got[JAMES] == ("THU", "Project", "PS7+")
+    assert got[LOIC] == ("THU", "BVG", None)
+    assert got[BARRY] == ("THU", "PVG", None)
+
+
+def test_paired_layout_tolerates_trimmed_trailing_role():
+    # Spreadsheets drop trailing empty cells on copy: Nick's role column is gone.
+    # The other engineers must still map correctly (no coincidental realignment).
+    text = (
+        "Date\tAfif\t\tAlejdg\t\tAlex L\t\tColin\t\tMatt\t\tNick\n"
+        "\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\tDay\tRole\n"
+        "Wed, Jun 10\t\tPVG\t\tGEN\t\tPS7+\t\tBVG\t\tOFF\n"
+    )
+    actions, errors = parse_schedule_paste(text)
+    assert errors == []
+    got = {a.email: a.role for a in actions}
+    assert got[AFIF] == "PVG" and got[ALEXG] == "GEN"
+    assert got[COLIN] == "BVG" and got[MATT] == "OFF"
+    assert NICK not in got  # trimmed role → simply absent, not misassigned
+
+
 def test_blank_cells_skipped_and_weekend_ignored():
     text = "Date\tColin\tNick\nMon, Jun 08\tBVG\t\nSat, Jun 13\tOFF\tOFF\n"
     actions, errors = parse_schedule_paste(text)

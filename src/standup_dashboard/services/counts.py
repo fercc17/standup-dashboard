@@ -32,6 +32,7 @@ from zoneinfo import ZoneInfo
 
 from .. import config
 from ..domain.coloring import (
+    ack_vs_triggered_level,
     closed_vs_new_level,
     closed_vs_new_total_level,
     count_level,
@@ -167,6 +168,35 @@ def _alert_cell(
         if _local_date(a.at, zone) in dates:
             ids.add(a.id)
             per_person.setdefault(_display_name(a.handler_email), set()).add(a.id)
+    return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
+
+
+def _alert_triggered_cell(alerts: list[Alert], members: set[str], dates: set[date]) -> Cell:
+    """Distinct incidents that fired (TRIGGERED) and were handled by ``members``.
+
+    Triggers are handler-less in PagerDuty, so each fired incident is attributed
+    to the region of the member who acked/resolved it, bucketed by that handler's
+    local trigger day — parallel to ``_alert_cell``. Incidents nobody on the team
+    handled aren't attributable to a region and are skipped (#169).
+    """
+    handler_of: dict[str, str] = {}
+    for a in alerts:
+        if a.handler_email in members and a.state in (
+            AlertState.ACKNOWLEDGED, AlertState.RESOLVED
+        ):
+            handler_of.setdefault(a.id, a.handler_email)
+    ids: set[str] = set()
+    per_person: dict[str, set[str]] = {}
+    for a in alerts:
+        if a.state is not AlertState.TRIGGERED:
+            continue
+        handler = handler_of.get(a.id)
+        if handler is None:
+            continue
+        zone = _handler_zone(handler)
+        if zone is not None and _local_date(a.at, zone) in dates:
+            ids.add(a.id)
+            per_person.setdefault(_display_name(handler), set()).add(a.id)
     return Cell(count=len(ids), breakdown={n: len(s) for n, s in per_person.items()})
 
 
@@ -329,9 +359,10 @@ def build_counts(
         return _local_date(t.created, zone) in dates
 
     def _closed_on(t: Ticket, dates: set[date]) -> bool:
-        # Closes credit the ticket's creation-time region (fixed at creation).
-        region = _creation_region(t)
-        return region in selected_set and t.is_done_date in dates
+        # Closes credit the ASSIGNEE's region (the engineer who closed it), so
+        # only work done by selected-region members counts — not the creation
+        # region. Matches Closed PR/MP attribution (#163).
+        return t.assignee_email in selected_members and t.is_done_date in dates
 
     def _row(label: str, dset: set[date], *, is_weekend: bool, is_total: bool) -> CountsRow:
         new_tickets = [t for t in scoped if _new_on(t, dset)]
@@ -349,6 +380,7 @@ def build_counts(
 
         ack = _alert_cell(alerts, selected_members, dset, AlertState.ACKNOWLEDGED)
         resolved = _alert_cell(alerts, selected_members, dset, AlertState.RESOLVED)
+        triggered = _alert_triggered_cell(alerts, selected_members, dset)
         total = _merge_cells([ack, resolved])
         mttr_sum, mttr_n = _alert_mttr(alerts, selected_members, dset)
         mtta_sum, mtta_n = _alert_mtta(alerts, selected_members, dset)
@@ -368,9 +400,9 @@ def build_counts(
         global_distinct = _alert_cell(alerts, counted_members, dset, None).count
         pct = (100.0 * region_distinct / global_distinct) if global_distinct else None
         # Closed %: the selected region's share of all ISReq closed that day
-        # (denominator = every closed ticket, each owned by its creation region).
+        # (denominator = every ticket closed by a counted member, by assignee).
         global_closed = sum(
-            1 for t in scoped if _creation_region(t) is not None and t.is_done_date in dset
+            1 for t in scoped if t.assignee_email in counted_members and t.is_done_date in dset
         )
         closed_pct = (100.0 * len(closed) / global_closed) if global_closed else None
         # ISDB closed (count + region share) — separate project column.
@@ -411,6 +443,7 @@ def build_counts(
             closed_ps5=closed_ps5_cell,
             closed_total=closed_total_cell,
             isdb_closed=_ticket_cell(isdb_closed_tickets, _assignee),
+            alerts_triggered=triggered,
             alerts_ack=ack,
             alerts_resolved=resolved,
             alerts_total=total,
@@ -426,7 +459,8 @@ def build_counts(
             alert_mtta_n=mtta_n,
             # Green/yellow/red bands (#143 follow-up). Volumes use the scaled cap;
             # the resolve rate and the MTTR/MTTA means are rates, never scaled.
-            ack_level=count_level(ack.count, green_cap),
+            triggered_level=count_level(triggered.count, green_cap),
+            ack_level=ack_vs_triggered_level(triggered.count, ack.count, region_count),
             total_level=count_level(total.count, green_cap),
             resolved_level=resolve_rate_level(resolved.count, ack.count),
             mttr_level=mttr_level(mttr_seconds),
@@ -464,6 +498,26 @@ def build_counts(
         prev.is_previous = True
         prev.region_alert_pct = None
         rows.append(prev)
+
+        # MTTR/MTTA deltas: each day row vs the previous day that had data
+        # (intra-pulse momentum); the Pulse total vs the previous pulse — the same
+        # vs-previous-pulse comparison the pulse-history table shows.
+        prev_mttr = prev_mtta = None
+        for r in rows:
+            if r.is_total:
+                continue
+            if prev_mttr is not None and r.alert_mttr_seconds is not None:
+                r.mttr_delta_seconds = r.alert_mttr_seconds - prev_mttr
+            if prev_mtta is not None and r.alert_mtta_seconds is not None:
+                r.mtta_delta_seconds = r.alert_mtta_seconds - prev_mtta
+            if r.alert_mttr_seconds is not None:
+                prev_mttr = r.alert_mttr_seconds
+            if r.alert_mtta_seconds is not None:
+                prev_mtta = r.alert_mtta_seconds
+        if total.alert_mttr_seconds is not None and prev.alert_mttr_seconds is not None:
+            total.mttr_delta_seconds = total.alert_mttr_seconds - prev.alert_mttr_seconds
+        if total.alert_mtta_seconds is not None and prev.alert_mtta_seconds is not None:
+            total.mtta_delta_seconds = total.alert_mtta_seconds - prev.alert_mtta_seconds
     return rows
 
 
@@ -517,7 +571,7 @@ def region_pulse_summary(
     for t in new_tickets:
         buckets[_new_bucket(t)].append(t)
     closed = [
-        t for t in scoped if _creation_region(t) == region and t.is_done_date in dates
+        t for t in scoped if t.assignee_email in members and t.is_done_date in dates
     ]
     # Closed [PR/MP Review] credited to the assignee's (owner's) region.
     closed_pr_mp = [
@@ -530,6 +584,7 @@ def region_pulse_summary(
     ]
     ack = _alert_cell(alerts, members, dates, AlertState.ACKNOWLEDGED)
     res = _alert_cell(alerts, members, dates, AlertState.RESOLVED)
+    triggered = _alert_triggered_cell(alerts, members, dates)
     mttr_sum, mttr_n = _alert_mttr(alerts, members, dates)
     mtta_sum, mtta_n = _alert_mtta(alerts, members, dates)
     cycle_sum, cycle_n = _ticket_cycle(closed)
@@ -544,6 +599,7 @@ def region_pulse_summary(
         "closed_ps5": _ticket_cell([t for t in closed if t.has_ps5_blockers], _assignee),
         "closed_total": _ticket_cell(closed, _assignee),
         "isdb_closed": _ticket_cell(isdb_closed, _assignee),
+        "alerts_triggered": triggered,
         "alerts_ack": ack,
         "alerts_resolved": res,
         "alerts_total": _merge_cells([ack, res]),
@@ -575,6 +631,11 @@ def accumulated_alerts_since(db, since: datetime) -> list[Alert]:
         if not snap.pagerduty_ok:
             continue
         for a in db.get_alerts(snap.id):
+            # Scope by the alert's own time, not just the snapshot's fetch time —
+            # an early/wide-window fetch can hold events from before ``since``
+            # (e.g. a previous pulse), which must not count here (#stale-prev-pulse).
+            if a.at < since:
+                continue
             key = (a.id, a.handler_email, a.state, a.at)
             existing = by_key.get(key)
             if existing is None or (a.title and not existing.title):
