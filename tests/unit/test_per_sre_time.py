@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from standup_dashboard.domain.models import (
     Alert,
     AlertState,
+    GitHubPRStats,
     Pulse,
     TouchEvent,
     TouchKind,
@@ -95,4 +96,71 @@ def test_build_panel_reports_alert_and_ticket_time(tmp_path):
     assert panel.ticket_time_label == "1h 30m"
     assert panel.alert_time_seconds == 1800        # 30m ack→resolve
     assert panel.alert_time_label == "30m"
+    # A single incident: overlap and no-overlap agree (#173).
+    assert panel.alert_union_seconds == 1800
+    # All worklog here is ISReq, so it lands under "Jira ticket", none under ISDB.
+    assert panel.jira_request_seconds == 5400
+    assert panel.jira_project_seconds == 0
+    db.close()
+
+
+def test_alert_time_overlap_vs_union(tmp_path):
+    # Two incidents this SRE resolved overlap in time. INC1 [10:00,10:10] = 10m,
+    # INC2 [10:05,10:12] = 7m. Overlap sums both (17m); no-overlap merges the
+    # shared 10:05–10:10 window → wall-clock 10:00–10:12 = 12m (#173).
+    db = Database(tmp_path / "t.db")
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
+    at = lambda h, m: datetime(2026, 6, 12, h, m, tzinfo=UTC)  # noqa: E731
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
+        alerts=[
+            Alert("INC1", E, AlertState.ACKNOWLEDGED, at(10, 0)),
+            Alert("INC1", E, AlertState.RESOLVED, at(10, 10)),
+            Alert("INC2", E, AlertState.ACKNOWLEDGED, at(10, 5)),
+            Alert("INC2", E, AlertState.RESOLVED, at(10, 12)),
+        ],
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert panel.alert_time_seconds == (10 + 7) * 60   # 17m, overlap double-counted
+    assert panel.alert_union_seconds == 12 * 60        # 12m wall-clock
+    db.close()
+
+
+def test_build_panel_reports_pr_stats(tmp_path):
+    # The GH PRs lines reflect the per-engineer per-pulse PR activity carried on
+    # the data (sourced from the GitHub fetch); zeros when unmapped/unconfigured (#173).
+    db = Database(tmp_path / "t.db")
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
+    data = DashboardData(
+        fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
+        github_prs={E: GitHubPRStats(created=4, merged=2, updated=6, reviewed=3)},
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert (panel.pr_stats.created, panel.pr_stats.merged,
+            panel.pr_stats.updated, panel.pr_stats.reviewed) == (4, 2, 6, 3)
+    # Unmapped engineer → all zeros, never a KeyError.
+    other = build_panel(db, "colin.misare@canonical.com", data, NOW, region_key="AMER")
+    assert other.pr_stats.created == 0
+    db.close()
+
+
+def test_ticket_time_split_by_project(tmp_path):
+    # ISDB worklog feeds "Jira project", ISReq worklog feeds "Jira ticket" (#173).
+    db = Database(tmp_path / "t.db")
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
+        touches=[
+            TouchEvent("ISDB-1", E, TouchKind.WORKLOG, datetime(2026, 6, 12, 17, tzinfo=UTC),
+                       seconds=3600),
+            TouchEvent("ISReq-9", E, TouchKind.WORKLOG, datetime(2026, 6, 11, 9, tzinfo=UTC),
+                       seconds=1800),
+        ],
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert panel.jira_project_seconds == 3600          # ISDB
+    assert panel.jira_request_seconds == 1800          # ISReq
+    assert panel.ticket_time_seconds == 5400           # total, both projects
     db.close()

@@ -9,6 +9,7 @@ import pytest
 import respx
 
 from standup_dashboard.clients.base import ReadOnlyClient
+from standup_dashboard.clients.github import GitHubClient
 from standup_dashboard.clients.jira import JiraClient
 from standup_dashboard.clients.pagerduty import PagerDutyClient
 
@@ -21,7 +22,7 @@ def test_base_exposes_no_mutating_helpers():
         assert not hasattr(ReadOnlyClient, f"_{name}")
 
 
-@pytest.mark.parametrize("client_cls", [JiraClient, PagerDutyClient])
+@pytest.mark.parametrize("client_cls", [JiraClient, PagerDutyClient, GitHubClient])
 def test_clients_expose_no_mutating_methods(client_cls):
     public = {n for n in dir(client_cls) if not n.startswith("_")}
     for verb in _MUTATING:

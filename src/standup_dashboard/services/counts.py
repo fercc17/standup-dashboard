@@ -631,6 +631,11 @@ def accumulated_alerts_since(db, since: datetime) -> list[Alert]:
         if not snap.pagerduty_ok:
             continue
         for a in db.get_alerts(snap.id):
+            # Scope by the alert's own time, not just the snapshot's fetch time —
+            # an early/wide-window fetch can hold events from before ``since``
+            # (e.g. a previous pulse), which must not count here (#stale-prev-pulse).
+            if a.at < since:
+                continue
             key = (a.id, a.handler_email, a.state, a.at)
             existing = by_key.get(key)
             if existing is None or (a.title and not existing.title):

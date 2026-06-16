@@ -252,23 +252,74 @@ class TicketVM:
 
 
 @dataclass
+class GitHubPRStats:
+    """Per-engineer GitHub PR activity within the current pulse window (#173).
+
+    Four Search-API counts, scoped to the configured org:
+      * ``created``  — PRs the engineer opened this pulse;
+      * ``merged``   — PRs they authored that merged this pulse;
+      * ``updated``  — PRs they authored with any activity this pulse;
+      * ``reviewed`` — PRs they reviewed that were active this pulse. GitHub has
+        no review-date qualifier, so this is approximated by ``reviewed-by`` over
+        the pulse's ``updated`` window (a review bumps the PR's updated time).
+    """
+    created: int = 0
+    merged: int = 0
+    updated: int = 0
+    reviewed: int = 0
+
+
+@dataclass
 class DetailPanelVM:
     email: str
     name: str
     role: Role
     groups: dict[str, list[TicketVM]] = field(default_factory=dict)
-    # Time spent this pulse so far (#167): alerts = ack→resolve for incidents this
-    # SRE resolved; tickets = worklog time on tickets assigned to them.
+    # Time spent this pulse so far (#167, #173). Alerts come two ways:
+    #   * ``alert_time_seconds`` — ack→resolve summed per incident this SRE
+    #     resolved (overlapping incidents counted in both, the original metric);
+    #   * ``alert_union_seconds`` — the same intervals merged into wall-clock
+    #     time, so concurrent incidents aren't double-counted (≤ the overlap one).
+    # Jira worklog time, split by project: ISDB (``jira_project_seconds``) vs
+    # ISReq (``jira_request_seconds``); ``ticket_time_seconds`` is their total.
     alert_time_seconds: int = 0
+    alert_union_seconds: int = 0
     ticket_time_seconds: int = 0
+    jira_project_seconds: int = 0
+    jira_request_seconds: int = 0
+    # Per-pulse GitHub PR activity for this SRE (#173); zeros when GitHub isn't
+    # configured or the engineer isn't mapped to a login.
+    pr_stats: GitHubPRStats = field(default_factory=GitHubPRStats)
 
     @property
     def alert_time_label(self) -> str:
         return hours_label(self.alert_time_seconds)
 
     @property
+    def alert_union_label(self) -> str:
+        return hours_label(self.alert_union_seconds)
+
+    @property
     def ticket_time_label(self) -> str:
         return hours_label(self.ticket_time_seconds)
+
+    @property
+    def jira_project_label(self) -> str:
+        return hours_label(self.jira_project_seconds)
+
+    @property
+    def jira_request_label(self) -> str:
+        return hours_label(self.jira_request_seconds)
+
+    @property
+    def total_time_seconds(self) -> int:
+        """Headline hands-on time this pulse: alert wall-clock (no-overlap) + Jira
+        worklog on ISDB + ISReq. Shown next to the role (#173)."""
+        return self.alert_union_seconds + self.jira_project_seconds + self.jira_request_seconds
+
+    @property
+    def total_time_label(self) -> str:
+        return hours_label(self.total_time_seconds)
 
 
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).
