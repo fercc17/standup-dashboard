@@ -103,6 +103,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         "show_management": schedule.get_show_management(db),
         "oncall_name": None,
         "weekend_recap": None,
+        "open_summary": None,
         "counts_rows": [],
         "pulse_history": [],
         "banner": None,
@@ -137,6 +138,7 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
         pulse_history=presenters.build_pulse_history(db, data, selected_regions, now),
         oncall_name=(next_eng.name if next_eng else next_email),
         weekend_recap=presenters.build_weekend_recap(db, data, now),
+        open_summary=presenters.build_open_summary(data),
     )
 
     if latest is not None:
@@ -417,7 +419,8 @@ async def roster_add(request: Request) -> HTMLResponse:
     form = await request.form()
     try:
         roster.add_engineer(
-            ctx.db, form.get("name", ""), form.get("email", ""), form.get("region", ""), _now()
+            ctx.db, form.get("name", ""), form.get("email", ""), form.get("region", ""), _now(),
+            github_login=form.get("github_login", ""),
         )
     except ValueError as exc:
         return _render_roster_modal(request, error=str(exc))

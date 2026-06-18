@@ -32,6 +32,28 @@ def test_add_engineer_appears_in_region(tmp_path):
     db.close()
 
 
+def test_add_engineer_with_github_login(tmp_path):
+    db = _db(tmp_path)
+    # "@Handle" is normalised to a bare lowercase login (GitHub is case-insensitive).
+    roster.add_engineer(
+        db, "Gh Person", "gh.person@canonical.com", "AMER", now(), github_login="@GhPerson"
+    )
+    assert config.ENGINEERS_BY_EMAIL["gh.person@canonical.com"].github_login == "ghperson"
+    # The login survives a reload from the DB and feeds the GH PRs card mapping.
+    roster.load(db)
+    assert config.github_logins()["gh.person@canonical.com"] == "ghperson"
+    db.close()
+
+
+def test_add_engineer_without_github_login(tmp_path):
+    db = _db(tmp_path)
+    roster.add_engineer(db, "No Gh", "no.gh@canonical.com", "AMER", now())
+    assert config.ENGINEERS_BY_EMAIL["no.gh@canonical.com"].github_login == ""
+    # Unmapped engineers are simply absent from the login map (PR counts stay 0).
+    assert "no.gh@canonical.com" not in config.github_logins()
+    db.close()
+
+
 def test_move_engineer_between_regions(tmp_path):
     db = _db(tmp_path)
     roster.move_engineer(db, ALEX, "EMEA", now())

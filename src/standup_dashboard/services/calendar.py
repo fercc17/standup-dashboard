@@ -23,12 +23,22 @@ from icalendar import Calendar
 
 from ..domain.models import CalendarAvail
 
-WEEKLY_CAPACITY_H = 40
+WORKDAY_S = 8 * 3600         # 40h/week ÷ 5 = 8h capacity per weekday
 PTO_THRESHOLD_S = 8 * 3600
 MEETING_MAX_S = 3600         # ≤1h is a real meeting; longer is a blocker/SD hold
 SD_MIN_S = int(3.5 * 3600)   # a "4h" SD block, with tolerance
 SD_MAX_S = int(4.5 * 3600)
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _weekday_count(start: datetime, end: datetime) -> int:
+    """Number of Mon–Fri dates in the half-open window [start, end)."""
+    d, n = start.date(), 0
+    while d < end.date():
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
 
 
 def _merge_seconds(intervals: list[tuple[datetime, datetime]]) -> int:
@@ -50,8 +60,28 @@ def _merge_seconds(intervals: list[tuple[datetime, datetime]]) -> int:
 def compute_availability(
     ical_text: str, window_start: datetime, window_end: datetime
 ) -> CalendarAvail:
-    """Busy/open/PTO/SD for the pulse window from a free/busy iCal feed."""
+    """Busy/open/PTO/SD for one window from a free/busy iCal feed (parses the feed)."""
+    return _availability(Calendar.from_ical(ical_text), window_start, window_end)
+
+
+def compute_availability_windows(
+    ical_text: str, windows: list[tuple[datetime, datetime]]
+) -> list[CalendarAvail]:
+    """Availability for several windows, parsing the (large) feed only once.
+
+    Parsing a full free/busy feed dominates the cost (≈3s for a 2 MB feed), so the
+    fetch path derives the pulse + today windows from a single parse instead of
+    re-parsing per window — and runs this off the event loop (it's CPU-bound, and
+    blocking the loop would starve the other engineers' concurrent HTTP fetches).
+    """
     cal = Calendar.from_ical(ical_text)
+    return [_availability(cal, s, e) for s, e in windows]
+
+
+def _availability(
+    cal: Calendar, window_start: datetime, window_end: datetime
+) -> CalendarAvail:
+    """Busy/open/PTO/SD for ``[window_start, window_end)`` from a parsed feed."""
     meetings: list[tuple[datetime, datetime]] = []   # ≤1h blocks → the busy number
     pto_weekdays: set = set()
     sd_by_week: dict = {}  # (iso-year, iso-week) → weekday abbrev of its 4h block
@@ -98,9 +128,8 @@ def compute_availability(
         # >1h blockers (between-shift holds) are neither busy nor counted vs open.
 
     busy_s = _merge_seconds(meetings)
-    pto_s = len(pto_weekdays) * 8 * 3600
-    weeks = (window_end - window_start).days / 7
-    capacity = int(WEEKLY_CAPACITY_H * 3600 * weeks)
+    pto_s = len(pto_weekdays) * WORKDAY_S
+    capacity = _weekday_count(window_start, window_end) * WORKDAY_S
     open_s = max(0, capacity - busy_s)
     sd_days = tuple(sorted(set(sd_by_week.values()), key=_WEEKDAYS.index))
     return CalendarAvail(

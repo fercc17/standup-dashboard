@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from standup_dashboard.domain.models import (
     Alert,
     AlertState,
+    CalendarAvail,
     Pulse,
     Ticket,
     TouchEvent,
@@ -20,6 +21,35 @@ E = "alexandre.gomes@canonical.com"
 
 def _dt(d, h=12):
     return datetime(2026, 6, d, h, tzinfo=UTC)
+
+
+def test_calendar_merges_per_engineer_across_fetches(tmp_path):
+    """A later refresh that transiently drops one engineer's iCal feed must keep
+    that engineer's last-good calendar, not blank them (#cal)."""
+    db = Database(tmp_path / "t.db")
+    pulse = [Pulse("ISReq", 202, "s", _dt(8), _dt(20))]
+    fer, jam = "fernando.carrillo.castro@canonical.com", "james.simpson@canonical.com"
+
+    # Fetch 1: both engineers' calendars came back.
+    f1 = db.create_fetch_snapshot(_dt(10), True, True, True, "")
+    db.insert_pulses(f1, pulse)
+    db.insert_calendar_avail(f1, {
+        fer: CalendarAvail(busy_seconds=3600, has_data=True, busy_today_seconds=1800),
+        jam: CalendarAvail(busy_seconds=7200, has_data=True, busy_today_seconds=600),
+    })
+
+    # Fetch 2: James's feed timed out, only Fernando's returned (with a new value).
+    f2 = db.create_fetch_snapshot(_dt(12), True, True, True, "")
+    db.insert_pulses(f2, pulse)
+    db.insert_calendar_avail(f2, {
+        fer: CalendarAvail(busy_seconds=5400, has_data=True, busy_today_seconds=2400),
+    })
+
+    merged = presenters.load_merged_data(db, _dt(12, 18))
+    # Fernando updates to the latest fetch; James survives from fetch 1.
+    assert merged.calendar[fer].busy_today_seconds == 2400
+    assert merged.calendar[jam].busy_today_seconds == 600
+    db.close()
 
 
 def test_merge_accumulates_across_fetches(tmp_path):

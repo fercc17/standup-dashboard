@@ -10,6 +10,26 @@
   {% if t.status %}<span class="tstatus">{{ t.status }}</span>{% endif %}
   {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
   {% if t.pulses_open %}<span class="badge stale" title="Highest priority, open for more than {{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}">&#9203; &gt;{{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}</span>{% endif %}
+  {% if t.time_label %}<span class="ttime" title="{{ t.time_title }}">&#9201; {{ t.time_label }}</span>{% endif %}
+</div>
+{% endmacro %}
+{% macro metric_col(head, total, ao, ano, jp, jt, prs, cbusy, copen, has_cal, sd) %}
+<div class="pt-col">
+  <div class="pt-head">{{ head }}</div>
+  <span class="pt-total" title="Total engaged time = alerts (no overlap) + Jira project + Jira ticket + busy">&#9201; total <strong>{{ total }}</strong></span>
+  <span title="Alert time, summed per incident (overlaps double-counted)">&#128293; alerts overlap {{ ao }}</span>
+  <span title="Alert time, overlapping incidents merged to wall-clock">&#128293; alerts no overlap {{ ano }}</span>
+  <span title="Jira worklog on ISDB (project work)">&#128203; Jira project {{ jp }}</span>
+  <span title="Jira worklog on ISReq (request/ticket work)">&#128203; Jira ticket {{ jt }}</span>
+  <span title="GitHub PRs opened">&#128279; GH PRs opened {{ prs.created }}</span>
+  <span title="GitHub PRs merged">&#128279; GH PRs merged {{ prs.merged }}</span>
+  <span title="GitHub PRs touched (any activity)">&#128279; GH PRs touched {{ prs.updated }}</span>
+  <span title="GitHub PRs reviewed">&#128279; GH PRs reviewed {{ prs.reviewed }}</span>
+  {% if has_cal %}
+  <span title="Meeting time — &le;1h blocks only; &gt;1h blockers, SD and PTO excluded">&#128197; busy {{ cbusy }}</span>
+  <span title="Free time = capacity &minus; busy; &gt;1h blockers and PTO don't reduce it">&#128197; open {{ copen }}</span>
+  {% if sd %}<span title="Self-development block (4h/week) — the day it falls on">&#127891; SD {{ sd | join(', ') }}</span>{% endif %}
+  {% endif %}
 </div>
 {% endmacro %}
 <div class="panel" data-engineer="{{ panel.email }}" data-region="{{ region_key }}">
@@ -26,31 +46,24 @@
         {% endfor %}
       </select>
     </label>
-    <span class="total-time" title="Total hands-on time this pulse: alerts (no overlap) + Jira project + Jira ticket">&#9201; total {{ panel.total_time_label }}</span>
     <button class="close" data-close-panel title="Close">&times;</button>
   </div>
   <div class="panel-time">
-    <div class="time-row">
-      <span title="Alert time this pulse, summed per incident (ack&rarr;resolve for incidents this SRE resolved) — concurrent incidents counted in each span">&#128293; alerts overlap {{ panel.alert_time_label }}</span>
-      <span title="Alert time this pulse with overlapping incident spans merged into wall-clock — concurrent incidents counted once">&#128293; alerts no overlap {{ panel.alert_union_label }}</span>
-    </div>
-    <div class="time-row">
-      <span title="Jira worklog this pulse on ISDB (project work) assigned to this SRE">&#128203; Jira project {{ panel.jira_project_label }}</span>
-      <span title="Jira worklog this pulse on ISReq (request/ticket work) assigned to this SRE">&#128203; Jira ticket {{ panel.jira_request_label }}</span>
-    </div>
-    <div class="time-row">
-      <span title="PRs this SRE opened during the current pulse (org-scoped)">&#128279; PRs opened {{ panel.pr_stats.created }}</span>
-      <span title="PRs this SRE authored that merged during the current pulse">&#128279; PRs merged {{ panel.pr_stats.merged }}</span>
-      <span title="PRs this SRE authored with any activity during the current pulse">&#128279; PRs touched {{ panel.pr_stats.updated }}</span>
-      <span title="PRs this SRE reviewed that were active during the current pulse (GitHub can't date-filter reviews, so this is approximated by review activity within the pulse)">&#128279; PRs reviewed {{ panel.pr_stats.reviewed }}</span>
-    </div>
-    {% if panel.calendar.has_data %}
-    <div class="time-row">
-      <span title="Meeting time this pulse — only blocks of 1h or less; your &gt;1h blockers, SD and PTO are excluded">&#128197; busy {{ panel.cal_busy_label }}</span>
-      <span title="Free time this pulse: 40h/week capacity minus meeting time (busy). Your &gt;1h blockers (off-time between shifts) and PTO don't reduce it">&#128197; open {{ panel.cal_open_label }}</span>
-      {% if panel.calendar.sd_days %}<span title="Self-development block (4h once per week) — the day it falls on">&#127891; SD {{ panel.calendar.sd_days | join(', ') }}</span>{% endif %}
-    </div>
-    {% endif %}
+    {{ metric_col('24H', panel.total_24h_label,
+                  panel.alert_time_24h_label, panel.alert_union_24h_label,
+                  panel.jira_project_24h_label, panel.jira_request_24h_label,
+                  panel.pr_stats_24h, panel.cal_busy_24h_label, panel.cal_open_24h_label,
+                  panel.calendar.has_data, none) }}
+    {{ metric_col('Today', panel.total_today_label,
+                  panel.alert_time_today_label, panel.alert_union_today_label,
+                  panel.jira_project_today_label, panel.jira_request_today_label,
+                  panel.pr_stats_today, panel.cal_busy_today_label, panel.cal_open_today_label,
+                  panel.calendar.has_data, none) }}
+    {{ metric_col('Pulse', panel.total_pulse_label,
+                  panel.alert_time_label, panel.alert_union_label,
+                  panel.jira_project_label, panel.jira_request_label,
+                  panel.pr_stats, panel.cal_busy_label, panel.cal_open_label,
+                  panel.calendar.has_data, panel.calendar.sd_days) }}
   </div>
   {% for group, tickets in panel.groups.items() %}
   <div class="group-title">{{ group }}{% if tickets %} <span class="group-count">&times;{{ tickets | length }}</span>{% endif %}</div>

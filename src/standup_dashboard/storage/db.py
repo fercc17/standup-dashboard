@@ -126,6 +126,14 @@ CREATE TABLE IF NOT EXISTS github_pr (
     merged         INTEGER NOT NULL DEFAULT 0,
     updated        INTEGER NOT NULL DEFAULT 0,
     reviewed       INTEGER NOT NULL DEFAULT 0,
+    created_24h    INTEGER NOT NULL DEFAULT 0,
+    merged_24h     INTEGER NOT NULL DEFAULT 0,
+    updated_24h    INTEGER NOT NULL DEFAULT 0,
+    reviewed_24h   INTEGER NOT NULL DEFAULT 0,
+    created_today  INTEGER NOT NULL DEFAULT 0,
+    merged_today   INTEGER NOT NULL DEFAULT 0,
+    updated_today  INTEGER NOT NULL DEFAULT 0,
+    reviewed_today INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (fetch_id, engineer_email)
 );
 
@@ -138,6 +146,10 @@ CREATE TABLE IF NOT EXISTS calendar_avail (
     open_seconds   INTEGER NOT NULL DEFAULT 0,
     pto_seconds    INTEGER NOT NULL DEFAULT 0,
     sd_days        TEXT NOT NULL DEFAULT '',
+    busy_today     INTEGER NOT NULL DEFAULT 0,
+    open_today     INTEGER NOT NULL DEFAULT 0,
+    busy_24h       INTEGER NOT NULL DEFAULT 0,
+    open_24h       INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (fetch_id, engineer_email)
 );
 
@@ -170,10 +182,11 @@ CREATE TABLE IF NOT EXISTS ui_state (
 );
 
 CREATE TABLE IF NOT EXISTS roster_addition (
-    email      TEXT NOT NULL,
-    name       TEXT NOT NULL,
-    region     TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    email        TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    region       TEXT NOT NULL,
+    github_login TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS region_override (
@@ -304,20 +317,25 @@ class Database:
         # shape for DBs created under the old single-column schema.
         gh_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(github_pr)")}
         if "open_prs" in gh_cols:
-            self._conn.executescript(
-                """
-                DROP TABLE github_pr;
-                CREATE TABLE github_pr (
-                    fetch_id       INTEGER NOT NULL REFERENCES fetch_snapshot(id),
-                    engineer_email TEXT NOT NULL,
-                    created        INTEGER NOT NULL DEFAULT 0,
-                    merged         INTEGER NOT NULL DEFAULT 0,
-                    updated        INTEGER NOT NULL DEFAULT 0,
-                    reviewed       INTEGER NOT NULL DEFAULT 0,
-                    PRIMARY KEY (fetch_id, engineer_email)
-                );
-                """
-            )
+            self._conn.execute("DROP TABLE github_pr")
+            self._conn.executescript(SCHEMA)  # recreate to the current shape
+        else:
+            for col in ("created_24h", "merged_24h", "updated_24h", "reviewed_24h",
+                        "created_today", "merged_today", "updated_today", "reviewed_today"):
+                if col not in gh_cols:
+                    self._conn.execute(
+                        f"ALTER TABLE github_pr ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        cal_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(calendar_avail)")}
+        for col in ("busy_today", "open_today", "busy_24h", "open_24h"):
+            if cal_cols and col not in cal_cols:
+                self._conn.execute(
+                    f"ALTER TABLE calendar_avail ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        # Roster additions gained a GitHub login so UI-added SREs get PR metrics
+        # like seed-roster members (#16/#173); back-fill the column on old DBs.
+        ra_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(roster_addition)")}
+        if ra_cols and "github_login" not in ra_cols:
+            self._conn.execute(
+                "ALTER TABLE roster_addition ADD COLUMN github_login TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         self._conn.close()
@@ -489,43 +507,65 @@ class Database:
         )
         self._conn.commit()
 
-    def insert_github_prs(self, fetch_id: int, stats: dict[str, GitHubPRStats]) -> None:
-        """Persist per-engineer per-pulse PR activity for this fetch (#173)."""
+    def insert_github_prs(
+        self, fetch_id: int, pulse: dict[str, GitHubPRStats],
+        day: dict[str, GitHubPRStats], today: dict[str, GitHubPRStats],
+    ) -> None:
+        """Persist per-engineer PR activity — pulse + last 24h + today (#173)."""
+        rows = []
+        for email, p in pulse.items():
+            d = day.get(email, GitHubPRStats())
+            t = today.get(email, GitHubPRStats())
+            rows.append((fetch_id, email, p.created, p.merged, p.updated, p.reviewed,
+                         d.created, d.merged, d.updated, d.reviewed,
+                         t.created, t.merged, t.updated, t.reviewed))
         self._conn.executemany(
             "INSERT OR IGNORE INTO github_pr"
-            " (fetch_id, engineer_email, created, merged, updated, reviewed)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            [(fetch_id, email, s.created, s.merged, s.updated, s.reviewed)
-             for email, s in stats.items()],
+            " (fetch_id, engineer_email, created, merged, updated, reviewed,"
+            "  created_24h, merged_24h, updated_24h, reviewed_24h,"
+            "  created_today, merged_today, updated_today, reviewed_today)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows,
         )
         self._conn.commit()
 
-    def get_github_prs(self, fetch_id: int) -> dict[str, GitHubPRStats]:
+    def get_github_prs(
+        self, fetch_id: int
+    ) -> tuple[dict[str, GitHubPRStats], dict[str, GitHubPRStats], dict[str, GitHubPRStats]]:
+        """(pulse, last-24h, today) per-engineer PR stats for this fetch."""
         rows = self._conn.execute(
-            "SELECT engineer_email, created, merged, updated, reviewed"
+            "SELECT engineer_email, created, merged, updated, reviewed,"
+            " created_24h, merged_24h, updated_24h, reviewed_24h,"
+            " created_today, merged_today, updated_today, reviewed_today"
             " FROM github_pr WHERE fetch_id = ?", (fetch_id,)
         ).fetchall()
-        return {
-            r["engineer_email"]: GitHubPRStats(
-                created=r["created"], merged=r["merged"],
-                updated=r["updated"], reviewed=r["reviewed"])
-            for r in rows
-        }
+        pulse = {r["engineer_email"]: GitHubPRStats(
+            r["created"], r["merged"], r["updated"], r["reviewed"]) for r in rows}
+        day = {r["engineer_email"]: GitHubPRStats(
+            r["created_24h"], r["merged_24h"], r["updated_24h"], r["reviewed_24h"])
+            for r in rows}
+        today = {r["engineer_email"]: GitHubPRStats(
+            r["created_today"], r["merged_today"], r["updated_today"], r["reviewed_today"])
+            for r in rows}
+        return pulse, day, today
 
     def insert_calendar_avail(self, fetch_id: int, avail: dict[str, CalendarAvail]) -> None:
-        """Persist per-engineer calendar busy/open for this fetch (#cal)."""
+        """Persist per-engineer calendar busy/open — pulse + today + 24h (#cal)."""
         self._conn.executemany(
             "INSERT OR IGNORE INTO calendar_avail"
-            " (fetch_id, engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            " (fetch_id, engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days,"
+            "  busy_today, open_today, busy_24h, open_24h)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(fetch_id, email, a.busy_seconds, a.open_seconds, a.pto_seconds,
-              ",".join(a.sd_days)) for email, a in avail.items()],
+              ",".join(a.sd_days), a.busy_today_seconds, a.open_today_seconds,
+              a.busy_24h_seconds, a.open_24h_seconds)
+             for email, a in avail.items()],
         )
         self._conn.commit()
 
     def get_calendar_avail(self, fetch_id: int) -> dict[str, CalendarAvail]:
         rows = self._conn.execute(
-            "SELECT engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days"
+            "SELECT engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days,"
+            " busy_today, open_today, busy_24h, open_24h"
             " FROM calendar_avail WHERE fetch_id = ?", (fetch_id,)
         ).fetchall()
         return {
@@ -533,7 +573,9 @@ class Database:
                 busy_seconds=r["busy_seconds"], open_seconds=r["open_seconds"],
                 pto_seconds=r["pto_seconds"],
                 sd_days=tuple(d for d in r["sd_days"].split(",") if d),
-                has_data=True)
+                has_data=True,
+                busy_today_seconds=r["busy_today"], open_today_seconds=r["open_today"],
+                busy_24h_seconds=r["busy_24h"], open_24h_seconds=r["open_24h"])
             for r in rows
         }
 
@@ -672,20 +714,23 @@ class Database:
 
     # -- roster overrides (added engineers + region moves, #16) --------------
 
-    def add_roster_engineer(self, name: str, email: str, region: str, now: datetime) -> None:
+    def add_roster_engineer(
+        self, name: str, email: str, region: str, now: datetime, github_login: str = ""
+    ) -> None:
         self._conn.execute(
-            "INSERT INTO roster_addition (email, name, region, created_at) VALUES (?, ?, ?, ?)",
-            (email, name, region, now.isoformat()),
+            "INSERT INTO roster_addition (email, name, region, github_login, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (email, name, region, github_login, now.isoformat()),
         )
         self._conn.commit()
 
-    def get_roster_additions(self) -> list[tuple[str, str, str]]:
-        """Latest (name, email, region) per added engineer."""
+    def get_roster_additions(self) -> list[tuple[str, str, str, str]]:
+        """Latest (name, email, region, github_login) per added engineer."""
         rows = self._conn.execute(
-            "SELECT name, email, region FROM roster_addition ra WHERE created_at = ("
+            "SELECT name, email, region, github_login FROM roster_addition ra WHERE created_at = ("
             "  SELECT MAX(created_at) FROM roster_addition WHERE email = ra.email)"
         ).fetchall()
-        return [(r["name"], r["email"], r["region"]) for r in rows]
+        return [(r["name"], r["email"], r["region"], r["github_login"]) for r in rows]
 
     def set_region_override(self, email: str, region: str, now: datetime) -> None:
         self._conn.execute(

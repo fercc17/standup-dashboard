@@ -244,10 +244,43 @@ def jira_browse_url(issue_key: str) -> str:
     return f"{JIRA_BASE_URL}/browse/{issue_key}"
 
 
+# Saved Jira filters the open-work summary line links to — one curated filter per
+# open-work category (#summary-links). Built from JIRA_BASE_URL, so a different
+# Jira instance only needs new filter ids here.
+JIRA_OPEN_FILTERS: dict[str, int] = {
+    "highest": 39785,       # Open IS Highest
+    "ps5": 39782,           # Open ps5-blockers
+    "ps5_highest": 40098,   # Open ps5-blockers at Highest
+    "pr_mp": 40086,         # Open PR/MPs
+}
+
+
+def jira_filter_url(filter_id: int) -> str:
+    """Jira issue-navigator URL for a saved filter id."""
+    return f"{JIRA_BASE_URL}/issues/?filter={filter_id}"
+
+
+# PagerDuty web subdomain (the UI host, distinct from the api.pagerduty.com REST
+# host). Used only to deep-link the "Ongoing alerts" count to the live incident
+# list. Override with STANDUP_PD_SUBDOMAIN for another account.
+PAGERDUTY_SUBDOMAIN = os.environ.get("STANDUP_PD_SUBDOMAIN", "canonical")
+
+
+def pagerduty_open_incidents_url() -> str:
+    """PagerDuty UI link to the team's still-open (triggered + acknowledged)
+    incidents — what the 'Ongoing alerts' summary count reflects (#summary-links)."""
+    url = (f"https://{PAGERDUTY_SUBDOMAIN}.pagerduty.com/incidents"
+           "?status=triggered,acknowledged")
+    if PAGERDUTY_TEAM_IDS:
+        url += "&team_ids=" + ",".join(PAGERDUTY_TEAM_IDS)
+    return url
+
+
 # Whether to pull per-engineer calendar free/busy (#cal). The public Google iCal
 # URL is derivable from the email, but only resolves for calendars the person has
-# made public — off by default; enable with STANDUP_CALENDAR=1.
-CALENDAR_ENABLED = os.environ.get("STANDUP_CALENDAR", "") not in ("", "0", "false")
+# made public (others 404 fast and are skipped). On by default; set
+# STANDUP_CALENDAR=0 to disable (e.g. to skip the extra fetch entirely).
+CALENDAR_ENABLED = os.environ.get("STANDUP_CALENDAR", "1").lower() not in ("0", "false", "no")
 
 
 def calendar_ical_url(email: str) -> str:

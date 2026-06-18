@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from .. import config
 from ..clients import github as gh_mod
@@ -33,10 +34,10 @@ from ..domain.models import (
 from ..settings import Secrets
 from ..storage.db import Database
 from ..storage.snapshots import SnapshotWriter
-from .calendar import compute_availability
+from .calendar import compute_availability_windows
 from .oncall import resolve_oncall
 from .pulse import current_pulse, parse_jira_dt, previous_pulse, resolve_pulses
-from .touches import extract_touches, parse_ticket
+from .touches import extract_touches, parse_ticket, seed_account_emails
 
 logger = logging.getLogger("standup_dashboard.fetch")
 
@@ -67,7 +68,10 @@ class ICalResult:
 @dataclass
 class GitHubResult:
     ok: bool = True
-    pr_stats: dict[str, GitHubPRStats] = field(default_factory=dict)  # email → pulse PR stats
+    # email → PR stats: pulse window, the last-24h subset, and the today subset
+    pr_stats: dict[str, GitHubPRStats] = field(default_factory=dict)
+    pr_stats_24h: dict[str, GitHubPRStats] = field(default_factory=dict)
+    pr_stats_today: dict[str, GitHubPRStats] = field(default_factory=dict)
 
 
 @dataclass
@@ -134,7 +138,22 @@ async def _fetch_jira(
             except Exception:  # noqa: BLE001
                 logger.exception("Jira previous-pulse search failed")
 
-            res.tickets = [parse_ticket(issue) for issue in issues_by_key.values()]
+            # Resolve actors to roster emails before parsing. Atlassian hides
+            # emailAddress for private-profile accounts (e.g. Colin Misare, Loïc
+            # Gomez), so attribution by email alone drops their tickets/touches.
+            # Seed accountId→email from issues that DO expose one, then look up
+            # only the roster members still unresolved (#priv-email).
+            acct_to_email = seed_account_emails(issues_by_key.values())
+            missing = roster - set(acct_to_email.values())
+            if missing:
+                try:
+                    acct_to_email.update(await jira.account_ids_for(missing))
+                except Exception:  # noqa: BLE001 — fall back to email-only attribution
+                    logger.exception("Jira account-id lookup failed")
+
+            res.tickets = [
+                parse_ticket(issue, acct_to_email) for issue in issues_by_key.values()
+            ]
 
             # Fetch comments + worklogs per issue concurrently (bounded).
             sem = asyncio.Semaphore(10)
@@ -157,6 +176,7 @@ async def _fetch_jira(
                     window_start=window_start,
                     window_end=now,
                     roster_emails=roster,
+                    account_emails=acct_to_email,
                 )
 
             touch_lists = await asyncio.gather(
@@ -301,18 +321,24 @@ async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
     # qualifiers are inclusive, so the upper bound is the pulse's last day.
     _, pstart, pend = current_pulse(now.astimezone(UTC).date())
     until = pend - timedelta(days=1)
+    cutoff = now - timedelta(hours=24)   # last-24h subset of the pulse window
     try:
         async with gh_mod.make_async_client(secrets.github_token) as hc:
             gh = gh_mod.GitHubClient(hc)
             sem = asyncio.Semaphore(config.GITHUB_FETCH_CONCURRENCY)
 
-            async def _stats(email: str, login: str) -> tuple[str, GitHubPRStats | None]:
+            async def _stats(
+                email: str, login: str
+            ) -> tuple[str, tuple[GitHubPRStats, GitHubPRStats, GitHubPRStats] | None]:
                 # Isolate per-login failures (e.g. an unsearchable handle 422s):
                 # one bad login must not abort the gather and zero out everyone.
+                # "today" = the engineer's own local midnight, bucketed locally.
+                today_cutoff, _ = _today_window(email, now)
                 async with sem:
                     try:
-                        return email, await gh.pr_pulse_stats(
-                            login, since=pstart, until=until, org=config.GITHUB_ORG
+                        return email, await gh.pr_activity(
+                            login, since=pstart, until=until, cutoff=cutoff,
+                            today=today_cutoff, org=config.GITHUB_ORG,
                         )
                     except Exception:  # noqa: BLE001
                         logger.exception("GitHub PR stats failed for %s (%s)", login, email)
@@ -322,20 +348,38 @@ async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
                 *(_stats(e, login) for e, login in logins.items())
             ):
                 if st is not None:
-                    res.pr_stats[email] = st
+                    (res.pr_stats[email], res.pr_stats_24h[email],
+                     res.pr_stats_today[email]) = st
     except Exception:  # noqa: BLE001
         logger.exception("GitHub fetch failed")
         res.ok = False
     return res
 
 
+def _today_window(email: str, now: datetime) -> tuple[datetime, datetime]:
+    """``[local-midnight, next local-midnight)`` for the engineer's own day (#cal).
+
+    The 24H card column means "that particular day" in the engineer's *region*
+    timezone — not the UTC calendar day. A UTC day would bleed into the previous
+    local day for AMER/APAC: e.g. a UTC Tuesday is Mon 18:00–Tue 18:00 in Mexico
+    City, so it would count Monday-evening meetings and drop Tuesday-evening ones.
+    Engineers with no region (global management) fall back to UTC.
+    """
+    region = config.primary_region_for(email)
+    tz = ZoneInfo(config.region_timezone(region)) if region else UTC
+    d = now.astimezone(tz).date()
+    start = datetime(d.year, d.month, d.day, tzinfo=tz)
+    return start, start + timedelta(days=1)
+
+
 async def _fetch_calendar(now: datetime) -> CalendarResult:
-    """Per-engineer calendar busy/open for the current pulse (#cal).
+    """Per-engineer calendar busy/open for the current pulse + today (#cal).
 
     Derives each engineer's public iCal URL from their email and computes
-    occupancy over the pulse window. Inert unless ``STANDUP_CALENDAR`` is set.
-    A calendar that isn't public 404s — that engineer simply has no calendar
-    data; one failure never blocks the others or the rest of the refresh.
+    occupancy over the pulse window plus their local "today" (the 24H column).
+    On by default; ``STANDUP_CALENDAR=0`` makes it inert. A calendar that isn't
+    public 404s — that engineer simply has no calendar data; one failure never
+    blocks the others or the rest of the refresh.
     """
     res = CalendarResult()
     if not config.CALENDAR_ENABLED:
@@ -343,6 +387,7 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
     _, pstart, pend = current_pulse(now.astimezone(UTC).date())
     ws = datetime(pstart.year, pstart.month, pstart.day, tzinfo=UTC)
     we = datetime(pend.year, pend.month, pend.day, tzinfo=UTC)
+    ws24, we24 = now - timedelta(hours=24), now  # rolling-24h window (all engineers)
     try:
         async with ical_mod.make_async_client() as hc:
             client = ical_mod.ICalClient(hc)
@@ -355,7 +400,19 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
                     except Exception:  # noqa: BLE001 — not public / unreachable
                         return email, None
                     try:
-                        return email, compute_availability(text, ws, we)
+                        ts, te = _today_window(email, now)                  # local day
+                        # Parse the (large) feed once, off the event loop: it's
+                        # CPU-bound (~3s for a 2 MB feed) and blocking the loop here
+                        # would time out the other engineers' in-flight fetches.
+                        avail, day, h24 = await asyncio.to_thread(
+                            compute_availability_windows, text,
+                            [(ws, we), (ts, te), (ws24, we24)],
+                        )
+                        avail.busy_today_seconds = day.busy_seconds
+                        avail.open_today_seconds = day.open_seconds
+                        avail.busy_24h_seconds = h24.busy_seconds
+                        avail.open_24h_seconds = h24.open_seconds
+                        return email, avail
                     except Exception:  # noqa: BLE001
                         logger.exception("Calendar parse failed for %s", email)
                         return email, None
@@ -458,7 +515,8 @@ async def run_fetch(
     if oncalls:
         db.insert_weekend_oncall(fetch_id, oncalls)
     if gh_res.pr_stats:
-        db.insert_github_prs(fetch_id, gh_res.pr_stats)
+        db.insert_github_prs(
+            fetch_id, gh_res.pr_stats, gh_res.pr_stats_24h, gh_res.pr_stats_today)
     if cal_res.avail:
         db.insert_calendar_avail(fetch_id, cal_res.avail)
 
