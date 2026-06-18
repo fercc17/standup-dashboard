@@ -249,6 +249,12 @@ class TicketVM:
     touched_24h: bool = False  # touched in the last 24h (for the panel split, #17)
     pulses_open: int = 0  # Highest + open: full pulses it has stayed open, 0 if fresh (#18)
     status: str = ""  # Jira status name, shown on the ticket line
+    # Per-line time log shown on the right of the row (#line-time): for a Jira
+    # ticket, the worklog this engineer logged on it this pulse; for an alert, how
+    # long the incident lasted (fire→resolve) or, if still open, how long it has
+    # been open (fire→now). Empty string = nothing to show.
+    time_label: str = ""
+    time_title: str = ""  # tooltip explaining what the time means
 
 
 @dataclass
@@ -270,6 +276,28 @@ class GitHubPRStats:
 
 
 @dataclass
+class CalendarAvail:
+    """Per-engineer calendar occupancy this pulse, from the free/busy iCal feed
+    (#cal). Classified by duration only (the public feed has no titles): >8h or
+    all-day = PTO, ~4h = SD time (one/week, day marked), >1h = blocker, ≤1h =
+    meeting.
+
+    ``busy`` = the meetings only (≤1h blocks, merged); blockers and SD are not
+    counted as busy. ``open`` = capacity (40h/week) − busy; >1h blockers (off-time
+    between shifts) and PTO do not reduce it.
+    """
+    busy_seconds: int = 0
+    open_seconds: int = 0
+    pto_seconds: int = 0
+    sd_days: tuple[str, ...] = ()  # weekday abbrevs carrying the 4h SD block
+    has_data: bool = False         # False when the calendar isn't reachable/public
+    busy_today_seconds: int = 0    # today only — the engineer's local calendar day
+    open_today_seconds: int = 0    # 8h workday capacity − today's busy
+    busy_24h_seconds: int = 0      # rolling last 24h (distinct from the local day)
+    open_24h_seconds: int = 0      # capacity over the rolling 24h − its busy
+
+
+@dataclass
 class DetailPanelVM:
     email: str
     name: str
@@ -287,9 +315,27 @@ class DetailPanelVM:
     ticket_time_seconds: int = 0
     jira_project_seconds: int = 0
     jira_request_seconds: int = 0
-    # Per-pulse GitHub PR activity for this SRE (#173); zeros when GitHub isn't
-    # configured or the engineer isn't mapped to a login.
+    # Same metrics over the rolling last 24h, and over "today" — the engineer's
+    # local calendar day (midnight → now). The card shows 24H / Today / Pulse
+    # side by side: standups land at different points in different people's days,
+    # so rolling-24h and same-day each tell part of the story.
+    alert_time_24h_seconds: int = 0
+    alert_union_24h_seconds: int = 0
+    jira_project_24h_seconds: int = 0
+    jira_request_24h_seconds: int = 0
+    alert_time_today_seconds: int = 0
+    alert_union_today_seconds: int = 0
+    jira_project_today_seconds: int = 0
+    jira_request_today_seconds: int = 0
+    # GitHub PR activity for this SRE (#173); zeros when GitHub isn't configured or
+    # the engineer isn't mapped to a login. ``_24h`` / ``_today`` are the rolling
+    # and same-day subsets, bucketed locally from the same fetch.
     pr_stats: GitHubPRStats = field(default_factory=GitHubPRStats)
+    pr_stats_24h: GitHubPRStats = field(default_factory=GitHubPRStats)
+    pr_stats_today: GitHubPRStats = field(default_factory=GitHubPRStats)
+    # Calendar occupancy this pulse + today + rolling-24h (#cal); has_data False
+    # when not public.
+    calendar: CalendarAvail = field(default_factory=CalendarAvail)
 
     @property
     def alert_time_label(self) -> str:
@@ -312,14 +358,93 @@ class DetailPanelVM:
         return hours_label(self.jira_request_seconds)
 
     @property
-    def total_time_seconds(self) -> int:
-        """Headline hands-on time this pulse: alert wall-clock (no-overlap) + Jira
-        worklog on ISDB + ISReq. Shown next to the role (#173)."""
-        return self.alert_union_seconds + self.jira_project_seconds + self.jira_request_seconds
+    def cal_busy_label(self) -> str:
+        return hours_label(self.calendar.busy_seconds)
 
     @property
-    def total_time_label(self) -> str:
-        return hours_label(self.total_time_seconds)
+    def cal_open_label(self) -> str:
+        return hours_label(self.calendar.open_seconds)
+
+    # --- rolling last-24h column ---
+    @property
+    def alert_time_24h_label(self) -> str:
+        return hours_label(self.alert_time_24h_seconds)
+
+    @property
+    def alert_union_24h_label(self) -> str:
+        return hours_label(self.alert_union_24h_seconds)
+
+    @property
+    def jira_project_24h_label(self) -> str:
+        return hours_label(self.jira_project_24h_seconds)
+
+    @property
+    def jira_request_24h_label(self) -> str:
+        return hours_label(self.jira_request_24h_seconds)
+
+    @property
+    def cal_busy_24h_label(self) -> str:
+        return hours_label(self.calendar.busy_24h_seconds)
+
+    @property
+    def cal_open_24h_label(self) -> str:
+        return hours_label(self.calendar.open_24h_seconds)
+
+    # --- today (local calendar day) column ---
+    @property
+    def alert_time_today_label(self) -> str:
+        return hours_label(self.alert_time_today_seconds)
+
+    @property
+    def alert_union_today_label(self) -> str:
+        return hours_label(self.alert_union_today_seconds)
+
+    @property
+    def jira_project_today_label(self) -> str:
+        return hours_label(self.jira_project_today_seconds)
+
+    @property
+    def jira_request_today_label(self) -> str:
+        return hours_label(self.jira_request_today_seconds)
+
+    @property
+    def cal_busy_today_label(self) -> str:
+        return hours_label(self.calendar.busy_today_seconds)
+
+    @property
+    def cal_open_today_label(self) -> str:
+        return hours_label(self.calendar.open_today_seconds)
+
+    # --- per-column total time: engaged time = alert wall-clock (no-overlap) +
+    # Jira worklog (ISDB + ISReq) + calendar busy. One per window (#173/#cal). PRs
+    # are counts, not time, so they're excluded; ``open`` is free capacity, not
+    # time spent, so it's excluded too.
+    @property
+    def total_pulse_seconds(self) -> int:
+        return (self.alert_union_seconds + self.jira_project_seconds
+                + self.jira_request_seconds + self.calendar.busy_seconds)
+
+    @property
+    def total_24h_seconds(self) -> int:
+        return (self.alert_union_24h_seconds + self.jira_project_24h_seconds
+                + self.jira_request_24h_seconds + self.calendar.busy_24h_seconds)
+
+    @property
+    def total_today_seconds(self) -> int:
+        return (self.alert_union_today_seconds + self.jira_project_today_seconds
+                + self.jira_request_today_seconds + self.calendar.busy_today_seconds)
+
+    @property
+    def total_pulse_label(self) -> str:
+        return hours_label(self.total_pulse_seconds)
+
+    @property
+    def total_24h_label(self) -> str:
+        return hours_label(self.total_24h_seconds)
+
+    @property
+    def total_today_label(self) -> str:
+        return hours_label(self.total_today_seconds)
 
 
 # Per-pulse summary metrics persisted for the growing pulse-history table (#80).

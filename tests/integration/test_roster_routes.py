@@ -6,10 +6,12 @@ from __future__ import annotations
 def test_add_engineer_via_route_shows_on_dashboard(client):
     resp = client.post(
         "/roster/add",
-        data={"name": "New Person", "email": "new.person@canonical.com", "region": "EMEA"},
+        data={"name": "New Person", "email": "new.person@canonical.com", "region": "EMEA",
+              "github_login": "newperson"},
     )
     assert resp.status_code == 200
     assert "new.person@canonical.com" in resp.text  # re-rendered roster modal
+    assert "@newperson" in resp.text                 # GitHub login shown in the table
     page = client.get("/", params={"regions": "EMEA"}).text
     assert "New Person" in page
 

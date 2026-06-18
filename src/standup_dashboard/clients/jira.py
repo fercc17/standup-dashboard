@@ -8,6 +8,8 @@ the token from ``secrets/jira_token.txt``. No method mutates Jira (FR-027).
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Iterable
 from typing import Any
 
 import httpx
@@ -108,6 +110,39 @@ class JiraClient(ReadOnlyClient):
             if not token:
                 break
         return out
+
+    async def account_ids_for(self, emails: Iterable[str]) -> dict[str, str]:
+        """Map Jira ``accountId`` → email for each given roster email.
+
+        Recovers attribution for accounts whose email Atlassian hides: the
+        ``emailAddress`` field is omitted from issue/user objects for a private
+        email-visibility profile, so attribution by email alone silently drops
+        those engineers' tickets and touches. ``/user/search`` still resolves an
+        email to its ``accountId`` (the returned ``emailAddress`` is blank), so
+        we recover the link. One bounded-concurrent lookup per email; a per-email
+        failure is skipped rather than aborting the whole map (#priv-email).
+        """
+        sem = asyncio.Semaphore(10)
+
+        async def _one(email: str) -> tuple[str, str] | None:
+            async with sem:
+                try:
+                    users = await self._get_json(
+                        f"{_API}/user/search", params={"query": email}
+                    )
+                except Exception:  # noqa: BLE001 — skip this email, keep the rest
+                    return None
+            # Prefer an exact email match; private-email accounts return a blank
+            # emailAddress, so fall back to the single/first hit for the query.
+            chosen = next(
+                (u for u in users if (u.get("emailAddress") or "").lower() == email.lower()),
+                users[0] if users else None,
+            )
+            acct = (chosen or {}).get("accountId")
+            return (acct, email) if acct else None
+
+        pairs = await asyncio.gather(*(_one(e) for e in emails))
+        return {pair[0]: pair[1] for pair in pairs if pair}
 
     async def comments(self, issue_key: str) -> list[dict[str, Any]]:
         data = await self._get_json(f"{_API}/issue/{issue_key}/comment")

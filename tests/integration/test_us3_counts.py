@@ -59,3 +59,8 @@ def test_us3_counts_table_renders(client, respx_mock):
     assert "Alexandre Gomes ×1" in page
     # Today's row: region share of its own alert that day.
     assert "100%" in page
+    # Open-work summary line above the regions (#summary): the in-scope open
+    # Highest ticket and the still-open (acked, unresolved) incident are counted.
+    assert "Open IS Highest <strong>1</strong>" in page
+    assert "Ongoing alerts <strong>1</strong>" in page
+    assert "Open PS5-blocker <strong>0</strong>" in page

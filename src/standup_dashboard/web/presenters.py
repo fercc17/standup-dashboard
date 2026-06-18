@@ -40,6 +40,7 @@ from ..domain.models import (
     PULSE_SUMMARY_FIELDS,
     Alert,
     AlertState,
+    CalendarAvail,
     Cell,
     ChipVM,
     Color,
@@ -56,6 +57,7 @@ from ..domain.models import (
     TouchKind,
     WeekendOnCall,
     format_duration,
+    hours_label,
 )
 from ..domain.roles import effective_role, is_weekend
 from ..services.classification import classify_for_engineer, in_scope
@@ -85,8 +87,12 @@ class DashboardData:
     alerts: list[Alert] = field(default_factory=list)
     pulses: list[Pulse] = field(default_factory=list)
     weekend_oncall: list[WeekendOnCall] = field(default_factory=list)
-    # email → per-pulse PR stats (#173)
+    # email → PR stats (#173): per-pulse, plus the last-24h and today subsets
     github_prs: dict[str, GitHubPRStats] = field(default_factory=dict)
+    github_prs_24h: dict[str, GitHubPRStats] = field(default_factory=dict)
+    github_prs_today: dict[str, GitHubPRStats] = field(default_factory=dict)
+    # email → calendar busy/open this pulse + today + rolling-24h (#cal)
+    calendar: dict[str, CalendarAvail] = field(default_factory=dict)
 
     @property
     def active_sprint_ids(self) -> set[int]:
@@ -166,6 +172,9 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     pulses: list[Pulse] = []
     oncall: list[WeekendOnCall] = []
     github_prs: dict[str, GitHubPRStats] = {}
+    github_prs_24h: dict[str, GitHubPRStats] = {}
+    github_prs_today: dict[str, GitHubPRStats] = {}
+    calendar: dict[str, CalendarAvail] = {}
     for snap in snaps:  # oldest → newest, so later layers win
         for t in db.get_tickets(snap.id):
             tickets[t.id] = t
@@ -177,10 +186,18 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         snap_oncall = db.get_weekend_oncall(snap.id)
         if snap_oncall:
             oncall = snap_oncall
-        # Open-PR counts are a current snapshot (not accumulated): latest wins.
-        snap_prs = db.get_github_prs(snap.id)
+        # PR counts are a current snapshot (not accumulated): latest wins.
+        snap_prs, snap_prs_24h, snap_prs_today = db.get_github_prs(snap.id)
         if snap_prs:
             github_prs = snap_prs
+            github_prs_24h = snap_prs_24h
+            github_prs_today = snap_prs_today
+        # Calendar busy/open accumulates per engineer (latest fetch that has each
+        # email wins). A public iCal feed occasionally times out for one person on
+        # a given refresh; merging per-email means that transient miss keeps their
+        # last-good value instead of blanking them until the next clean fetch.
+        for email, av in db.get_calendar_avail(snap.id).items():
+            calendar[email] = av
 
     # Alerts: PagerDuty is fetched incrementally (only since the last refresh),
     # so each snapshot holds just its window's alerts — accumulate across every
@@ -211,6 +228,9 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         pulses=pulses,
         weekend_oncall=oncall,
         github_prs=github_prs,
+        github_prs_24h=github_prs_24h,
+        github_prs_today=github_prs_today,
+        calendar=calendar,
     )
 
 
@@ -329,6 +349,44 @@ def _alert_union_time_since(email: str, data: DashboardData, since: datetime) ->
     return total
 
 
+def _alert_spans_by_incident(
+    alerts: list[Alert],
+) -> tuple[dict[str, datetime], dict[str, datetime], dict[str, datetime]]:
+    """Earliest fire / ack / resolve time per incident, across all handlers
+    (#line-time). Drives each alert row's "lasted / open for" duration."""
+    trig: dict[str, datetime] = {}
+    ack: dict[str, datetime] = {}
+    res: dict[str, datetime] = {}
+    buckets = {AlertState.TRIGGERED: trig, AlertState.ACKNOWLEDGED: ack,
+               AlertState.RESOLVED: res}
+    for a in alerts:
+        bucket = buckets.get(a.state)
+        if bucket is not None and (a.id not in bucket or a.at < bucket[a.id]):
+            bucket[a.id] = a.at
+    return trig, ack, res
+
+
+def _alert_line_time(
+    iid: str, now: datetime,
+    trig: dict[str, datetime], ack: dict[str, datetime], res: dict[str, datetime],
+) -> tuple[str, str]:
+    """(label, tooltip) for one alert row: how long it lasted, or has been open.
+
+    Start of life is the incident's fire time, falling back to its first ack when
+    the trigger event fell outside the accumulated window. A resolved incident
+    reads fire→resolve ("lasted"); a still-open one reads fire→now ("open for").
+    """
+    start = trig.get(iid) or ack.get(iid)
+    if start is None:
+        return "", ""
+    end = res.get(iid)
+    if end is not None:
+        return (format_duration(max(0.0, (end - start).total_seconds())),
+                "How long the alert lasted (fire → resolve)")
+    return (format_duration(max(0.0, (now - start).total_seconds())),
+            "How long the alert has been open (fire → now)")
+
+
 def _completed_since(email: str, data: DashboardData, since: date) -> int:
     return sum(
         1 for t in data.tickets
@@ -404,6 +462,60 @@ def build_counts(
     if not selected_regions:
         return []
     return _build_counts(selected_regions, data.tickets, data.alerts, data.pulses, now)
+
+
+# --- Open-work summary line (#summary) -------------------------------------
+
+
+@dataclass
+class OpenSummary:
+    """Team-wide "what's still open right now" line shown above the regions.
+
+    Recomputed from the merged pulse data on every refresh: counts of in-scope
+    open (To Do + WIP) tickets that are Highest / ps5-blocker / PR-MP review, and
+    the number of alerts acknowledged but not yet resolved (still-open incidents).
+    """
+    highest: int = 0
+    ps5: int = 0
+    ps5_highest: int = 0
+    pr_mp: int = 0
+    ongoing_alerts: int = 0
+    # Deep links to the live source of each count (#summary-links): a saved Jira
+    # filter per ticket category, and the PagerDuty open-incident list for alerts.
+    highest_url: str = ""
+    ps5_url: str = ""
+    ps5_highest_url: str = ""
+    pr_mp_url: str = ""
+    alerts_url: str = ""
+
+
+def build_open_summary(data: DashboardData) -> OpenSummary:
+    """Open Highest / ps5-blocker / PR-MP counts + ongoing alerts (#summary)."""
+    active = data.active_sprint_ids
+    open_tickets = [
+        t for t in data.tickets
+        if in_scope(t, active) and t.group in (TicketGroup.TODO, TicketGroup.WIP)
+    ]
+    # An incident is still ongoing if it was acknowledged but never resolved
+    # (the same acked-minus-resolved logic that drives the stale-ack handling).
+    acked = {a.id for a in data.alerts if a.state is AlertState.ACKNOWLEDGED}
+    resolved = {a.id for a in data.alerts if a.state is AlertState.RESOLVED}
+    return OpenSummary(
+        highest=sum(1 for t in open_tickets if t.is_highest),
+        ps5=sum(1 for t in open_tickets if t.has_ps5_blockers),
+        ps5_highest=sum(
+            1 for t in open_tickets if t.has_ps5_blockers and t.is_highest
+        ),
+        pr_mp=sum(1 for t in open_tickets if t.is_pr_mp_review),
+        ongoing_alerts=len(acked - resolved),
+        highest_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["highest"]),
+        ps5_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["ps5"]),
+        ps5_highest_url=config.jira_filter_url(
+            config.JIRA_OPEN_FILTERS["ps5_highest"]
+        ),
+        pr_mp_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["pr_mp"]),
+        alerts_url=config.pagerduty_open_incidents_url(),
+    )
 
 
 # --- Colour-rule legend (#143) ---------------------------------------------
@@ -779,6 +891,14 @@ def build_panel(
         tc.ticket_id for tc in data.touches
         if tc.engineer_email == email and tc.at >= now - _24H
     }
+    # Worklog this engineer logged per ticket this pulse (#line-time): the same
+    # assignee-proxy worklog seconds the panel totals use, broken out per ticket.
+    pstart = _pulse_start(now)
+    worklog_secs: dict[str, int] = {}
+    for tc in data.touches:
+        if (tc.engineer_email == email and tc.kind is TouchKind.WORKLOG
+                and tc.at >= pstart):
+            worklog_secs[tc.ticket_id] = worklog_secs.get(tc.ticket_id, 0) + tc.seconds
     # A Highest ticket still open is flagged with how many full pulses it has
     # stayed open (#18); 1 pulse = PULSE_LENGTH_DAYS days. 0 = fresh / not Highest.
     def _pulses_open(t: Ticket, group: TicketGroup) -> int:
@@ -805,6 +925,7 @@ def build_panel(
                 color = ticket_color(
                     role, t, assigned=assigned, group=group, role_distractor=is_rd
                 )
+            secs = worklog_secs.get(t.id, 0)
             vms.append(
                 TicketVM(
                     key=t.id,
@@ -815,6 +936,8 @@ def build_panel(
                     touched_24h=t.id in touched_24h_ids,
                     pulses_open=_pulses_open(t, group),
                     status=t.status,
+                    time_label=hours_label(secs) if secs else "",
+                    time_title="Time you logged on this ticket this pulse" if secs else "",
                 )
             )
         out[group.value] = vms
@@ -831,6 +954,8 @@ def build_panel(
         prev = alert_by_incident.get(a.id)
         if prev is None or prev.state is not AlertState.RESOLVED:
             alert_by_incident[a.id] = a
+    # Fire/ack/resolve times per incident (all handlers) drive each row's duration.
+    trig_at, ack_at, res_at = _alert_spans_by_incident(data.alerts)
     meta = db.incident_meta(alert_by_incident.keys())
     for a in sorted(alert_by_incident.values(),
                     key=lambda x: (x.title or meta.get(x.id, (None,))[0] or x.id).lower()):
@@ -850,16 +975,23 @@ def build_panel(
         if number is not None:
             parts.append(f"#{number}")
         parts.append(title or "alert")
+        time_label, time_title = _alert_line_time(a.id, now, trig_at, ack_at, res_at)
         vm = TicketVM(
             key="⚠",
             title=" — ".join(parts),
             color=color,
             url=url,
             touched_24h=recent,
+            time_label=time_label,
+            time_title=time_title,
         )
         out[target.value].append(vm)
 
     pulse_start = _pulse_start(now)
+    cutoff = now - _24H
+    # "Today" = the engineer's local calendar day so far (midnight → now), in the
+    # region's timezone — distinct from the rolling-24h cutoff above (#cal).
+    today_start = datetime(today.year, today.month, today.day, tzinfo=ZoneInfo(region.timezone))
     return DetailPanelVM(
         email=email, name=eng.name, role=role, groups=out,
         alert_time_seconds=_alert_time_since(email, data, pulse_start),
@@ -867,5 +999,18 @@ def build_panel(
         ticket_time_seconds=_ticket_time_since(email, data, pulse_start),
         jira_project_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISDB),
         jira_request_seconds=_ticket_time_since(email, data, pulse_start, config.PROJECT_ISREQ),
+        alert_time_24h_seconds=_alert_time_since(email, data, cutoff),
+        alert_union_24h_seconds=_alert_union_time_since(email, data, cutoff),
+        jira_project_24h_seconds=_ticket_time_since(email, data, cutoff, config.PROJECT_ISDB),
+        jira_request_24h_seconds=_ticket_time_since(email, data, cutoff, config.PROJECT_ISREQ),
+        alert_time_today_seconds=_alert_time_since(email, data, today_start),
+        alert_union_today_seconds=_alert_union_time_since(email, data, today_start),
+        jira_project_today_seconds=_ticket_time_since(
+            email, data, today_start, config.PROJECT_ISDB),
+        jira_request_today_seconds=_ticket_time_since(
+            email, data, today_start, config.PROJECT_ISREQ),
         pr_stats=data.github_prs.get(email) or GitHubPRStats(),
+        pr_stats_24h=data.github_prs_24h.get(email) or GitHubPRStats(),
+        pr_stats_today=data.github_prs_today.get(email) or GitHubPRStats(),
+        calendar=data.calendar.get(email) or CalendarAvail(),
     )

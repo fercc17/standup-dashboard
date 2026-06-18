@@ -8,6 +8,7 @@ window, or by non-roster users) are ignored.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -36,13 +37,55 @@ def _canonical_project(issue_key: str) -> str:
     return prefix
 
 
-def _author_email(actor: dict[str, Any] | None) -> str | None:
+def _resolve_email(
+    actor: dict[str, Any] | None, account_emails: Mapping[str, str] | None = None
+) -> str | None:
+    """Roster email for a Jira actor (assignee / reporter / changelog author).
+
+    Atlassian omits ``emailAddress`` from the user object for accounts whose
+    email-visibility profile is private, so attribution by email alone silently
+    drops those engineers' tickets and touches. Fall back to mapping the always-
+    present ``accountId`` to a roster email via ``account_emails`` (#priv-email).
+    """
     if not actor:
         return None
-    return actor.get("emailAddress")
+    email = actor.get("emailAddress")
+    if email:
+        return email
+    if account_emails:
+        return account_emails.get(actor.get("accountId"))
+    return None
 
 
-def parse_ticket(issue: dict[str, Any]) -> Ticket:
+def seed_account_emails(issues: Iterable[dict[str, Any]]) -> dict[str, str]:
+    """accountId → email gathered from actors that DO expose an email.
+
+    A free reverse map: every assignee / reporter / changelog author carrying an
+    ``emailAddress`` reveals its ``accountId``↔email pair, so the caller only has
+    to query Jira for the accounts still unresolved — typically just the private-
+    email users (#priv-email).
+    """
+    out: dict[str, str] = {}
+
+    def record(actor: dict[str, Any] | None) -> None:
+        if not actor:
+            return
+        acct, email = actor.get("accountId"), actor.get("emailAddress")
+        if acct and email:
+            out[acct] = email
+
+    for issue in issues:
+        fields = issue.get("fields") or {}
+        record(fields.get("assignee"))
+        record(fields.get("reporter"))
+        for hist in (issue.get("changelog") or {}).get("histories", []):
+            record(hist.get("author"))
+    return out
+
+
+def parse_ticket(
+    issue: dict[str, Any], account_emails: Mapping[str, str] | None = None
+) -> Ticket:
     """Map a raw Jira issue (with optional changelog) into a ``Ticket``."""
     fields = issue.get("fields", {})
     status_obj = fields.get("status") or {}
@@ -59,12 +102,12 @@ def parse_ticket(issue: dict[str, Any]) -> Ticket:
         status=status,
         priority=priority,
         labels=list(fields.get("labels", []) or []),
-        assignee_email=assignee.get("emailAddress"),
+        assignee_email=_resolve_email(assignee, account_emails),
         sprint_id=sprint.get("id") if isinstance(sprint, dict) else None,
         is_done_date=_done_date(issue),
         created=parse_jira_dt(fields.get("created")),
         status_category=status_category,
-        reporter_email=reporter.get("emailAddress"),
+        reporter_email=_resolve_email(reporter, account_emails),
         wip_since=_wip_since(issue, status, status_category,
                              parse_jira_dt(fields.get("created"))),
     )
@@ -131,6 +174,7 @@ def extract_touches(
     window_start: datetime,
     window_end: datetime,
     roster_emails: set[str],
+    account_emails: Mapping[str, str] | None = None,
 ) -> list[TouchEvent]:
     """Derive per-engineer touch events for one issue inside the pulse window."""
     key = issue["key"]
@@ -151,7 +195,7 @@ def extract_touches(
 
     # Changelog: status / assignment / link.
     for hist in (issue.get("changelog") or {}).get("histories", []):
-        email = _author_email(hist.get("author"))
+        email = _resolve_email(hist.get("author"), account_emails)
         at = parse_jira_dt(hist.get("created"))
         for item in hist.get("items", []):
             field = (item.get("field") or "").lower()
@@ -162,11 +206,12 @@ def extract_touches(
 
     # Comments.
     for c in comments or []:
-        add(_author_email(c.get("author")), TouchKind.COMMENT, parse_jira_dt(c.get("created")))
+        add(_resolve_email(c.get("author"), account_emails), TouchKind.COMMENT,
+            parse_jira_dt(c.get("created")))
 
     # Worklogs: Tempo records them under a bot author, so attribute the logged
     # time to the ticket's assignee (proxy) and carry the duration (#167).
-    assignee = _author_email((issue.get("fields") or {}).get("assignee"))
+    assignee = _resolve_email((issue.get("fields") or {}).get("assignee"), account_emails)
     for w in worklogs or []:
         add(assignee, TouchKind.WORKLOG, parse_jira_dt(w.get("started")),
             int(w.get("timeSpentSeconds") or 0))

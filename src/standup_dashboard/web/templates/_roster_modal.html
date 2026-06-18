@@ -12,6 +12,7 @@
       <form class="roster-add" hx-post="/roster/add" hx-target="#modal-root" hx-swap="innerHTML">
         <input name="name" placeholder="Full name" required>
         <input name="email" type="email" placeholder="email@canonical.com" required>
+        <input name="github_login" placeholder="GitHub username">
         <select name="region">
           {% for r in region_keys %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
         </select>
@@ -28,6 +29,7 @@
           <tr>
             <td>{{ eng.name }}</td>
             <td class="roster-email">{{ eng.email }}</td>
+            <td class="roster-gh">{% if eng.github_login %}@{{ eng.github_login }}{% else %}<span class="muted">no GitHub</span>{% endif %}</td>
             <td>
               <select hx-post="/roster/move" hx-target="#modal-root" hx-swap="innerHTML"
                       name="region"

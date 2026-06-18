@@ -46,6 +46,16 @@
   {% include "_counts_table.html" %}
   {% endif %}
 
+  {% if open_summary %}
+  <div class="open-summary" title="Still-open work across the team, recomputed each refresh">
+    <a class="os-item" href="{{ open_summary.pr_mp_url }}" target="_blank" rel="noopener" title="Open the PR/MP filter in Jira">&#128279; Open PR/MPs <strong>{{ open_summary.pr_mp }}</strong></a>
+    <a class="os-item" href="{{ open_summary.ps5_highest_url }}" target="_blank" rel="noopener" title="Open the ps5-blocker Highest filter in Jira">&#128680; Open PS5 Highest <strong>{{ open_summary.ps5_highest }}</strong></a>
+    <a class="os-item" href="{{ open_summary.highest_url }}" target="_blank" rel="noopener" title="Open the IS Highest filter in Jira">&#128293; Open IS Highest <strong>{{ open_summary.highest }}</strong></a>
+    <a class="os-item" href="{{ open_summary.ps5_url }}" target="_blank" rel="noopener" title="Open the ps5-blocker filter in Jira">&#128679; Open PS5-blocker <strong>{{ open_summary.ps5 }}</strong></a>
+    <a class="os-item {{ 'has-open' if open_summary.ongoing_alerts else '' }}" href="{{ open_summary.alerts_url }}" target="_blank" rel="noopener" title="Open triggered + acknowledged incidents in PagerDuty">&#128276; Ongoing alerts <strong>{{ open_summary.ongoing_alerts }}</strong></a>
+  </div>
+  {% endif %}
+
   {% for group in chip_groups %}
   <div class="region-group">
     <h3>{{ group.label }} <span class="region-day">{{ group.local_day }}</span></h3>

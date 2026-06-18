@@ -58,6 +58,7 @@ class Scenario:
     comments: dict[str, list[dict]] = field(default_factory=dict)
     worklogs: dict[str, list[dict]] = field(default_factory=dict)
     users: list[dict] = field(default_factory=list)
+    jira_users: list[dict] = field(default_factory=list)  # /user/search results (#priv-email)
     incidents: list[dict] = field(default_factory=list)
     log_entries: dict[str, list[dict]] = field(default_factory=dict)
     ical_text: str | None = None
@@ -113,6 +114,13 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
     if path == "/rest/api/3/search/jql":
         # Enhanced search: single page, no nextPageToken (matches client paging).
         return httpx.Response(200, json={"issues": scenario.search_issues})
+
+    if path == "/rest/api/3/user/search":
+        # accountId recovery for private-email users (#priv-email). Echo back any
+        # scenario-declared Jira users matching the queried email, else nothing.
+        q = (params.get("query") or "").lower()
+        hits = [u for u in scenario.jira_users if (u.get("emailAddress") or "").lower() == q]
+        return httpx.Response(200, json=hits)
 
     if m := _ISSUE_COMMENT.match(path):
         return httpx.Response(200, json={"comments": scenario.comments.get(m.group(1), [])})
