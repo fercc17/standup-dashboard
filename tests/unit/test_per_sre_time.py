@@ -72,8 +72,8 @@ def test_extract_touches_worklog_skipped_when_assignee_not_in_roster():
     assert [t for t in touches if t.kind is TouchKind.WORKLOG] == []
 
 
-def test_build_panel_reports_alert_and_ticket_time(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_build_panel_reports_alert_and_ticket_time(tmp_path, db_dsn):
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
     data = DashboardData(
         fetched_at=NOW,
@@ -104,11 +104,11 @@ def test_build_panel_reports_alert_and_ticket_time(tmp_path):
     db.close()
 
 
-def test_alert_time_overlap_vs_union(tmp_path):
+def test_alert_time_overlap_vs_union(tmp_path, db_dsn):
     # Two incidents this SRE resolved overlap in time. INC1 [10:00,10:10] = 10m,
     # INC2 [10:05,10:12] = 7m. Overlap sums both (17m); no-overlap merges the
     # shared 10:05–10:10 window → wall-clock 10:00–10:12 = 12m (#173).
-    db = Database(tmp_path / "t.db")
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
     at = lambda h, m: datetime(2026, 6, 12, h, m, tzinfo=UTC)  # noqa: E731
     data = DashboardData(
@@ -127,10 +127,10 @@ def test_alert_time_overlap_vs_union(tmp_path):
     db.close()
 
 
-def test_build_panel_reports_pr_stats(tmp_path):
+def test_build_panel_reports_pr_stats(tmp_path, db_dsn):
     # The GH PRs lines reflect the per-engineer per-pulse PR activity carried on
     # the data (sourced from the GitHub fetch); zeros when unmapped/unconfigured (#173).
-    db = Database(tmp_path / "t.db")
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
     data = DashboardData(
         fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
@@ -145,9 +145,9 @@ def test_build_panel_reports_pr_stats(tmp_path):
     db.close()
 
 
-def test_ticket_time_split_by_project(tmp_path):
+def test_ticket_time_split_by_project(tmp_path, db_dsn):
     # ISDB worklog feeds "Jira project", ISReq worklog feeds "Jira ticket" (#173).
-    db = Database(tmp_path / "t.db")
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
     data = DashboardData(
         fetched_at=NOW,

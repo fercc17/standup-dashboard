@@ -34,8 +34,8 @@ def _data():
     return DashboardData(fetched_at=utc(12), tickets=tickets, alerts=alerts, pulses=pulses)
 
 
-def test_history_attribution_requestor_vs_assignee(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_attribution_requestor_vs_assignee(tmp_path, db_dsn):
+    db = Database(db_dsn)
     data = _data()
     rows = build_pulse_history(db, data, ["AMER"], utc(12, 19))
     cur = {r.pulse_number: r for r in rows}[12].cells
@@ -55,8 +55,8 @@ def test_history_attribution_requestor_vs_assignee(tmp_path):
     db.close()
 
 
-def test_history_persists_counts_and_breakdowns(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_persists_counts_and_breakdowns(tmp_path, db_dsn):
+    db = Database(db_dsn)
     data = _data()
     counts.persist_pulse_summaries(db, data.tickets, [], data.pulses, utc(12))
     stored = {(p, r): (c, b) for p, r, c, b in db.get_pulse_summaries()}
@@ -68,8 +68,8 @@ def test_history_persists_counts_and_breakdowns(tmp_path):
     db.close()
 
 
-def test_history_mttr_from_ack_to_resolve(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_mttr_from_ack_to_resolve(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     # INC1 acked 10:00 → resolved 12:00 UTC (2h); INC2 only acked (no resolve).
     alerts = [
@@ -85,8 +85,8 @@ def test_history_mttr_from_ack_to_resolve(tmp_path):
     db.close()
 
 
-def test_history_alert_levels_wired(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_alert_levels_wired(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     # INC1 triggered 12:00 → acked 12:03 (MTTA 3m) → resolved 12:33 (MTTR 30m).
     alerts = [
@@ -104,8 +104,8 @@ def test_history_alert_levels_wired(tmp_path):
     db.close()
 
 
-def test_history_ack_level_scales_with_selected_region_count(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_ack_level_scales_with_selected_region_count(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     # 57 acked incidents > single-region pulse cap (56) → yellow for one region.
     alerts = [Alert(f"INC{i}", MEMBER, AlertState.ACKNOWLEDGED, utc(12)) for i in range(57)]
@@ -114,13 +114,14 @@ def test_history_ack_level_scales_with_selected_region_count(tmp_path):
     assert one.cells["alerts_ack"].count == 57
     assert one.ack_level is Color.YELLOW
     # Selecting a second region doubles the cap to 112 → 57 is healthy again.
-    two = {r.pulse_number: r for r in build_pulse_history(db, data, ["AMER", "APAC"], utc(12, 19))}[12]
+    two = {r.pulse_number: r
+           for r in build_pulse_history(db, data, ["AMER", "APAC"], utc(12, 19))}[12]
     assert two.ack_level is Color.GREEN
     db.close()
 
 
-def test_history_cycle_time_created_to_done(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_cycle_time_created_to_done(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     # ISReq-A: created Jun 8 → done Jun 12 = 4 days; ISReq-B: Jun 10 → Jun 12 = 2 days.
     tickets = [
@@ -147,8 +148,8 @@ def test_mttr_mtta_delta_label():
     assert f(3600) == "▲1h"     # larger gap
 
 
-def test_history_mttr_mtta_delta_vs_previous_pulse(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_mttr_mtta_delta_vs_previous_pulse(tmp_path, db_dsn):
+    db = Database(db_dsn)
     # Two stored historical pulses: MTTA 4m→7m (▲3m), MTTR 1h→1h20m (▲20m).
     db.upsert_pulse_summary(10, "AMER", {
         "alert_mtta_sum": 240, "alert_mtta_n": 1,
@@ -175,10 +176,10 @@ def test_business_days_excludes_weekends():
     assert _business_days(date(2026, 6, 12), date(2026, 6, 5)) == 0  # done before created
 
 
-def test_accumulated_pulse_alerts_unions_fetches(tmp_path):
+def test_accumulated_pulse_alerts_unions_fetches(tmp_path, db_dsn):
     # PagerDuty is fetched incrementally, so an incident's ack and resolve can land
     # in different fetch snapshots. The persisted summary must see both (#140).
-    db = Database(tmp_path / "t.db")
+    db = Database(db_dsn)
     f1 = db.create_fetch_snapshot(fetched_at=utc(11), jira_ok=True,
                                   pagerduty_ok=True, ical_ok=True, raw_path="")
     db.insert_alerts(f1, [Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(11, 10))])
@@ -191,8 +192,8 @@ def test_accumulated_pulse_alerts_unions_fetches(tmp_path):
     db.close()
 
 
-def test_history_mttr_persists_and_reads_back(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_mttr_persists_and_reads_back(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     alerts = [
         Alert("INC1", MEMBER, AlertState.ACKNOWLEDGED, utc(12, 10)),
@@ -204,8 +205,8 @@ def test_history_mttr_persists_and_reads_back(tmp_path):
     db.close()
 
 
-def test_history_mtta_from_trigger_to_ack(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_mtta_from_trigger_to_ack(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     # INC1 triggered 10:00 → acked 12:00 UTC (2h). INC2 acked with no trigger → ignored.
     alerts = [
@@ -220,8 +221,8 @@ def test_history_mtta_from_trigger_to_ack(tmp_path):
     db.close()
 
 
-def test_history_mtta_persists_and_reads_back(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_history_mtta_persists_and_reads_back(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulses = [Pulse("ISReq", 201, "s", utc(8), utc(20))]
     alerts = [
         Alert("INC1", "", AlertState.TRIGGERED, utc(12, 10)),

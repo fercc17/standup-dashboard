@@ -16,14 +16,14 @@ TZ = "America/Mexico_City"
 NOW = datetime(2026, 6, 12, 18, tzinfo=UTC)  # Friday
 
 
-def _db_with_role(tmp_path, role):
-    db = Database(tmp_path / "t.db")
+def _db_with_role(tmp_path, db_dsn, role):
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), role, NOW)
     return db
 
 
-def test_gen_alerts_go_to_distractors(tmp_path):
-    db = _db_with_role(tmp_path, "GEN")
+def test_gen_alerts_go_to_distractors(tmp_path, db_dsn):
+    db = _db_with_role(tmp_path, db_dsn, "GEN")
     data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], alerts=[
         Alert("INC1", E, AlertState.ACKNOWLEDGED, NOW),
         Alert("INC2", E, AlertState.RESOLVED, NOW),
@@ -36,10 +36,10 @@ def test_gen_alerts_go_to_distractors(tmp_path):
     db.close()
 
 
-def test_panel_enriches_alert_title_and_link_from_incident_table(tmp_path):
+def test_panel_enriches_alert_title_and_link_from_incident_table(tmp_path, db_dsn):
     # Alerts captured by an early un-enriched fetch have no title/link; the panel
     # back-fills them from the stored incident table (#157).
-    db = _db_with_role(tmp_path, "PVG")
+    db = _db_with_role(tmp_path, db_dsn, "PVG")
     db.upsert_incidents([IncidentRecord("INC9", "disk full on db1", NOW, "Disk full on db1",
                                         number=42, url="http://pd/42")])
     data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], alerts=[
@@ -51,10 +51,10 @@ def test_panel_enriches_alert_title_and_link_from_incident_table(tmp_path):
     db.close()
 
 
-def test_pvg_tickets_are_distractors_by_kind(tmp_path):
+def test_pvg_tickets_are_distractors_by_kind(tmp_path, db_dsn):
     # PVG: every assigned in-flight ticket distracts from alert duty — Highest is
     # yellow, a regular ISReq is red (#158).
-    db = _db_with_role(tmp_path, "PVG")
+    db = _db_with_role(tmp_path, db_dsn, "PVG")
     data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], tickets=[
         Ticket("ISReq-H", "ISReq", "x", "In Progress", "Highest", assignee_email=E, sprint_id=201),
         Ticket("ISReq-R", "ISReq", "y", "In Review", None, assignee_email=E, sprint_id=201),
@@ -67,11 +67,11 @@ def test_pvg_tickets_are_distractors_by_kind(tmp_path):
     db.close()
 
 
-def test_project_completed_isreq_is_red_distractor(tmp_path):
+def test_project_completed_isreq_is_red_distractor(tmp_path, db_dsn):
     # A Project engineer should only work ISDB: a completed ISReq is off-task, so
     # it moves out of Success into Distractors as RED, while a completed ISDB
     # stays a Success.
-    db = _db_with_role(tmp_path, "Project")
+    db = _db_with_role(tmp_path, db_dsn, "Project")
     data = DashboardData(
         fetched_at=NOW,
         pulses=[Pulse("ISReq", 201, "s", NOW, NOW), Pulse("ISDB", 202, "s", NOW, NOW)],
@@ -91,10 +91,10 @@ def test_project_completed_isreq_is_red_distractor(tmp_path):
     db.close()
 
 
-def test_pvg_highest_distractor_yellow_even_with_highest_focus(tmp_path):
+def test_pvg_highest_distractor_yellow_even_with_highest_focus(tmp_path, db_dsn):
     # PVG's per-kind matrix colour wins over the Highest-only toggle: a Highest
     # ticket stays a yellow distractor (the toggle can't turn it red).
-    db = _db_with_role(tmp_path, "PVG")
+    db = _db_with_role(tmp_path, db_dsn, "PVG")
     schedule.set_highest_focus(db, True, NOW)
     data = DashboardData(fetched_at=NOW, pulses=[Pulse("ISReq", 201, "s", NOW, NOW)], tickets=[
         Ticket("ISReq-H", "ISReq", "x", "In Progress", "Highest", assignee_email=E, sprint_id=201),

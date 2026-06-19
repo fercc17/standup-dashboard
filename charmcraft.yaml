@@ -1,0 +1,77 @@
+name: standup-dashboard
+type: charm
+# Kubernetes charm built with the FastAPI 12-factor framework extension.
+# Pack with `charmcraft pack`; deploy with the rock image as the app-image
+# resource. See CHARM.md for the full build/deploy/integrate sequence.
+summary: IS SRE Standup Dashboard
+description: |
+  Single-user, read-only Jira + PagerDuty + GitHub + calendar stand-up
+  dashboard. State lives in PostgreSQL (relation); a singleton scheduler
+  service refreshes the data on an interval; Traefik provides ingress.
+
+base: ubuntu@24.04
+platforms:
+  amd64:
+
+extensions:
+  - fastapi-framework
+
+# PostgreSQL is mandatory: the app stores all data there and won't start without
+# it (migrate.sh fails fast). Integrate with `juju integrate standup-dashboard
+# postgresql-k8s`. The relation injects POSTGRESQL_DB_CONNECT_STRING.
+requires:
+  postgresql:
+    interface: postgresql_client
+    optional: false
+    limit: 1
+
+config:
+  options:
+    # Each option <name> is exposed to the app as the env var APP_<NAME>
+    # (uppercase, dashes -> underscores), read by config.py via _env().
+    window-days:
+      type: int
+      default: 7
+      description: How far back (days) a full refresh collects activity.
+    refresh-interval:
+      type: int
+      default: 1800
+      description: Seconds between scheduled refreshes (the -scheduler service).
+    github-org:
+      type: string
+      default: canonical
+      description: GitHub org for the "GH PRs" card line (empty disables it).
+    github-concurrency:
+      type: int
+      default: 2
+      description: Concurrency for the rate-limited GitHub Search API fetch.
+    pd-team-ids:
+      type: string
+      default: PQ4ZG3S
+      description: Comma-separated PagerDuty team IDs to scope incidents.
+    pd-subdomain:
+      type: string
+      default: canonical
+      description: PagerDuty web subdomain (for deep links).
+    calendar:
+      type: string
+      default: "1"
+      description: Set to "0" to disable per-engineer calendar free/busy fetches.
+    jira-base-url:
+      type: string
+      default: https://warthogs.atlassian.net
+      description: Jira Cloud base URL.
+    jira-account-email:
+      type: string
+      default: fernando.carrillo.castro@canonical.com
+      description: Account email used for Jira Basic auth (with the API token).
+    secrets:
+      type: secret
+      description: |
+        A Juju user secret holding the API credentials. Create it with keys
+        jira-token, pagerduty-token, pagerduty-ical-url, and (optionally)
+        github-token; each surfaces to the app as APP_SECRETS_<KEY>. E.g.:
+          juju add-secret standup-creds jira-token=... pagerduty-token=... \
+            pagerduty-ical-url=... github-token=...
+          juju grant-secret standup-creds standup-dashboard
+          juju config standup-dashboard secrets=<secret-uri>

@@ -31,8 +31,8 @@ def _all_vms(panel):
     return [vm for vms in panel.groups.values() for vm in vms]
 
 
-def test_ticket_row_shows_worklog_time_for_this_engineer(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_ticket_row_shows_worklog_time_for_this_engineer(tmp_path, db_dsn):
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "GEN", NOW)
     data = DashboardData(
         fetched_at=NOW,
@@ -53,8 +53,8 @@ def test_ticket_row_shows_worklog_time_for_this_engineer(tmp_path):
     db.close()
 
 
-def test_ticket_row_has_no_time_when_no_worklog(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_ticket_row_has_no_time_when_no_worklog(tmp_path, db_dsn):
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "GEN", NOW)
     data = DashboardData(
         fetched_at=NOW,
@@ -68,8 +68,8 @@ def test_ticket_row_has_no_time_when_no_worklog(tmp_path):
     db.close()
 
 
-def test_alert_row_shows_lasted_for_resolved_and_open_for_ongoing(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_alert_row_shows_lasted_for_resolved_and_open_for_ongoing(tmp_path, db_dsn):
+    db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
     at = lambda h, m: datetime(2026, 6, 12, h, m, tzinfo=UTC)  # noqa: E731
     data = DashboardData(

@@ -178,7 +178,7 @@ async def _run_refresh_bg(ctx, window_days: int | None = None) -> None:
     ``window_days`` forces a full re-fetch over that many days (default is the
     incremental window) — used to backfill a metric over the whole pulse."""
     try:
-        await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=_now(), window_days=window_days)
+        await run_fetch(ctx.db, ctx.secrets, now=_now(), window_days=window_days)
     except Exception:  # noqa: BLE001
         logger.exception("Background refresh failed")
         ctx.refresh.error = "Refresh failed — see server logs."

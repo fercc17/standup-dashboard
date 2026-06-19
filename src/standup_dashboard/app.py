@@ -19,7 +19,6 @@ from fastapi.templating import Jinja2Templates
 from . import config
 from .settings import Secrets, SetupError, load_secrets
 from .storage.db import Database
-from .storage.snapshots import SnapshotWriter
 
 logger = logging.getLogger("standup_dashboard")
 
@@ -57,10 +56,9 @@ class RefreshState:
 
 
 class AppState:
-    def __init__(self, db: Database, snapshots: SnapshotWriter,
+    def __init__(self, db: Database,
                  secrets: Secrets | None, setup_error: SetupError | None):
         self.db = db
-        self.snapshots = snapshots
         self.secrets = secrets
         self.setup_error = setup_error
         self.refresh = RefreshState()
@@ -68,16 +66,14 @@ class AppState:
 
 def create_app(
     *,
-    db_path: str | Path = "data/dashboard.db",
+    db_dsn: str | None = None,
     secrets_dir: str | Path = "secrets",
-    snapshots_dir: str | Path = "data/snapshots",
     run_startup_validation: bool = True,
 ) -> FastAPI:
     configure_logging()
     app = FastAPI(title="IS SRE Standup Dashboard", docs_url=None, redoc_url=None)
 
-    db = Database(db_path)
-    snapshots = SnapshotWriter(snapshots_dir)
+    db = Database(db_dsn or config.database_dsn())
 
     # Apply any saved roster overrides (added engineers / region moves, #16).
     from .services import roster
@@ -93,7 +89,7 @@ def create_app(
         logger.warning("Startup blocked by setup error: %s", exc.message)
         setup_error = exc
 
-    app.state.ctx = AppState(db, snapshots, secrets, setup_error)
+    app.state.ctx = AppState(db, secrets, setup_error)
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
     # Cache-bust static assets per process start so a restart always serves the
     # latest app.js/app.css (browsers otherwise cache them indefinitely).

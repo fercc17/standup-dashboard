@@ -41,8 +41,8 @@ def test_incidents_from_alerts_collapses_events_to_one_record():
     assert r.number == 5 and r.url == "u"
 
 
-def test_build_offenders_applies_year_and_recent_windows(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_build_offenders_applies_year_and_recent_windows(tmp_path, db_dsn):
+    db = Database(db_dsn)
     recs = []
     # chronic: 10 incidents Jan–May + 1 in the last 10 days → 11 YTD, qualifies.
     recs += [IncidentRecord(f"chr{i}", "chronic", _dt(1 + i % 5, 1 + i), "Chronic alert")
@@ -62,8 +62,8 @@ def test_build_offenders_applies_year_and_recent_windows(tmp_path):
     db.close()
 
 
-def test_handlers_reflect_the_last_10_days(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_handlers_reflect_the_last_10_days(tmp_path, db_dsn):
+    db = Database(db_dsn)
     recs = [IncidentRecord(f"c{i}", "chronic", _dt(1 + i % 5, 1 + i), "Chronic") for i in range(11)]
     recs.append(IncidentRecord("c-recent", "chronic", _dt(6, 12), "Chronic"))
     db.upsert_incidents(recs)
@@ -77,8 +77,8 @@ def test_handlers_reflect_the_last_10_days(tmp_path):
     db.close()
 
 
-def test_upsert_incidents_keeps_earliest_fired_at(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_upsert_incidents_keeps_earliest_fired_at(tmp_path, db_dsn):
+    db = Database(db_dsn)
     db.upsert_incidents([IncidentRecord("INC", "sig", _dt(6, 10), "t")])
     db.upsert_incidents([IncidentRecord("INC", "sig", _dt(6, 5), "t")])   # earlier re-fire
     [row] = db.get_incidents_since(_dt(1, 1))

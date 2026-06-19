@@ -1,0 +1,31 @@
+name: standup-dashboard
+# A rock built with the FastAPI 12-factor framework extension. Pack with
+# `rockcraft pack`, then deploy the matching charm (see charmcraft.yaml).
+summary: IS SRE Standup Dashboard
+description: |
+  Single-user, read-only Jira + PagerDuty + GitHub + calendar stand-up
+  dashboard. Persists to PostgreSQL (provided by the charm's postgresql
+  relation); raw fetch payloads are stored as JSONB.
+version: "0.1"
+base: ubuntu@24.04
+platforms:
+  amd64:
+
+extensions:
+  - fastapi-framework
+
+# The extension auto-discovers the module-level ASGI ``app`` in the project-root
+# ``app.py`` and installs the deps from ``requirements.txt``. It bundles app.py,
+# src/, static, templates and migrate.sh into /app and runs uvicorn for the main
+# "fastapi" service. We add one extra service:
+services:
+  # Name ends in "-scheduler" so Juju runs it on exactly ONE unit — the single
+  # writer that refreshes the data on an interval. It inherits the same env as
+  # the web app (Postgres DSN + secrets). PYTHONPATH points at the bundled src/.
+  refresh-scheduler:
+    override: replace
+    command: python -m standup_dashboard.scheduler
+    startup: enabled
+    working-dir: /app
+    environment:
+      PYTHONPATH: /app/src

@@ -14,8 +14,8 @@ EMAIL = "alexandre.gomes@canonical.com"
 
 
 @pytest.fixture
-def db(tmp_path):
-    database = Database(tmp_path / "test.db")
+def db(db_dsn):
+    database = Database(db_dsn)
     yield database
     database.close()
 

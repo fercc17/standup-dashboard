@@ -23,10 +23,10 @@ def _dt(d, h=12):
     return datetime(2026, 6, d, h, tzinfo=UTC)
 
 
-def test_calendar_merges_per_engineer_across_fetches(tmp_path):
+def test_calendar_merges_per_engineer_across_fetches(tmp_path, db_dsn):
     """A later refresh that transiently drops one engineer's iCal feed must keep
     that engineer's last-good calendar, not blank them (#cal)."""
-    db = Database(tmp_path / "t.db")
+    db = Database(db_dsn)
     pulse = [Pulse("ISReq", 202, "s", _dt(8), _dt(20))]
     fer, jam = "fernando.carrillo.castro@canonical.com", "james.simpson@canonical.com"
 
@@ -52,8 +52,8 @@ def test_calendar_merges_per_engineer_across_fetches(tmp_path):
     db.close()
 
 
-def test_merge_accumulates_across_fetches(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_merge_accumulates_across_fetches(tmp_path, db_dsn):
+    db = Database(db_dsn)
     pulse = [Pulse("ISReq", 201, "s", _dt(8), _dt(20))]
 
     # Fetch 1 (Jun 10): ISReq-1, a touch, INC1 acked, and INC2 acked (no title yet).

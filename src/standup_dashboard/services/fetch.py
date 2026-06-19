@@ -33,7 +33,6 @@ from ..domain.models import (
 )
 from ..settings import Secrets
 from ..storage.db import Database
-from ..storage.snapshots import SnapshotWriter
 from .calendar import compute_availability_windows
 from .oncall import resolve_oncall
 from .pulse import current_pulse, parse_jira_dt, previous_pulse, resolve_pulses
@@ -443,7 +442,6 @@ async def _fetch_ical(secrets: Secrets, now: datetime) -> ICalResult:
 
 async def run_fetch(
     db: Database,
-    snapshots: SnapshotWriter,
     secrets: Secrets,
     *,
     now: datetime | None = None,
@@ -493,19 +491,19 @@ async def run_fetch(
         _fetch_calendar(now),
     )
 
-    raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
-    raw_path = ""
-    if raw_payloads or ical_res.raw is not None:
-        extra = {"oncall.ics": ical_res.raw} if ical_res.raw is not None else {}
-        raw_path = snapshots.write(now, {**raw_payloads, **extra})
-
     fetch_id = db.create_fetch_snapshot(
         fetched_at=now,
         jira_ok=jira_res.ok,
         pagerduty_ok=pd_res.ok,
         ical_ok=ical_res.ok,
-        raw_path=raw_path,
     )
+    # Full-fidelity raw payloads → JSONB (append-only, never pruned; FR-028).
+    raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
+    if ical_res.raw is not None:
+        raw_payloads["oncall.ics"] = ical_res.raw
+    if raw_payloads:
+        db.insert_raw_snapshots(fetch_id, raw_payloads)
+
     db.insert_pulses(fetch_id, jira_res.pulses)
     db.insert_tickets(fetch_id, jira_res.tickets)
     db.insert_touches(fetch_id, jira_res.touches)

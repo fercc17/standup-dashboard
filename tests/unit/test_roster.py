@@ -13,16 +13,16 @@ from standup_dashboard.storage.db import Database
 ALEX = "alexandre.gomes@canonical.com"  # seed AMER engineer
 
 
-def _db(tmp_path):
-    return Database(tmp_path / "t.db")
+def _db(db_dsn):
+    return Database(db_dsn)
 
 
 def now():
     return datetime(2026, 6, 12, tzinfo=UTC)
 
 
-def test_add_engineer_appears_in_region(tmp_path):
-    db = _db(tmp_path)
+def test_add_engineer_appears_in_region(tmp_path, db_dsn):
+    db = _db(db_dsn)
     roster.add_engineer(db, "New Person", "New.Person@canonical.com", "EMEA", now())
     assert "new.person@canonical.com" in config.ENGINEERS_BY_EMAIL  # lowercased
     assert "new.person@canonical.com" in config.REGIONS["EMEA"].member_emails
@@ -32,8 +32,8 @@ def test_add_engineer_appears_in_region(tmp_path):
     db.close()
 
 
-def test_add_engineer_with_github_login(tmp_path):
-    db = _db(tmp_path)
+def test_add_engineer_with_github_login(tmp_path, db_dsn):
+    db = _db(db_dsn)
     # "@Handle" is normalised to a bare lowercase login (GitHub is case-insensitive).
     roster.add_engineer(
         db, "Gh Person", "gh.person@canonical.com", "AMER", now(), github_login="@GhPerson"
@@ -45,8 +45,8 @@ def test_add_engineer_with_github_login(tmp_path):
     db.close()
 
 
-def test_add_engineer_without_github_login(tmp_path):
-    db = _db(tmp_path)
+def test_add_engineer_without_github_login(tmp_path, db_dsn):
+    db = _db(db_dsn)
     roster.add_engineer(db, "No Gh", "no.gh@canonical.com", "AMER", now())
     assert config.ENGINEERS_BY_EMAIL["no.gh@canonical.com"].github_login == ""
     # Unmapped engineers are simply absent from the login map (PR counts stay 0).
@@ -54,16 +54,16 @@ def test_add_engineer_without_github_login(tmp_path):
     db.close()
 
 
-def test_move_engineer_between_regions(tmp_path):
-    db = _db(tmp_path)
+def test_move_engineer_between_regions(tmp_path, db_dsn):
+    db = _db(db_dsn)
     roster.move_engineer(db, ALEX, "EMEA", now())
     assert ALEX in config.REGIONS["EMEA"].member_emails
     assert ALEX not in config.REGIONS["AMER"].member_emails
     db.close()
 
 
-def test_validation(tmp_path):
-    db = _db(tmp_path)
+def test_validation(tmp_path, db_dsn):
+    db = _db(db_dsn)
     with pytest.raises(ValueError):
         roster.add_engineer(db, "", "a@b.com", "AMER", now())       # no name
     with pytest.raises(ValueError):

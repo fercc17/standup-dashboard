@@ -110,8 +110,8 @@ def test_requires_header_plus_data():
     assert errors
 
 
-def test_apply_persists_roles_and_project_notes(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_apply_persists_roles_and_project_notes(tmp_path, db_dsn):
+    db = Database(db_dsn)
     now = datetime(2026, 6, 10, 12, tzinfo=UTC)
     text = "Date\tColin\tNick\nWed, Jun 10\tBVG\tPS8\n"
     summary = apply_schedule_paste(db, text, now)

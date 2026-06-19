@@ -55,7 +55,7 @@ async def test_pvg_open_alerts_yellow_then_red_by_age(app, respx_mock):
     ctx = app.state.ctx
     # PVG keeps open alerts in WIP, coloured by age (#158): ≤24h yellow, >24h red.
     ctx.db.set_weekly_role(PVG, region_weekday(now, AMER_TZ), "PVG", now)
-    fetch_id = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=now, window_days=3)
+    fetch_id = await run_fetch(ctx.db, ctx.secrets, now=now, window_days=3)
     data = presenters.load_fetch_data(ctx.db, now, fetch_id)
     panel = presenters.build_panel(ctx.db, PVG, data, now, region_key="AMER")
     wip = panel.groups["WIP"]

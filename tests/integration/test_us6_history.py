@@ -8,7 +8,6 @@ the UI, and that no external write was ever issued (read-only, FR-027).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 from standup_dashboard.services.fetch import run_fetch
 from tests.fixtures.jira_pd import Scenario, install, issue
@@ -46,12 +45,12 @@ async def test_us6_history_retention_and_fallback(app, client, tmp_path, respx_m
     t1 = datetime(2026, 6, 11, 12, tzinfo=UTC)
     t2 = datetime(2026, 6, 11, 13, tzinfo=UTC)
 
-    fetch1 = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=t1)
+    fetch1 = await run_fetch(ctx.db, ctx.secrets, now=t1)
     assert ctx.db.get_tickets(fetch1)  # Jira data captured
 
     # Simulate a Jira outage on the second fetch.
     scenario.fail_jira = True
-    fetch2 = await run_fetch(ctx.db, ctx.snapshots, ctx.secrets, now=t2)
+    fetch2 = await run_fetch(ctx.db, ctx.secrets, now=t2)
 
     # Both snapshots retained; the earlier fetch's data is untouched (no delete).
     assert ctx.db.count_fetch_snapshots() == 2
@@ -62,9 +61,8 @@ async def test_us6_history_retention_and_fallback(app, client, tmp_path, respx_m
     assert f2.id == fetch2 and f2.jira_ok is False and f2.pagerduty_ok is True
     assert ctx.db.latest_good_fetch().id == fetch1
 
-    # Two raw snapshot directories exist on disk.
-    snap_dirs = list((tmp_path / "snapshots").iterdir())
-    assert len(snap_dirs) == 2 and all(Path(d).is_dir() for d in snap_dirs)
+    # Both fetches persisted raw snapshot rows (JSONB), not on-disk directories.
+    assert ctx.db._fetchone("SELECT COUNT(DISTINCT fetch_id) AS n FROM raw_snapshot")["n"] == 2
 
     # UI falls back to last good data with a failure banner.
     page = client.get("/", params={"regions": "AMER"}).text

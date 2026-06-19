@@ -32,8 +32,8 @@ def test_current_pulse_advances_across_boundary():
     assert n_b == n_a + 1 and start_b == end_a       # contiguous, auto-advanced
 
 
-def test_prior_pulse_frozen_when_rolled_over(tmp_path):
-    db = Database(tmp_path / "t.db")
+def test_prior_pulse_frozen_when_rolled_over(tmp_path, db_dsn):
+    db = Database(db_dsn)
 
     # --- During pulse N: a refresh persists N (current) with one ack'd alert. ---
     now_n = datetime(2026, 6, 13, 18, tzinfo=UTC)

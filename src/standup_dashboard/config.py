@@ -12,12 +12,42 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from urllib.parse import quote
 
+
+def _env(*names: str, default: str = "") -> str:
+    """First set environment variable among ``names``, else ``default``.
+
+    Lets one setting be read under multiple names: the 12-factor charm exposes
+    config options as ``APP_*`` env vars, while local dev / the original app use
+    ``STANDUP_*``. List the charm name first so it wins when both are present.
+    """
+    for name in names:
+        val = os.environ.get(name)
+        if val is not None and val != "":
+            return val
+    return default
+
+
+def database_dsn() -> str:
+    """PostgreSQL connection string. The charm's postgresql relation injects
+    ``POSTGRESQL_DB_CONNECT_STRING``; locally fall back to ``STANDUP_DB_DSN`` or
+    a sensible default so ``python -m standup_dashboard`` works against a local PG.
+    """
+    from .storage.db import DEFAULT_DSN
+    return _env("POSTGRESQL_DB_CONNECT_STRING", "STANDUP_DB_DSN", default=DEFAULT_DSN)
+
+
+# How often the background scheduler process triggers a refresh (seconds).
+REFRESH_INTERVAL_SECONDS = int(_env("APP_REFRESH_INTERVAL", "STANDUP_REFRESH_INTERVAL",
+                                    default="1800"))
+
 # ---------------------------------------------------------------------------
 # Jira / project configuration (Assumptions in spec.md)
 # ---------------------------------------------------------------------------
 
-JIRA_BASE_URL = "https://warthogs.atlassian.net"
-JIRA_ACCOUNT_EMAIL = "fernando.carrillo.castro@canonical.com"
+JIRA_BASE_URL = _env("APP_JIRA_BASE_URL", "STANDUP_JIRA_BASE_URL",
+                     default="https://warthogs.atlassian.net")
+JIRA_ACCOUNT_EMAIL = _env("APP_JIRA_ACCOUNT_EMAIL", "STANDUP_JIRA_ACCOUNT_EMAIL",
+                          default="fernando.carrillo.castro@canonical.com")
 
 PROJECT_ISDB = "ISDB"
 PROJECT_ISREQ = "ISReq"
@@ -31,7 +61,7 @@ PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
 # How far back a refresh collects activity (Jira "updated"/touches + PagerDuty
 # incidents). Defaults to a week so a refresh covers the current pulse week
 # (Mon→today); override with STANDUP_WINDOW_DAYS (e.g. "1" for fast test refreshes).
-FETCH_WINDOW_DAYS = int(os.environ.get("STANDUP_WINDOW_DAYS", "7"))
+FETCH_WINDOW_DAYS = int(_env("APP_WINDOW_DAYS", "STANDUP_WINDOW_DAYS", default="7"))
 
 # Pulse calendar (#93): a pulse is a 2-week cycle. Each anchor pins a Monday
 # (week 1, day 1) to its pulse number; the counts window is clamped to the
@@ -52,20 +82,21 @@ PAGERDUTY_MIN_SINCE = datetime(2026, 6, 8, tzinfo=UTC)
 # Scopes the /incidents query so a refresh fetches this team's alerts, not the
 # entire organization's. Override with STANDUP_PD_TEAM_IDS (comma-separated).
 PAGERDUTY_TEAM_IDS = tuple(
-    t for t in os.environ.get("STANDUP_PD_TEAM_IDS", "PQ4ZG3S").split(",") if t
+    t for t in _env("APP_PD_TEAM_IDS", "STANDUP_PD_TEAM_IDS", default="PQ4ZG3S").split(",") if t
 )
 
 # GitHub org whose open PRs feed the "GH PRs" card line (#173). Empty disables
 # the lookup (the line stays 0). Per-engineer GitHub logins live on the roster
 # (``EngineerConfig.github_login``); both that and a read-only token in
 # ``secrets/github_token.txt`` must be set for an engineer's count to populate.
-GITHUB_ORG = os.environ.get("STANDUP_GITHUB_ORG", "canonical")
+GITHUB_ORG = _env("APP_GITHUB_ORG", "STANDUP_GITHUB_ORG", default="canonical")
 
 # Concurrency for the GitHub PR fetch. Each engineer needs four Search-API
 # queries and that endpoint rate-limits aggressively (low primary cap + a
 # burst-based secondary limit), so keep this small. Override with
 # STANDUP_GITHUB_CONCURRENCY.
-GITHUB_FETCH_CONCURRENCY = int(os.environ.get("STANDUP_GITHUB_CONCURRENCY", "2"))
+GITHUB_FETCH_CONCURRENCY = int(_env("APP_GITHUB_CONCURRENCY", "STANDUP_GITHUB_CONCURRENCY",
+                                    default="2"))
 
 # Server bind. Defaults to loopback (single-user, localhost-only per FR-011).
 # Set STANDUP_HOST=0.0.0.0 to expose the dashboard on the LAN (no auth — only
@@ -263,7 +294,7 @@ def jira_filter_url(filter_id: int) -> str:
 # PagerDuty web subdomain (the UI host, distinct from the api.pagerduty.com REST
 # host). Used only to deep-link the "Ongoing alerts" count to the live incident
 # list. Override with STANDUP_PD_SUBDOMAIN for another account.
-PAGERDUTY_SUBDOMAIN = os.environ.get("STANDUP_PD_SUBDOMAIN", "canonical")
+PAGERDUTY_SUBDOMAIN = _env("APP_PD_SUBDOMAIN", "STANDUP_PD_SUBDOMAIN", default="canonical")
 
 
 def pagerduty_open_incidents_url() -> str:
@@ -280,7 +311,8 @@ def pagerduty_open_incidents_url() -> str:
 # URL is derivable from the email, but only resolves for calendars the person has
 # made public (others 404 fast and are skipped). On by default; set
 # STANDUP_CALENDAR=0 to disable (e.g. to skip the extra fetch entirely).
-CALENDAR_ENABLED = os.environ.get("STANDUP_CALENDAR", "1").lower() not in ("0", "false", "no")
+CALENDAR_ENABLED = _env("APP_CALENDAR", "STANDUP_CALENDAR",
+                        default="1").lower() not in ("0", "false", "no")
 
 
 def calendar_ical_url(email: str) -> str:

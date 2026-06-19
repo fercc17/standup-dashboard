@@ -22,3 +22,7 @@ build/
 
 # App runtime (PID + logs from scripts/app.sh)
 .run/
+
+# Charm/rock build artifacts
+*.rock
+*.charm

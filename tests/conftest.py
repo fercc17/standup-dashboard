@@ -1,15 +1,21 @@
-"""Shared test fixtures: a configured app over temp dirs + secrets, and a
-TestClient. External HTTP is mocked per-test with respx.
+"""Shared test fixtures: a configured app over an ephemeral PostgreSQL + secrets,
+and a TestClient. External HTTP is mocked per-test with respx.
+
+The storage layer is PostgreSQL (dev/prod parity with the charm), so each test
+runs against a fresh, throwaway database spun up by ``pytest-postgresql`` — it
+needs a PostgreSQL server binary (``pg_ctl``/``initdb``) on PATH.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from standup_dashboard.app import create_app
+from standup_dashboard.storage.db import Database
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +25,24 @@ def _reset_roster():
     config.rebuild_roster()
     yield
     config.rebuild_roster()
+
+
+@pytest.fixture
+def db_dsn(postgresql) -> str:
+    """libpq DSN for a fresh, ephemeral PostgreSQL database (one per test)."""
+    info = postgresql.info
+    dsn = f"host={info.host} port={info.port} user={info.user} dbname={info.dbname}"
+    if info.password:
+        dsn += f" password={info.password}"
+    return dsn
+
+
+@pytest.fixture
+def db(db_dsn: str) -> Iterator[Database]:
+    """A ``Database`` bound to the per-test ephemeral PostgreSQL (schema applied)."""
+    database = Database(db_dsn)
+    yield database
+    database.close()
 
 
 @pytest.fixture
@@ -32,11 +56,10 @@ def secrets_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def app(tmp_path: Path, secrets_dir: Path):
+def app(db_dsn: str, secrets_dir: Path):
     return create_app(
-        db_path=str(tmp_path / "dashboard.db"),
+        db_dsn=db_dsn,
         secrets_dir=str(secrets_dir),
-        snapshots_dir=str(tmp_path / "snapshots"),
         run_startup_validation=False,
     )
 
