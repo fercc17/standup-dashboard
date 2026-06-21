@@ -282,9 +282,11 @@ def _project_of(ticket_id: str) -> str:
 def _ticket_time_since(
     email: str, data: DashboardData, since: datetime, project: str | None = None
 ) -> int:
-    """Seconds of worklog time on tickets assigned to ``email`` since ``since``
-    (assignee proxy, #167): worklog touches carry the duration, attributed to the
-    ticket's assignee because Tempo logs them under a bot author. ``project``
+    """Seconds of worklog time credited to ``email`` since ``since``.
+
+    Worklog touches carry the duration. With a Tempo token they're credited to the
+    real logger (#tempo-worklogs); without one they fall back to the ticket's
+    assignee, since Jira authors Tempo worklogs under a bot (#167). ``project``
     restricts the sum to one Jira project (ISDB vs ISReq, #173); None = all."""
     return sum(
         tc.seconds for tc in data.touches

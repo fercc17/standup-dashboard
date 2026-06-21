@@ -21,6 +21,7 @@ from ..clients import github as gh_mod
 from ..clients import ical as ical_mod
 from ..clients import jira as jira_mod
 from ..clients import pagerduty as pd_mod
+from ..clients import tempo as tempo_mod
 from ..domain.models import (
     Alert,
     AlertState,
@@ -36,9 +37,65 @@ from ..storage.db import Database
 from .calendar import compute_availability_windows
 from .oncall import resolve_oncall
 from .pulse import current_pulse, parse_jira_dt, previous_pulse, resolve_pulses
-from .touches import extract_touches, parse_ticket, seed_account_emails
+from .touches import (
+    extract_touches,
+    parse_ticket,
+    seed_account_emails,
+    tempo_worklog_touches,
+)
 
 logger = logging.getLogger("standup_dashboard.fetch")
+
+# Keys kept when trimming a changelog history for storage (#snapshot-trim). Author
+# avatar URLs + self-links are ~75% of a Jira snapshot's bytes and are never read
+# back; these are everything the app derives from a history entry, so the trimmed
+# changelog stays re-derivable (touches, wip_since, done_date) for FR-028 backfills.
+_KEEP_AUTHOR_KEYS = ("accountId", "displayName", "emailAddress")
+_KEEP_ITEM_KEYS = ("field", "fieldtype", "from", "fromString", "to", "toString")
+
+
+def _trim_changelog(issue: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of a Jira issue with its changelog author blocks slimmed.
+
+    Drops the avatar-URL/self-link noise from each history author and keeps only
+    the transition fields the app reads. Non-issue / changelog-less inputs pass
+    through unchanged. Builds new dicts — never mutates the fetched payload, which
+    was already normalized into the SQLite tables by this point.
+    """
+    changelog = issue.get("changelog")
+    if not isinstance(changelog, dict) or not isinstance(changelog.get("histories"), list):
+        return issue
+    histories = [
+        {
+            "author": {k: a[k] for k in _KEEP_AUTHOR_KEYS if k in a}
+            if isinstance(a := h.get("author"), dict) else h.get("author"),
+            "created": h.get("created"),
+            "items": [
+                {k: it[k] for k in _KEEP_ITEM_KEYS if k in it}
+                for it in (h.get("items") or []) if isinstance(it, dict)
+            ],
+        }
+        for h in changelog["histories"] if isinstance(h, dict)
+    ]
+    return {**issue, "changelog": {**changelog, "histories": histories}}
+
+
+def _trim_snapshot_payloads(payloads: dict[str, Any]) -> dict[str, Any]:
+    """Slim changelog authors in any Jira issue-list payloads before storage.
+
+    Only the Jira payloads (lists of issue dicts carrying a ``changelog``) are
+    touched; PagerDuty payloads and the iCal string pass through untouched.
+    """
+    out: dict[str, Any] = {}
+    for name, value in payloads.items():
+        if isinstance(value, list) and any(
+            isinstance(v, dict) and "changelog" in v for v in value
+        ):
+            out[name] = [_trim_changelog(v) if isinstance(v, dict) else v for v in value]
+        else:
+            out[name] = value
+    return out
+
 
 @dataclass
 class JiraResult:
@@ -154,6 +211,23 @@ async def _fetch_jira(
                 parse_ticket(issue, acct_to_email) for issue in issues_by_key.values()
             ]
 
+            # Worklog time: prefer Tempo (the real logger per worklog) over Jira's
+            # per-issue worklogs, which Tempo authors under a bot so they can only
+            # be credited to the assignee. Gated on a Tempo token — without one we
+            # keep the assignee-proxy path in extract_touches (#tempo-worklogs). One
+            # date-range query covers every issue; a failure falls back, not aborts.
+            tempo_active = bool(secrets.tempo_token)
+            tempo_worklogs: list[dict[str, Any]] = []
+            if tempo_active:
+                try:
+                    async with tempo_mod.make_async_client(secrets.tempo_token) as tclient:
+                        tempo_worklogs = await tempo_mod.TempoClient(tclient).worklogs(
+                            window_start.date(), now.date())
+                    res.raw["tempo_worklogs.json"] = tempo_worklogs
+                except Exception:  # noqa: BLE001 — fall back to Jira/assignee worklogs
+                    logger.exception("Tempo worklog fetch failed; using Jira worklogs")
+                    tempo_active = False
+
             # Fetch comments + worklogs per issue concurrently (bounded).
             sem = asyncio.Semaphore(10)
 
@@ -167,7 +241,8 @@ async def _fetch_jira(
                 else:
                     async with sem:
                         comments = await jira.comments(key)
-                        worklogs = await jira.worklogs(key)
+                        # Tempo owns worklog attribution when active; don't double-count.
+                        worklogs = [] if tempo_active else await jira.worklogs(key)
                 return extract_touches(
                     issue,
                     comments=comments,
@@ -183,6 +258,21 @@ async def _fetch_jira(
             )
             for touches in touch_lists:
                 res.touches.extend(touches)
+
+            # Tempo worklog touches (real logger), keyed back to issue keys via the
+            # issues we fetched. Worklogs on out-of-scope issues are dropped.
+            if tempo_active:
+                id_to_key = {
+                    str(i["id"]): k for k, i in issues_by_key.items() if i.get("id")
+                }
+                res.touches.extend(tempo_worklog_touches(
+                    tempo_worklogs,
+                    id_to_key=id_to_key,
+                    window_start=window_start,
+                    window_end=now,
+                    roster_emails=roster,
+                    account_emails=acct_to_email,
+                ))
     except Exception:  # noqa: BLE001 — any failure marks the source down (US6)
         logger.exception("Jira fetch failed")
         res.ok = False
@@ -497,11 +587,15 @@ async def run_fetch(
         pagerduty_ok=pd_res.ok,
         ical_ok=ical_res.ok,
     )
-    # Full-fidelity raw payloads → JSONB (append-only, never pruned; FR-028).
+    # Raw payloads → JSONB (append-only, never pruned; FR-028). Trim the bulky,
+    # never-read changelog author blocks by default so the store doesn't balloon
+    # under a 30-min scheduler (#snapshot-trim); RAW_SNAPSHOT_FULL stores verbatim.
     raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
     if ical_res.raw is not None:
         raw_payloads["oncall.ics"] = ical_res.raw
     if raw_payloads:
+        if not config.RAW_SNAPSHOT_FULL:
+            raw_payloads = _trim_snapshot_payloads(raw_payloads)
         db.insert_raw_snapshots(fetch_id, raw_payloads)
 
     db.insert_pulses(fetch_id, jira_res.pulses)

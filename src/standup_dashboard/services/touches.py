@@ -209,11 +209,68 @@ def extract_touches(
         add(_resolve_email(c.get("author"), account_emails), TouchKind.COMMENT,
             parse_jira_dt(c.get("created")))
 
-    # Worklogs: Tempo records them under a bot author, so attribute the logged
-    # time to the ticket's assignee (proxy) and carry the duration (#167).
+    # Worklogs: Tempo records them under a bot author, so Jira's worklog endpoint
+    # can't name the logger — attribute the logged time to the ticket's assignee
+    # (proxy) and carry the duration (#167). When a Tempo token is configured the
+    # caller passes ``worklogs=[]`` here and uses ``tempo_worklog_touches`` instead,
+    # which credits the real logger (#tempo-worklogs).
     assignee = _resolve_email((issue.get("fields") or {}).get("assignee"), account_emails)
     for w in worklogs or []:
         add(assignee, TouchKind.WORKLOG, parse_jira_dt(w.get("started")),
             int(w.get("timeSpentSeconds") or 0))
 
+    return out
+
+
+def _tempo_started(worklog: dict[str, Any]) -> datetime | None:
+    """The worklog's start as a UTC datetime.
+
+    Prefer Tempo's ``startDateTimeUtc`` (the true instant). ``startDate`` /
+    ``startTime`` are in the *logger's* local timezone — they differ from the UTC
+    field by that offset — so combining them as UTC would misbucket worklogs by
+    day and skew the time windows. Fall back to them (as UTC) only if the UTC
+    field is absent."""
+    utc = worklog.get("startDateTimeUtc")
+    if utc:
+        return parse_jira_dt(utc)
+    start_date = worklog.get("startDate")
+    if not start_date:
+        return None
+    return parse_jira_dt(f"{start_date}T{worklog.get('startTime') or '00:00:00'}")
+
+
+def tempo_worklog_touches(
+    worklogs: Iterable[dict[str, Any]],
+    *,
+    id_to_key: Mapping[str, str],
+    window_start: datetime,
+    window_end: datetime,
+    roster_emails: set[str],
+    account_emails: Mapping[str, str] | None = None,
+) -> list[TouchEvent]:
+    """Build WORKLOG touches from Tempo worklogs, credited to the real logger.
+
+    ``id_to_key`` maps a numeric Jira issue id (as a string) to its key; worklogs
+    on issues we didn't fetch are skipped. The logger is ``author.accountId``
+    resolved to a roster email; off-window, non-roster, or unresolved authors are
+    dropped, matching ``extract_touches``' filters."""
+    out: list[TouchEvent] = []
+    seen: set[tuple[str, str, datetime, int]] = set()
+    for w in worklogs:
+        key = id_to_key.get(str((w.get("issue") or {}).get("id")))
+        if not key:
+            continue
+        email = _resolve_email(w.get("author"), account_emails)
+        at = _tempo_started(w)
+        seconds = int(w.get("timeSpentSeconds") or 0)
+        if not email or at is None or email not in roster_emails:
+            continue
+        if not (window_start <= at <= window_end):
+            continue
+        sig = (key, email, at, seconds)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(TouchEvent(ticket_id=key, engineer_email=email,
+                              kind=TouchKind.WORKLOG, at=at, seconds=seconds))
     return out

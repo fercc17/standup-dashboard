@@ -22,6 +22,10 @@ PAGERDUTY_ICAL_URL_FILE = "pagerduty_ical_url.txt"
 # Optional: a read-only GitHub token enables the "GH PRs" card line (#173). Its
 # absence never blocks startup — the line just stays at 0.
 GITHUB_TOKEN_FILE = "github_token.txt"
+# Optional: a Tempo API token (Worklogs:View scope) makes worklog time attribute
+# to the real logger via the Tempo API instead of the ticket's assignee. Absent =
+# fall back to the Jira-worklog assignee proxy; never blocks startup (#tempo-worklogs).
+TEMPO_TOKEN_FILE = "tempo_token.txt"
 
 # Env var names per secret, tried in order before the file fallback. The charm
 # binds a Juju secret to a config option of type ``secret`` named ``secrets``, so
@@ -34,6 +38,8 @@ PAGERDUTY_ICAL_URL_ENV = (
     "APP_SECRETS_PAGERDUTY_ICAL_URL", "APP_PAGERDUTY_ICAL_URL", "STANDUP_PAGERDUTY_ICAL_URL")
 GITHUB_TOKEN_ENV = (
     "APP_SECRETS_GITHUB_TOKEN", "APP_GITHUB_TOKEN", "STANDUP_GITHUB_TOKEN")
+TEMPO_TOKEN_ENV = (
+    "APP_SECRETS_TEMPO_TOKEN", "APP_TEMPO_TOKEN", "STANDUP_TEMPO_TOKEN")
 
 
 class SetupError(Exception):
@@ -53,6 +59,7 @@ class Secrets:
     pagerduty_token: str
     pagerduty_ical_url: str
     github_token: str | None = None  # optional — gates the GH PRs line (#173)
+    tempo_token: str | None = None  # optional — gates real-logger worklogs (#tempo-worklogs)
 
 
 def _from_env(env_names: tuple[str, ...]) -> str | None:
@@ -108,4 +115,5 @@ def load_secrets(secrets_dir: str | Path = DEFAULT_SECRETS_DIR) -> Secrets:
         pagerduty_token=_read_secret(d, PAGERDUTY_TOKEN_ENV, PAGERDUTY_TOKEN_FILE),
         pagerduty_ical_url=_read_secret(d, PAGERDUTY_ICAL_URL_ENV, PAGERDUTY_ICAL_URL_FILE),
         github_token=_read_optional_secret(d, GITHUB_TOKEN_ENV, GITHUB_TOKEN_FILE),
+        tempo_token=_read_optional_secret(d, TEMPO_TOKEN_ENV, TEMPO_TOKEN_FILE),
     )

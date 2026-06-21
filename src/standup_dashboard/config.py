@@ -40,6 +40,20 @@ def database_dsn() -> str:
 REFRESH_INTERVAL_SECONDS = int(_env("APP_REFRESH_INTERVAL", "STANDUP_REFRESH_INTERVAL",
                                     default="1800"))
 
+# Raw-snapshot fidelity (#snapshot-trim). Every refresh re-fetches the whole
+# sprint board with ``expand=changelog`` and stores it verbatim in the write-only
+# ``raw_snapshot`` table — but ~75% of a Jira snapshot's bytes are avatar URLs and
+# self-links inside changelog *authors*, which nothing ever reads back (the
+# normalized tables are derived at fetch time). With a 30-min scheduler plus
+# on-demand refreshes that grows the JSONB store fast, so by default we trim those
+# author blocks down to identity (accountId/displayName/emailAddress) + the
+# transition items — ~60% smaller while keeping the changelog fully re-derivable,
+# so FR-028 trend analysis and ``scripts/backfill_wip_since.py`` still work. Set
+# STANDUP_RAW_SNAPSHOT_FULL=1 (charm: ``raw-snapshot-full=true``) to store verbatim
+# again. See memory: raw-snapshot-changelog-trim.
+RAW_SNAPSHOT_FULL = _env("APP_RAW_SNAPSHOT_FULL", "STANDUP_RAW_SNAPSHOT_FULL",
+                         default="0").lower() in ("1", "true", "yes")
+
 # ---------------------------------------------------------------------------
 # Jira / project configuration (Assumptions in spec.md)
 # ---------------------------------------------------------------------------
@@ -97,6 +111,13 @@ GITHUB_ORG = _env("APP_GITHUB_ORG", "STANDUP_GITHUB_ORG", default="canonical")
 # STANDUP_GITHUB_CONCURRENCY.
 GITHUB_FETCH_CONCURRENCY = int(_env("APP_GITHUB_CONCURRENCY", "STANDUP_GITHUB_CONCURRENCY",
                                     default="2"))
+
+# Tempo Cloud REST API base (#tempo-worklogs). v4 ``/worklogs`` carries the real
+# logger (``author.accountId``) per worklog, unlike Jira's worklog endpoint which
+# Tempo authors under a bot. Used only when a Tempo token is configured. Override
+# with STANDUP_TEMPO_BASE_URL for Tempo Server/DC.
+TEMPO_BASE_URL = _env("APP_TEMPO_BASE_URL", "STANDUP_TEMPO_BASE_URL",
+                      default="https://api.tempo.io/4")
 
 # Server bind. Defaults to loopback (single-user, localhost-only per FR-011).
 # Set STANDUP_HOST=0.0.0.0 to expose the dashboard on the LAN (no auth — only
