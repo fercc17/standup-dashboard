@@ -477,6 +477,12 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
     ws = datetime(pstart.year, pstart.month, pstart.day, tzinfo=UTC)
     we = datetime(pend.year, pend.month, pend.day, tzinfo=UTC)
     ws24, we24 = now - timedelta(hours=24), now  # rolling-24h window (all engineers)
+    # This week (from Monday) + next week, for the per-person PTO list on the card
+    # (#pto-card). Independent of the pulse window so it always covers "next week".
+    today_utc = now.astimezone(UTC).date()
+    week_mon = today_utc - timedelta(days=today_utc.weekday())
+    pto_ws = datetime(week_mon.year, week_mon.month, week_mon.day, tzinfo=UTC)
+    pto_we = pto_ws + timedelta(days=14)
     try:
         async with ical_mod.make_async_client() as hc:
             client = ical_mod.ICalClient(hc)
@@ -493,14 +499,15 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
                         # Parse the (large) feed once, off the event loop: it's
                         # CPU-bound (~3s for a 2 MB feed) and blocking the loop here
                         # would time out the other engineers' in-flight fetches.
-                        avail, day, h24 = await asyncio.to_thread(
+                        avail, day, h24, ptowin = await asyncio.to_thread(
                             compute_availability_windows, text,
-                            [(ws, we), (ts, te), (ws24, we24)],
+                            [(ws, we), (ts, te), (ws24, we24), (pto_ws, pto_we)],
                         )
                         avail.busy_today_seconds = day.busy_seconds
                         avail.open_today_seconds = day.open_seconds
                         avail.busy_24h_seconds = h24.busy_seconds
                         avail.open_24h_seconds = h24.open_seconds
+                        avail.pto_days = ptowin.pto_days  # this + next week
                         return email, avail
                     except Exception:  # noqa: BLE001
                         logger.exception("Calendar parse failed for %s", email)

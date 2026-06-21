@@ -56,7 +56,10 @@
                   <option value="{{ r }}" {% if defaults[(eng.email, d.slot)] == r %}selected{% endif %}>{{ r }}</option>
                   {% endfor %}
                 </select>
-                {% if note %}<span class="day-note">{{ note }}</span>{% endif %}
+                <input class="day-note-input" type="text" name="note" value="{{ note or '' }}"
+                       placeholder="note…" maxlength="200" spellcheck="false"
+                       hx-post="/schedule/note" hx-swap="none" hx-trigger="change"
+                       hx-vals='{"engineer_email": "{{ eng.email }}", "weekday": "{{ d.slot }}"}'>
               </td>
               {% endfor %}
             </tr>

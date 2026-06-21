@@ -487,6 +487,23 @@ async def schedule_weekly(request: Request) -> HTMLResponse:
     return PlainTextResponse("ok")
 
 
+@router.post("/schedule/note", response_class=HTMLResponse)
+async def schedule_note(request: Request) -> HTMLResponse:
+    """Set/clear a free-text day note for a weekday slot (today/future, #day-notes)."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None:
+        return render_setup(request)
+    form = await request.form()
+    try:
+        schedule.set_day_note(
+            ctx.db, form["engineer_email"], form["weekday"],
+            form.get("note", "").strip(), _now()
+        )
+    except (KeyError, ValueError) as exc:
+        return PlainTextResponse(f"Invalid note: {exc}", status_code=400)
+    return PlainTextResponse("ok")
+
+
 @router.post("/schedule/override", response_class=HTMLResponse)
 async def schedule_override(request: Request) -> HTMLResponse:
     ctx = _ctx(request)

@@ -132,7 +132,10 @@ def _availability(
     capacity = _weekday_count(window_start, window_end) * WORKDAY_S
     open_s = max(0, capacity - busy_s)
     sd_days = tuple(sorted(set(sd_by_week.values()), key=_WEEKDAYS.index))
+    # The specific PTO dates in-window, oldest first — used to list a person's PTO
+    # across this + next week on their card (#pto-card).
+    pto_days = tuple(d.strftime("%a %b %d") for d in sorted(pto_weekdays))
     return CalendarAvail(
         busy_seconds=busy_s, open_seconds=open_s, pto_seconds=pto_s,
-        sd_days=sd_days, has_data=True,
+        sd_days=sd_days, has_data=True, pto_days=pto_days,
     )

@@ -60,6 +60,16 @@ ISREQ_REVIEW_PREFIX = "[PR/MP Review]"
 # The real Jira label is singular "ps5-blocker"; accept the plural too, defensively.
 PS5_BLOCKER_LABELS = ("ps5-blocker", "ps5-blockers")
 PRIORITY_HIGHEST = "Highest"
+# Compact priority ribbon shown on each ticket line, most→least urgent (#ribbon).
+# Maps the five Jira priorities to the team's ribbon scheme: H2 = Highest, H1 =
+# High, M = Medium, L1 = Low, L2 = Lowest.
+PRIORITY_RIBBONS = {
+    "Highest": "H2",
+    "High": "H1",
+    "Medium": "M",
+    "Low": "L1",
+    "Lowest": "L2",
+}
 
 
 class TouchKind(StrEnum):
@@ -165,6 +175,11 @@ class Ticket:
         return (self.status or "").strip().lower() == "escalated"
 
     @property
+    def priority_ribbon(self) -> str:
+        """Compact priority code (H2=Highest … L2=Lowest), '' if unknown (#ribbon)."""
+        return PRIORITY_RIBBONS.get((self.priority or "").strip(), "")
+
+    @property
     def is_bvg_review(self) -> bool:
         """ISReq ticket whose title starts with ``[PR/MP Review]`` (FR-015)."""
         return self.is_isreq and self.title.strip().startswith(ISREQ_REVIEW_PREFIX)
@@ -242,6 +257,10 @@ class ChipVM:
     completed_pulse: int = 0
     alerts_ack_pulse: int = 0
     alerts_resolved_pulse: int = 0
+    # Weekend on-call handover (#handover): for a PVG/BVG chip, who they hand the
+    # duty to (next region) and receive it from (previous region), names only.
+    handover_to: str = ""
+    handover_from: str = ""
 
 
 @dataclass
@@ -254,6 +273,8 @@ class TicketVM:
     touched_24h: bool = False  # touched in the last 24h (for the panel split, #17)
     pulses_open: int = 0  # Highest + open: full pulses it has stayed open, 0 if fresh (#18)
     status: str = ""  # Jira status name, shown on the ticket line
+    ribbon: str = ""  # compact priority ribbon code (H2..L2), '' if unknown (#ribbon)
+    priority: str = ""  # full Jira priority name, for the ribbon tooltip (#ribbon)
     # Per-line time log shown on the right of the row (#line-time): for a Jira
     # ticket, the worklog this engineer logged on it this pulse; for an alert, how
     # long the incident lasted (fire→resolve) or, if still open, how long it has
@@ -300,6 +321,8 @@ class CalendarAvail:
     open_today_seconds: int = 0    # 8h workday capacity − today's busy
     busy_24h_seconds: int = 0      # rolling last 24h (distinct from the local day)
     open_24h_seconds: int = 0      # capacity over the rolling 24h − its busy
+    # PTO dates ("Mon Jun 23") across this + next week, for the card (#pto-card).
+    pto_days: tuple[str, ...] = ()
 
 
 @dataclass

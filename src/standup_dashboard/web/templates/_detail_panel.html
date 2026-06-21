@@ -1,5 +1,6 @@
 {% macro ticket_row(t) %}
 <div class="ticket c-{{ t.color.value }}">
+  {% if t.ribbon %}<span class="ribbon ribbon-{{ t.ribbon | lower }}" title="Priority: {{ t.priority }}">{{ t.ribbon }}</span>{% endif %}
   {% if t.url %}
   <a class="key" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.key }}</a>
   <a class="title" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.title }}</a>
@@ -65,6 +66,11 @@
                   panel.pr_stats, panel.cal_busy_label, panel.cal_open_label,
                   panel.calendar.has_data, panel.calendar.sd_days) }}
   </div>
+  {% if panel.calendar.pto_days %}
+  <div class="panel-pto" title="Days off across this week and next, from the free/busy calendar feed">
+    &#127958; PTO this &amp; next week: {{ panel.calendar.pto_days | join(', ') }}
+  </div>
+  {% endif %}
   {% for group, tickets in panel.groups.items() %}
   <div class="group-title">{{ group }}{% if tickets %} <span class="group-count">&times;{{ tickets | length }}</span>{% endif %}</div>
   {% if group in ["WIP", "Success", "Distractors"] %}

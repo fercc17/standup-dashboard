@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS calendar_avail (
     open_today     INTEGER NOT NULL DEFAULT 0,
     busy_24h       INTEGER NOT NULL DEFAULT 0,
     open_24h       INTEGER NOT NULL DEFAULT 0,
+    pto_days       TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (fetch_id, engineer_email)
 );
 
@@ -247,6 +248,10 @@ CREATE INDEX IF NOT EXISTS idx_day_note_latest
     ON day_note (engineer_email, weekday, updated_at);
 CREATE INDEX IF NOT EXISTS idx_ui_state_latest
     ON ui_state (key, updated_at);
+
+-- Columns added after a table first shipped: idempotent ADDs so existing
+-- databases pick them up on the next start (CREATE TABLE IF NOT EXISTS won't).
+ALTER TABLE calendar_avail ADD COLUMN IF NOT EXISTS pto_days TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -501,18 +506,18 @@ class Database:
         self._executemany(
             "INSERT INTO calendar_avail"
             " (fetch_id, engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days,"
-            "  busy_today, open_today, busy_24h, open_24h)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            "  busy_today, open_today, busy_24h, open_24h, pto_days)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
             [(fetch_id, email, a.busy_seconds, a.open_seconds, a.pto_seconds,
               ",".join(a.sd_days), a.busy_today_seconds, a.open_today_seconds,
-              a.busy_24h_seconds, a.open_24h_seconds)
+              a.busy_24h_seconds, a.open_24h_seconds, "|".join(a.pto_days))
              for email, a in avail.items()],
         )
 
     def get_calendar_avail(self, fetch_id: int) -> dict[str, CalendarAvail]:
         rows = self._fetchall(
             "SELECT engineer_email, busy_seconds, open_seconds, pto_seconds, sd_days,"
-            " busy_today, open_today, busy_24h, open_24h"
+            " busy_today, open_today, busy_24h, open_24h, pto_days"
             " FROM calendar_avail WHERE fetch_id = %s", (fetch_id,)
         )
         return {
@@ -522,7 +527,8 @@ class Database:
                 sd_days=tuple(d for d in r["sd_days"].split(",") if d),
                 has_data=True,
                 busy_today_seconds=r["busy_today"], open_today_seconds=r["open_today"],
-                busy_24h_seconds=r["busy_24h"], open_24h_seconds=r["open_24h"])
+                busy_24h_seconds=r["busy_24h"], open_24h_seconds=r["open_24h"],
+                pto_days=tuple(d for d in (r["pto_days"] or "").split("|") if d))
             for r in rows
         }
 

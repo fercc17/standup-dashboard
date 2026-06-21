@@ -15,11 +15,11 @@
   </div>
   <button class="action" hx-post="/refresh" hx-include="#controls"
           hx-target="#dashboard" hx-swap="outerHTML">Refresh</button>
-  <label class="toggle" title="When on, ISReq tickets that aren't Highest or [PR/MP Review] are distractors (red)">
+  <label class="toggle" title="When on, in-progress ISReq tickets that aren't Highest, a ps5-blocker, or [PR/MP Review] are highlighted as distractors (red)">
     <input type="checkbox" id="highest-toggle" name="value" {% if highest_focus %}checked{% endif %}
            hx-post="/toggle/highest" hx-swap="none"
            hx-vals='js:{value: event.target.checked ? "on" : "off"}'>
-    Highest only
+    Focus: Highest/PS5/PR-MP
   </label>
   <button class="action" hx-get="/schedule" hx-target="#modal-root">Schedule</button>
   <button class="action" hx-get="/roster" hx-target="#modal-root">Roster</button>

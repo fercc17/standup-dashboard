@@ -432,20 +432,58 @@ def build_chip(
     )
 
 
+def _region_roles(db: Database, region_key: str, data: DashboardData,
+                  now: datetime) -> dict[str, Role]:
+    """Effective role per member of one region, applying the weekend on-call rule."""
+    region = config.REGIONS[region_key]
+    emails = list(region.member_emails)
+    roles = resolve_roles(db, emails, region.timezone, now)
+    if is_weekend(now, region.timezone):
+        roles.update(others_off(data.oncall_email, emails))
+    return roles
+
+
+def _handover_map(db: Database, data: DashboardData, now: datetime) -> dict[tuple[str, Role], str]:
+    """(region, PVG/BVG) → comma-joined holder names, across *all* regions.
+
+    Needed even for unselected regions so a PVG/BVG chip can name its hand-over
+    counterpart in the next/previous region (#handover)."""
+    holders: dict[tuple[str, Role], list[str]] = {}
+    for key in config.REGION_KEYS:
+        for email, role in _region_roles(db, key, data, now).items():
+            if role in (Role.PVG, Role.BVG):
+                holders.setdefault((key, role), []).append(
+                    config.ENGINEERS_BY_EMAIL[email].name)
+    return {k: ", ".join(v) for k, v in holders.items()}
+
+
+def _handover_name(holders: dict[tuple[str, Role], str], region_key: str,
+                   role: Role, offset: int) -> str:
+    """Holder name in the region ``offset`` steps along the APAC→EMEA→AMER cycle."""
+    order = config.HANDOVER_ORDER
+    if region_key not in order:
+        return ""
+    other = order[(order.index(region_key) + offset) % len(order)]
+    return holders.get((other, role), "")
+
+
 def build_chip_groups(
     db: Database, data: DashboardData, selected_regions: list[str], now: datetime
 ) -> tuple[list[ChipGroup], list[ChipVM]]:
     """Per-region chip groups + a separate Management group (#72)."""
     groups: list[ChipGroup] = []
+    handover = _handover_map(db, data, now)
     for key in selected_regions:
         region = config.REGIONS[key]
         emails = list(region.member_emails)
-        roles = resolve_roles(db, emails, region.timezone, now)
-        # On the weekend, every engineer except the on-call is OFF (FR-025).
-        if is_weekend(now, region.timezone):
-            roles.update(others_off(data.oncall_email, emails))
+        roles = _region_roles(db, key, data, now)
         local_day = now.astimezone(ZoneInfo(region.timezone)).strftime("%a %d %b")
         chips = [build_chip(e, roles[e], key, data, now) for e in emails]
+        # Stamp PVG/BVG chips with who they hand the duty to / receive it from.
+        for chip in chips:
+            if chip.role in (Role.PVG, Role.BVG):
+                chip.handover_to = _handover_name(handover, key, chip.role, +1)
+                chip.handover_from = _handover_name(handover, key, chip.role, -1)
         groups.append(ChipGroup(key=key, label=key, local_day=local_day, chips=chips))
 
     # Management (regional + global managers) is shown on its own, excluded from
@@ -867,8 +905,8 @@ def build_panel(
 
     # Reclassify assigned tickets into Distractors (To Do / queued work is never a
     # distraction, even when untriaged):
-    #  * highest_focus toggle (WIP only): any in-progress ISReq not Highest /
-    #    not [PR/MP Review] → red.
+    #  * highest_focus toggle (WIP only): any in-progress ISReq that is not
+    #    Highest, not a ps5-blocker, and not [PR/MP Review] → red (#focus-toggle).
     #  * role rules (#86): BVG non-priority, PVG In-Review (yellow), Project
     #    non-ISDB (red) — Project distractions also pull completed work out of
     #    Success, since off-task ISReq is never a success for a Project engineer.
@@ -881,12 +919,17 @@ def build_panel(
         apply_focus = highest_focus and grp is TicketGroup.WIP
         kept = []
         for t in grouped[grp]:
-            role_dist = is_role_distractor(role, t)
+            # An OFF day must not turn the engineer's own assigned work into
+            # distractors — the week's assignment wins over the particular day off
+            # (#off-distractor). Work they touched but aren't assigned to is still a
+            # distractor (classify_for_engineer already put it in Distractors).
+            role_dist = is_role_distractor(role, t) and role is not Role.OFF
             if role_dist and role is Role.PVG:
                 # PVG's "In Review" rule wins over the Highest-only toggle (yellow).
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 role_distractor_ids.add(t.id)
-            elif apply_focus and t.is_isreq and not (t.is_highest or t.is_pr_mp_review):
+            elif (apply_focus and t.is_isreq
+                  and not (t.is_highest or t.is_pr_mp_review or t.has_ps5_blockers)):
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 focus_distractor_ids.add(t.id)
             elif role_dist:
@@ -945,6 +988,8 @@ def build_panel(
                     touched_24h=t.id in touched_24h_ids,
                     pulses_open=_pulses_open(t, group),
                     status=t.status,
+                    ribbon=t.priority_ribbon,
+                    priority=t.priority or "",
                     time_label=hours_label(secs) if secs else "",
                     time_title="Time you logged on this ticket this pulse" if secs else "",
                 )

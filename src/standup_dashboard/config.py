@@ -160,6 +160,12 @@ REGION_TIMEZONES: dict[str, str] = {
 }
 REGION_KEYS = tuple(REGION_TIMEZONES.keys())
 
+# Follow-the-sun on-call handover order (#handover): the PVG/BVG duty rotates
+# APAC → EMEA → AMER → APAC through the UTC day (matching the working-hours
+# windows below). A PVG/BVG in one region hands over to the next region's holder
+# and receives from the previous one.
+HANDOVER_ORDER = ("APAC", "EMEA", "AMER")
+
 # Follow-the-sun ticket attribution: a ticket belongs to the region whose
 # working-hours window (in UTC) contains its *creation* time — independent of
 # who later gets assigned. The three windows tile the full 24h day, so every

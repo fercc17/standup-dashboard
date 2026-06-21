@@ -4,6 +4,12 @@
      hx-target="#panels" hx-swap="innerHTML">
   <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}
     <span class="role-tag">{{ chip.role.value }}</span></span>
+  {% if chip.handover_from or chip.handover_to %}
+  <span class="handover" title="On-call handover (APAC → EMEA → AMER): receives from / hands over to">
+    {% if chip.handover_from %}<span class="ho-from" title="Receives the handover from {{ chip.handover_from }}">&#8592; {{ chip.handover_from }}</span>{% endif %}
+    {% if chip.handover_to %}<span class="ho-to" title="Hands the duty over to {{ chip.handover_to }}">&#8594; {{ chip.handover_to }}</span>{% endif %}
+  </span>
+  {% endif %}
   <span class="meta" title="Last 24h — touched / assigned-open / completed · alerts ack/resolved">
     <span class="win">24h</span>
     <span>&#9998;{{ chip.touched_24h }}</span>
