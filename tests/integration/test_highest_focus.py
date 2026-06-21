@@ -1,4 +1,4 @@
-"""Highest-only focus toggle: ISReq non-priority → red Distractor (#86 follow-up)."""
+"""Highest-focus toggle: flag (don't move) off-focus in-progress ISReq (#focus-toggle)."""
 
 from __future__ import annotations
 
@@ -28,10 +28,9 @@ def _scenario(now: datetime) -> Scenario:
         sprint_issues={
             101: [],
             201: [
-                # ps5 is green for GEN, so the Highest-only toggle is what demotes
-                # it (a plain regular ISReq would already be a GEN distractor, #158).
-                issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201,
-                      labels=["ps5-blocker"]),
+                # A non-priority in-progress ISReq — the kind the toggle flags as
+                # "wrong ticket" (not Highest / ps5-blocker / [PR/MP Review]).
+                issue("ISReq-5", assignee=COLIN, status="In Progress", sprint_id=201),
                 issue("ISReq-6", assignee=COLIN, status="Untriaged", sprint_id=201),
             ],
         },
@@ -39,23 +38,19 @@ def _scenario(now: datetime) -> Scenario:
     )
 
 
-def test_highest_toggle_recolors_isreq_distractor_red(client, app, respx_mock):
+def test_highest_toggle_flags_offfocus_isreq(client, app, respx_mock):
     now = datetime.now(UTC)
     install(respx_mock, _scenario(now))
     slot = region_weekday(now, AMER_TZ)
-    # GEN role: ISReq is NOT a role-distractor, so the toggle's effect is isolated
-    # (Project would already force red regardless of the toggle).
     app.state.ctx.db.set_weekly_role(COLIN, slot, "GEN", now)
     client.post("/refresh", data={"regions": "AMER"})
 
     off = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    # Toggle off: the in-progress ISReq is current work in WIP, not a distraction.
-    assert "ISReq-5" in off[: off.index("Distractors")]
+    # Toggle off: the ticket is shown, nothing flagged.
+    assert "ISReq-5" in off and "flagged" not in off
 
-    # Turn on "Highest only" → the non-Highest in-progress ISReq goes red in Distractors.
+    # Toggle on: the off-focus ISReq is flagged in place (not hidden) so it's easy
+    # to spot someone on the wrong ticket — and it does not disappear.
     assert client.post("/toggle/highest", data={"value": "on"}).status_code == 204
     on = client.get(f"/chip/{COLIN}/detail", params={"regions": "AMER"}).text
-    assert "ISReq-5" in on and "c-red" in on
-    assert "ISReq-5" in on[on.index("Distractors"):]
-    # But an untriaged To Do ticket is never a distraction — it stays in To Do.
-    assert "ISReq-6" in on[: on.index("Distractors")]
+    assert "ISReq-5" in on and "flagged" in on

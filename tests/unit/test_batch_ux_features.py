@@ -71,14 +71,33 @@ def test_panel_ticket_carries_ribbon(db_dsn):
 
 # --- Highest-focus toggle now exempts ps5-blockers (#focus-toggle) ----------
 
-def test_ps5_blocker_exempt_from_highest_focus(db_dsn):
+def _vm(panel, key):
+    for vms in panel.groups.values():
+        for vm in vms:
+            if vm.key == key:
+                return vm
+    return None
+
+
+def test_highest_focus_flags_offfocus_isreq_in_place(db_dsn):
     db = Database(db_dsn)
     db.set_weekly_role(E, region_weekday(NOW, TZ), "GEN", NOW)
     data = _data(_t("ISReq-ps5", labels=["ps5-blocker"]), _t("ISReq-reg"))
     panel = build_panel(db, E, data, NOW, region_key="AMER", highest_focus=True)
-    groups = _groups(panel)
-    assert "ISReq-ps5" in groups.get("WIP", [])             # ps5 spared
-    assert "ISReq-reg" in groups.get("Distractors", [])     # plain ISReq focused out
+    # ps5-blocker is exempt — not flagged, stays in WIP.
+    assert _vm(panel, "ISReq-ps5").flagged is False
+    assert "ISReq-ps5" in _groups(panel).get("WIP", [])
+    # The plain ISReq is flagged in place (the toggle only flags, it doesn't move
+    # it out of view — its group is whatever the role rules say, here Distractors).
+    assert _vm(panel, "ISReq-reg").flagged is True
+
+
+def test_highest_focus_off_flags_nothing(db_dsn):
+    db = Database(db_dsn)
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "GEN", NOW)
+    panel = build_panel(db, E, _data(_t("ISReq-reg")), NOW, region_key="AMER",
+                        highest_focus=False)
+    assert _vm(panel, "ISReq-reg").flagged is False
     db.close()
 
 

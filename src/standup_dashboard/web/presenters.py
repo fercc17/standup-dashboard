@@ -940,6 +940,18 @@ def build_panel(
     # In-Review (yellow), Project non-ISDB (red). Project distractions also pull
     # completed work out of Success, since off-task ISReq is never a success for a
     # Project engineer.
+    # Highest-focus toggle (#focus-toggle): *flag* (don't move) in-progress ISReq
+    # that isn't Highest, a ps5-blocker, or [PR/MP Review], so it's obvious at a
+    # glance when someone is working on the wrong ticket. Captured from WIP *before*
+    # the role reclassification below, so the flag still shows on the off-focus
+    # ticket wherever its role lands it (most regular ISReq are role-distractors).
+    focus_flag_ids: set[str] = set()
+    if highest_focus and not is_management:
+        focus_flag_ids = {
+            t.id for t in grouped[TicketGroup.WIP]
+            if t.is_isreq and not (t.is_highest or t.is_pr_mp_review or t.has_ps5_blockers)
+        }
+
     role_distractor_ids: set[str] = set()
     scan_groups = () if is_management else (TicketGroup.WIP, TicketGroup.SUCCESS)
     for grp in scan_groups:
@@ -955,17 +967,6 @@ def build_panel(
             else:
                 kept.append(t)
         grouped[grp] = kept
-
-    # Highest-focus toggle (#focus-toggle): rather than moving off-focus work out,
-    # it *flags* in-progress ISReq that isn't Highest, a ps5-blocker, or [PR/MP
-    # Review] — they stay in WIP, just marked so it's obvious at a glance when
-    # someone is working on the wrong ticket.
-    focus_flag_ids: set[str] = set()
-    if highest_focus and not is_management:
-        focus_flag_ids = {
-            t.id for t in grouped[TicketGroup.WIP]
-            if t.is_isreq and not (t.is_highest or t.is_pr_mp_review or t.has_ps5_blockers)
-        }
 
     touched_24h_ids = {
         tc.ticket_id for tc in data.touches
