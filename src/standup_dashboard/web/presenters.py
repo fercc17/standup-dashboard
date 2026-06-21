@@ -59,7 +59,12 @@ from ..domain.models import (
     format_duration,
     hours_label,
 )
-from ..domain.roles import effective_role, is_weekend
+from ..domain.roles import (
+    DEFAULT_WEEKDAY_ROLE,
+    effective_role,
+    is_weekend,
+    region_weekday,
+)
 from ..services.classification import classify_for_engineer, in_scope
 from ..services.counts import (
     ALERT_FATIGUE_PULSE,
@@ -243,6 +248,27 @@ def resolve_roles(
         email: effective_role(email, timezone, now, weekly, overrides)
         for email in emails
     }
+
+
+def _coverage_role(
+    email: str, timezone: str, weekly: dict[tuple[str, str], str],
+    weekend_oncall: list[WeekendOnCall], when: datetime,
+) -> Role:
+    """The role this engineer actually held on the region-local day of ``when``.
+
+    Used to classify work an OFF-today engineer did *earlier in the week* by the
+    assignment they had then, not by today's OFF (#off-distractor). Weekends resolve
+    to PVG if they were the stored weekend on-call; weekdays use the weekly schedule
+    (no overrides — those are today-only and long expired for a past day)."""
+    if is_weekend(when, timezone):
+        d = when.astimezone(ZoneInfo(timezone)).date()
+        on_call = any(
+            w.engineer_email == email and w.weekend_start <= d <= w.weekend_end
+            for w in weekend_oncall
+        )
+        return Role.PVG if on_call else Role.OFF
+    role_str = weekly.get((email, region_weekday(when, timezone)))
+    return Role(role_str) if role_str else DEFAULT_WEEKDAY_ROLE
 
 
 def _pulse_start(now: datetime) -> datetime:
@@ -891,6 +917,12 @@ def build_panel(
     eng = config.ENGINEERS_BY_EMAIL[email]
     region = config.REGIONS[region_key]
     role = resolve_roles(db, [email], region.timezone, now)[email]
+    # On a day off, the week's assignment wins over the particular day (#off-distractor):
+    # the engineer's own assigned WIP (ISDB + ISReq) and any alert they covered on a
+    # day they were *working* count as real work, not distractions. ``weekly`` lets us
+    # recover the role they held on each alert's coverage day.
+    is_off = role is Role.OFF
+    weekly = db.get_weekly_schedule() if is_off else {}
     # Managers/global management get a simple view of their own work: To Do / WIP
     # / Done, no Distractors and no role-based reclassification (#72 follow-up).
     is_management = eng.is_manager or eng.is_global
@@ -967,9 +999,14 @@ def build_panel(
         for t in grouped[group]:
             is_rd = t.id in role_distractor_ids
             assigned = group is not TicketGroup.DISTRACTORS or is_rd
-            color = ticket_color(
-                role, t, assigned=assigned, group=group, role_distractor=is_rd
-            )
+            if is_off and group in (TicketGroup.WIP, TicketGroup.SUCCESS):
+                # Their own assigned work is on-task, not a distraction on a day off
+                # — the week's assignment wins over the OFF colouring (#off-distractor).
+                color = Color.GREEN
+            else:
+                color = ticket_color(
+                    role, t, assigned=assigned, group=group, role_distractor=is_rd
+                )
             secs = worklog_secs.get(t.id, 0)
             vms.append(
                 TicketVM(
@@ -1017,7 +1054,15 @@ def build_panel(
             color = Color.GREEN if resolved else Color.YELLOW
             target = TicketGroup.SUCCESS if resolved else TicketGroup.WIP
         else:
-            color, target = alert_classification(role, resolved=resolved, recent=recent)
+            # On a day off, classify an alert by the role held on the day it was
+            # covered (#off-distractor): on-call work done on a working day stays
+            # real work, not a distraction just because today is OFF. Alerts truly
+            # covered on an off day resolve to OFF and remain distractions.
+            alert_role = (
+                _coverage_role(email, region.timezone, weekly, data.weekend_oncall, a.at)
+                if is_off else role
+            )
+            color, target = alert_classification(alert_role, resolved=resolved, recent=recent)
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if number is not None:

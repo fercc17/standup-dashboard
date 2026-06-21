@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from standup_dashboard.domain.models import Pulse, Role, Ticket
+from standup_dashboard.domain.models import (
+    Alert,
+    AlertState,
+    Pulse,
+    Role,
+    Ticket,
+)
 from standup_dashboard.domain.roles import region_weekday
 from standup_dashboard.storage.db import Database
 from standup_dashboard.web.presenters import (
@@ -78,13 +84,51 @@ def test_ps5_blocker_exempt_from_highest_focus(db_dsn):
 
 # --- OFF day no longer distracts the engineer's own work (#off-distractor) ---
 
-def test_off_day_keeps_assigned_work_in_wip(db_dsn):
+def _isdb(key: str) -> Ticket:
+    return Ticket(key, "ISDB", "t", "In Progress", "Medium",
+                  assignee_email=E, sprint_id=SPRINT)
+
+
+def test_off_day_keeps_assigned_wip_on_task_both_projects(db_dsn):
     db = Database(db_dsn)
-    db.set_weekly_role(E, region_weekday(NOW, TZ), "OFF", NOW)
-    panel = build_panel(db, E, _data(_t("ISReq-1")), NOW, region_key="AMER")
-    groups = _groups(panel)
-    assert "ISReq-1" in groups.get("WIP", [])
-    assert "ISReq-1" not in groups.get("Distractors", [])
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "OFF", NOW)  # OFF today
+    panel = build_panel(db, E, _data(_t("ISReq-1"), _isdb("ISDB-9")), NOW,
+                        region_key="AMER")
+    wip = {vm.key: vm for vm in panel.groups.get("WIP", [])}
+    # Both ISReq and ISDB assigned WIP stay under WIP, coloured on-task (not red).
+    assert set(wip) == {"ISReq-1", "ISDB-9"}
+    assert wip["ISReq-1"].color.value == "green"
+    assert wip["ISDB-9"].color.value == "green"
+    assert "ISReq-1" not in _groups(panel).get("Distractors", [])
+    db.close()
+
+
+def _find_alert(panel, needle):
+    """(group, color) of the alert row whose title contains ``needle``."""
+    for grp, vms in panel.groups.items():
+        for vm in vms:
+            if vm.key == "⚠" and needle in vm.title:
+                return grp, vm.color.value
+    return None, None
+
+
+def test_off_day_alert_classified_by_coverage_day(db_dsn):
+    db = Database(db_dsn)
+    db.set_weekly_role(E, "FRI", "OFF", NOW)   # today (Fri 2026-06-12) is OFF
+    db.set_weekly_role(E, "TUE", "PVG", NOW)   # was the primary on-call Tuesday
+    db.set_weekly_role(E, "MON", "OFF", NOW)   # genuinely off Monday
+    tue = datetime(2026, 6, 9, 10, tzinfo=UTC)
+    mon = datetime(2026, 6, 8, 10, tzinfo=UTC)
+    data = DashboardData(
+        fetched_at=NOW, pulses=[Pulse("ISReq", SPRINT, "s", NOW, NOW)],
+        alerts=[Alert("INCA", E, AlertState.RESOLVED, tue, title="Tue oncall", number=1),
+                Alert("INCB", E, AlertState.RESOLVED, mon, title="Mon offday", number=2)],
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    # Covered while PVG → real on-call work (resolved → Success, green).
+    assert _find_alert(panel, "Tue oncall") == ("Success", "green")
+    # Covered on a genuine off day → still a distraction.
+    assert _find_alert(panel, "Mon offday")[0] == "Distractors"
     db.close()
 
 
