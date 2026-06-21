@@ -481,6 +481,7 @@ class OpenSummary:
     ps5: int = 0
     ps5_highest: int = 0
     pr_mp: int = 0
+    escalated: int = 0
     ongoing_alerts: int = 0
     # Deep links to the live source of each count (#summary-links): a saved Jira
     # filter per ticket category, and the PagerDuty open-incident list for alerts.
@@ -488,6 +489,7 @@ class OpenSummary:
     ps5_url: str = ""
     ps5_highest_url: str = ""
     pr_mp_url: str = ""
+    escalated_url: str = ""
     alerts_url: str = ""
 
 
@@ -509,6 +511,10 @@ def build_open_summary(data: DashboardData) -> OpenSummary:
             1 for t in open_tickets if t.has_ps5_blockers and t.is_highest
         ),
         pr_mp=sum(1 for t in open_tickets if t.is_pr_mp_review),
+        # Escalated counts every fetched ISReq ticket in the Jira "Escalated"
+        # status, not just active-sprint work: escalation is a cross-sprint state,
+        # so this matches the JQL link rather than the sprint-scoped open counts.
+        escalated=sum(1 for t in data.tickets if t.is_isreq and t.is_escalated),
         ongoing_alerts=len(acked - resolved),
         highest_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["highest"]),
         ps5_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["ps5"]),
@@ -516,6 +522,7 @@ def build_open_summary(data: DashboardData) -> OpenSummary:
             config.JIRA_OPEN_FILTERS["ps5_highest"]
         ),
         pr_mp_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["pr_mp"]),
+        escalated_url=config.jira_jql_url(config.JIRA_ESCALATED_ISREQ_JQL),
         alerts_url=config.pagerduty_open_incidents_url(),
     )
 

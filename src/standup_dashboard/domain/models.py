@@ -160,6 +160,11 @@ class Ticket:
         return any(label.lower() in PS5_BLOCKER_LABELS for label in self.labels)
 
     @property
+    def is_escalated(self) -> bool:
+        """Ticket sitting in the Jira ``Escalated`` workflow status (#summary)."""
+        return (self.status or "").strip().lower() == "escalated"
+
+    @property
     def is_bvg_review(self) -> bool:
         """ISReq ticket whose title starts with ``[PR/MP Review]`` (FR-015)."""
         return self.is_isreq and self.title.strip().startswith(ISREQ_REVIEW_PREFIX)

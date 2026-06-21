@@ -35,6 +35,8 @@ def test_open_summary_counts_open_work_and_ongoing_alerts():
         _t("ISReq-5", "To Do", PRIORITY_HIGHEST, sprint=None),          # no sprint → out of scope
         _t("ISReq-6", "In Progress", PRIORITY_HIGHEST,                   # open ps5 + Highest
            labels=["ps5-blocker"]),
+        _t("ISReq-7", "Escalated"),                                      # escalated (in sprint)
+        _t("ISReq-8", "Escalated", sprint=None),                         # escalated, no sprint
     ]
     alerts = [
         Alert("INC1", E, AlertState.ACKNOWLEDGED, _dt(10)),             # ongoing
@@ -47,11 +49,15 @@ def test_open_summary_counts_open_work_and_ongoing_alerts():
     )
     s = build_open_summary(data)
     assert (s.highest, s.ps5, s.ps5_highest, s.pr_mp, s.ongoing_alerts) == (2, 2, 1, 1, 1)
+    # Escalated counts every ISReq ticket in the Escalated status, including the
+    # one with no sprint — escalation is tracked across sprints, not just open work.
+    assert s.escalated == 2
 
 
 def test_open_summary_empty():
     s = build_open_summary(DashboardData(fetched_at=_dt(12)))
-    assert (s.highest, s.ps5, s.ps5_highest, s.pr_mp, s.ongoing_alerts) == (0, 0, 0, 0, 0)
+    assert (s.highest, s.ps5, s.ps5_highest, s.pr_mp, s.escalated, s.ongoing_alerts) == (
+        0, 0, 0, 0, 0, 0)
 
 
 def test_open_summary_carries_deep_links():
@@ -62,6 +68,10 @@ def test_open_summary_carries_deep_links():
     assert s.ps5_url.endswith("/issues/?filter=39782")
     assert s.ps5_highest_url.endswith("/issues/?filter=40098")
     assert s.pr_mp_url.endswith("/issues/?filter=40086")
+    # Escalated links via JQL (no saved filter), URL-encoded.
+    assert "/issues/?jql=" in s.escalated_url
+    assert "project%20%3D%20ISREQ" in s.escalated_url
+    assert "status%20%3D%20%22Escalated%22" in s.escalated_url
     assert s.alerts_url.startswith("https://canonical.pagerduty.com/incidents")
     assert "status=triggered,acknowledged" in s.alerts_url
     assert "PQ4ZG3S" in s.alerts_url  # scoped to the roster's PagerDuty team

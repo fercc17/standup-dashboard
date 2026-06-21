@@ -52,6 +52,7 @@
     <a class="os-item" href="{{ open_summary.ps5_highest_url }}" target="_blank" rel="noopener" title="Open the ps5-blocker Highest filter in Jira">&#128680; Open PS5 Highest <strong>{{ open_summary.ps5_highest }}</strong></a>
     <a class="os-item" href="{{ open_summary.highest_url }}" target="_blank" rel="noopener" title="Open the IS Highest filter in Jira">&#128293; Open IS Highest <strong>{{ open_summary.highest }}</strong></a>
     <a class="os-item" href="{{ open_summary.ps5_url }}" target="_blank" rel="noopener" title="Open the ps5-blocker filter in Jira">&#128679; Open PS5-blocker <strong>{{ open_summary.ps5 }}</strong></a>
+    <a class="os-item" href="{{ open_summary.escalated_url }}" target="_blank" rel="noopener" title="Open the escalated ISReq tickets (status = Escalated) in Jira">&#128314; Escalated ISReq <strong>{{ open_summary.escalated }}</strong></a>
     <a class="os-item {{ 'has-open' if open_summary.ongoing_alerts else '' }}" href="{{ open_summary.alerts_url }}" target="_blank" rel="noopener" title="Open triggered + acknowledged incidents in PagerDuty">&#128276; Ongoing alerts <strong>{{ open_summary.ongoing_alerts }}</strong></a>
   </div>
   {% endif %}

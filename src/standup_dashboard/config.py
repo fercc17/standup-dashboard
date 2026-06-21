@@ -312,6 +312,20 @@ def jira_filter_url(filter_id: int) -> str:
     return f"{JIRA_BASE_URL}/issues/?filter={filter_id}"
 
 
+def jira_jql_url(jql: str) -> str:
+    """Jira issue-navigator URL for an arbitrary JQL string (#summary-links)."""
+    return f"{JIRA_BASE_URL}/issues/?jql={quote(jql)}"
+
+
+# JQL for the "Escalated ISReq" summary item — every ISReq ticket sitting in the
+# Jira ``Escalated`` workflow status (project key is uppercase ``ISREQ`` in JQL,
+# though the dashboard's canonical key is ``ISReq``). The count is recomputed from
+# fetched tickets each refresh; this link opens the authoritative live list.
+JIRA_ESCALATED_ISREQ_JQL = (
+    f'project = {PROJECT_ISREQ.upper()} AND status = "Escalated" ORDER BY updated DESC'
+)
+
+
 # PagerDuty web subdomain (the UI host, distinct from the api.pagerduty.com REST
 # host). Used only to deep-link the "Ongoing alerts" count to the live incident
 # list. Override with STANDUP_PD_SUBDOMAIN for another account.
