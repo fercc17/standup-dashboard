@@ -189,7 +189,8 @@ CREATE TABLE IF NOT EXISTS role_override (
 
 CREATE TABLE IF NOT EXISTS day_note (
     engineer_email TEXT NOT NULL,
-    weekday        TEXT NOT NULL,
+    weekday        TEXT NOT NULL DEFAULT '',  -- legacy per-weekday key (#day-notes)
+    note_date      TEXT NOT NULL DEFAULT '',  -- ISO date; the per-date key
     note           TEXT NOT NULL,
     updated_at     TEXT NOT NULL
 );
@@ -242,16 +243,20 @@ CREATE TABLE IF NOT EXISTS pulse_summary (
     PRIMARY KEY (pulse_number, region)
 );
 
+-- Columns added after a table first shipped: idempotent ADDs so existing
+-- databases pick them up on the next start (CREATE TABLE IF NOT EXISTS won't).
+-- Must run before the indexes below, which reference the new columns.
+ALTER TABLE calendar_avail ADD COLUMN IF NOT EXISTS pto_days TEXT NOT NULL DEFAULT '';
+-- Day notes moved from a recurring weekday slot to a specific date (#day-notes).
+ALTER TABLE day_note ADD COLUMN IF NOT EXISTS note_date TEXT NOT NULL DEFAULT '';
+ALTER TABLE day_note ALTER COLUMN weekday SET DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_role_schedule_latest
     ON role_schedule (engineer_email, weekday, updated_at);
 CREATE INDEX IF NOT EXISTS idx_day_note_latest
-    ON day_note (engineer_email, weekday, updated_at);
+    ON day_note (engineer_email, note_date, updated_at);
 CREATE INDEX IF NOT EXISTS idx_ui_state_latest
     ON ui_state (key, updated_at);
-
--- Columns added after a table first shipped: idempotent ADDs so existing
--- databases pick them up on the next start (CREATE TABLE IF NOT EXISTS won't).
-ALTER TABLE calendar_avail ADD COLUMN IF NOT EXISTS pto_days TEXT NOT NULL DEFAULT '';
 """
 
 
@@ -591,25 +596,26 @@ class Database:
         )
         return {(r["engineer_email"], r["weekday"]): r["role"] for r in rows}
 
-    # -- day notes (latest row wins per engineer+weekday) --------------------
+    # -- day notes (latest row wins per engineer+date, #day-notes) -----------
 
-    def set_day_note(self, engineer_email: str, weekday: str, note: str,
+    def set_day_note(self, engineer_email: str, note_date: str, note: str,
                      now: datetime) -> None:
+        """Set/clear a free-text note for a specific ISO date (``YYYY-MM-DD``)."""
         self._execute(
-            "INSERT INTO day_note (engineer_email, weekday, note, updated_at)"
+            "INSERT INTO day_note (engineer_email, note_date, note, updated_at)"
             " VALUES (%s, %s, %s, %s)",
-            (engineer_email, weekday, note, now.isoformat()),
+            (engineer_email, note_date, note, now.isoformat()),
         )
 
     def get_day_notes(self) -> dict[tuple[str, str], str]:
-        """Latest free-text day note per (engineer_email, weekday)."""
+        """Latest free-text day note per (engineer_email, ISO date)."""
         rows = self._fetchall(
-            "SELECT engineer_email, weekday, note FROM day_note dn"
-            " WHERE updated_at = ("
+            "SELECT engineer_email, note_date, note FROM day_note dn"
+            " WHERE note_date <> '' AND updated_at = ("
             "   SELECT MAX(updated_at) FROM day_note"
-            "   WHERE engineer_email = dn.engineer_email AND weekday = dn.weekday)"
+            "   WHERE engineer_email = dn.engineer_email AND note_date = dn.note_date)"
         )
-        return {(r["engineer_email"], r["weekday"]): r["note"] for r in rows}
+        return {(r["engineer_email"], r["note_date"]): r["note"] for r in rows}
 
     # -- role override -------------------------------------------------------
 

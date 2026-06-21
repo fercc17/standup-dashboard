@@ -304,6 +304,9 @@ table.sched tr.override-row td { border-top: 2px solid var(--border); font-weigh
 .day-note { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .day-note-input { display: block; width: 90px; font-size: 10px; margin-top: 2px; padding: 1px 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--fg); }
 .day-note-input::placeholder { color: var(--muted); opacity: .6; }
+/* Per-date day notes span this + next week (#day-notes). */
+table.sched tr.week-sep td { background: var(--bg-alt, rgba(0,0,0,.04)); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); padding: 3px 5px; }
+table.sched tr.next-week .ro-role { font-size: 11px; color: var(--muted); }
 .override-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
 
 /* Per-region schedule sections (#71) */

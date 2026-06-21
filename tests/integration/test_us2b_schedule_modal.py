@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 COLIN = "colin.misare@canonical.com"
 NICK = "nikolaos.sakkos@canonical.com"
 
@@ -20,12 +22,17 @@ def test_schedule_modal_is_per_region_and_excludes_management(client):
 
 
 def test_schedule_paste_applies_and_rerenders(client, app):
-    text = "Date\tColin\tNick\nMon, Jun 08\tBVG\tPS7+\n"
+    # Use this week's Monday so the row maps to the MON role slot and its date is
+    # within the modal's this-week/next-week range (#day-notes is per-date now).
+    monday = datetime.now(UTC).date()
+    monday -= timedelta(days=monday.weekday())
+    text = f"Date\tColin\tNick\n{monday:%a, %b %d}\tBVG\tPS7+\n"
     resp = client.post("/schedule/paste", data={"paste": text})
     assert resp.status_code == 200
     assert "Applied 2 role(s) and 1 note(s)" in resp.text
     db = app.state.ctx.db
     assert db.get_weekly_schedule()[(COLIN, "MON")] == "BVG"
     assert db.get_weekly_schedule()[(NICK, "MON")] == "Project"  # PS7+ → Project
-    assert db.get_day_notes()[(NICK, "MON")] == "PS7+"
+    # The note attaches to the specific date, not the recurring weekday.
+    assert db.get_day_notes()[(NICK, monday.isoformat())] == "PS7+"
     assert "PS7+" in resp.text  # the note shows in the re-rendered modal

@@ -118,5 +118,6 @@ def test_apply_persists_roles_and_project_notes(tmp_path, db_dsn):
     assert summary == {"roles": 2, "notes": 1, "errors": []}
     assert db.get_weekly_schedule()[(COLIN, "WED")] == "BVG"
     assert db.get_weekly_schedule()[(NICK, "WED")] == "Project"
-    assert db.get_day_notes()[(NICK, "WED")] == "PS8"
+    # The note attaches to the row's specific date (Jun 10), not the weekday (#day-notes).
+    assert db.get_day_notes()[(NICK, "2026-06-10")] == "PS8"
     db.close()

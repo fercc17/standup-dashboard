@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .. import config
@@ -49,12 +49,15 @@ def set_show_management(db: Database, on: bool, now: datetime) -> None:
     db.set_ui_state(SHOW_MANAGEMENT_KEY, "on" if on else "off", now)
 
 
-def set_day_note(db: Database, email: str, weekday: str, note: str, now: datetime) -> None:
+def set_day_note(db: Database, email: str, note_date: str, note: str, now: datetime) -> None:
+    """Set/clear a free-text note on a specific date (``YYYY-MM-DD``, #day-notes)."""
     if email not in config.ENGINEERS_BY_EMAIL:
         raise ValueError(f"unknown engineer: {email}")
-    if weekday not in WEEKDAYS:
-        raise ValueError(f"unknown weekday: {weekday}")
-    db.set_day_note(email, weekday, note, now)
+    try:
+        date.fromisoformat(note_date)
+    except ValueError as exc:
+        raise ValueError(f"invalid note date: {note_date!r}") from exc
+    db.set_day_note(email, note_date, note, now)
 
 
 def _next_region_midnight(timezone: str, now_utc: datetime) -> tuple[datetime, date]:
@@ -92,6 +95,31 @@ class PasteAction:
     weekday: str
     role: str | None = None
     note: str | None = None
+    note_date: str = ""  # ISO date the note applies to (per-date notes, #day-notes)
+
+
+_MONTHS = {m.lower(): i for i, m in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"), 1)}
+
+
+def _row_date(label: str, weekday: str, ref: date) -> str:
+    """ISO date for a paste row label like 'Wed, Jun 10'.
+
+    The year is inferred from ``ref`` (rolled to next year if the month/day is far
+    in its past). Falls back to ``weekday``'s date in ``ref``'s week if the label
+    carries no parseable month/day, so a note always lands on a concrete date."""
+    m = re.search(r"([A-Za-z]{3})[a-z]*\s+(\d{1,2})", label)
+    if m and (mon := _MONTHS.get(m.group(1).lower())):
+        try:
+            d = date(ref.year, mon, int(m.group(2)))
+            if (ref - d).days > 180:
+                d = date(ref.year + 1, mon, int(m.group(2)))
+            return d.isoformat()
+        except ValueError:
+            pass
+    monday = ref - timedelta(days=ref.weekday())
+    return (monday + timedelta(days=WEEKDAY_SLOTS.index(weekday))).isoformat()
 
 
 def _roster_lookup() -> dict[str, str]:
@@ -133,7 +161,9 @@ def _classify_cell(cell: str) -> tuple[str | None, str | None]:
     return Role.PROJECT.value, token
 
 
-def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
+def parse_schedule_paste(
+    text: str, now: datetime | None = None
+) -> tuple[list[PasteAction], list[str]]:
     """Parse a tab-separated schedule paste into actions + human-readable errors.
 
     Two layouts are supported (engineers as columns, days as rows):
@@ -159,6 +189,7 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
     label (Mon..Fri; weekend/unrecognised rows are ignored). PVG/GEN/BVG/OFF map
     directly; any other non-blank value is Project (raw text kept as a day note).
     """
+    ref = (now or datetime.now(UTC)).date()
     lines = [ln for ln in text.splitlines() if ln.strip()]
     if len(lines) < 2:
         return [], ["paste needs a header row of engineer names plus at least one day row"]
@@ -216,22 +247,24 @@ def parse_schedule_paste(text: str) -> tuple[list[PasteAction], list[str]]:
                 for i in range(min(n, len(values)))
                 if engineers[i] is not None
             ]
+        note_date = _row_date(cells[0], weekday, ref)
         for email, cell in pairs:
             role, note = _classify_cell(cell)
             if role is not None or note is not None:
-                actions.append(PasteAction(email=email, weekday=weekday, role=role, note=note))
+                actions.append(PasteAction(email=email, weekday=weekday, role=role,
+                                           note=note, note_date=note_date))
     return actions, errors
 
 
 def apply_schedule_paste(db: Database, text: str, now: datetime) -> dict:
     """Parse and persist a schedule paste; return a small summary for the UI."""
-    actions, errors = parse_schedule_paste(text)
+    actions, errors = parse_schedule_paste(text, now)
     roles = notes = 0
     for a in actions:
         if a.role is not None:
             set_weekly_role(db, a.email, a.weekday, a.role, now)
             roles += 1
         if a.note is not None:
-            set_day_note(db, a.email, a.weekday, a.note, now)
+            set_day_note(db, a.email, a.note_date, a.note, now)
             notes += 1
     return {"roles": roles, "notes": notes, "errors": errors}

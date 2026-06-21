@@ -277,14 +277,25 @@ async def chip_role(request: Request, engineer_email: str) -> HTMLResponse:
 # --- US2: schedule modal + role mutations ----------------------------------
 
 
-def _current_week(now: datetime) -> list[dict]:
-    """Mon..Fri of the current week, for date-stamped schedule headers (#71)."""
-    monday = now.date() - timedelta(days=now.weekday())
-    return [
-        {"slot": slot, "dow": (monday + timedelta(days=i)).strftime("%a"),
-         "date": (monday + timedelta(days=i)).strftime("%b %d")}
-        for i, slot in enumerate(WEEKDAY_SLOTS)
-    ]
+def _schedule_days(now: datetime) -> list[dict]:
+    """Weekdays of this week + next week for the schedule grid (#71, #day-notes).
+
+    Roles are weekly/recurring, so their select is editable only on this-week rows;
+    day notes are per *date*, editable for today and future dates."""
+    today = now.date()
+    monday = today - timedelta(days=now.weekday())
+    days: list[dict] = []
+    for wk in range(2):
+        for i, slot in enumerate(WEEKDAY_SLOTS):
+            d = monday + timedelta(days=wk * 7 + i)
+            days.append({
+                "slot": slot, "dow": d.strftime("%a"), "date": d.strftime("%b %d"),
+                "iso": d.isoformat(),
+                "role_editable": wk == 0,      # weekly schedule lives on this week
+                "note_editable": d >= today,   # notes: today or future
+                "new_week": wk == 1 and i == 0,
+            })
+    return days
 
 
 def _render_schedule_modal(request: Request, *, summary: dict | None = None) -> HTMLResponse:
@@ -312,7 +323,7 @@ def _render_schedule_modal(request: Request, *, summary: dict | None = None) -> 
         "_schedule_modal.html",
         {
             "regions": regions,
-            "week": _current_week(now),
+            "week": _schedule_days(now),
             "roles": [r.value for r in Role],
             "defaults": defaults,
             "notes": notes,
@@ -489,14 +500,14 @@ async def schedule_weekly(request: Request) -> HTMLResponse:
 
 @router.post("/schedule/note", response_class=HTMLResponse)
 async def schedule_note(request: Request) -> HTMLResponse:
-    """Set/clear a free-text day note for a weekday slot (today/future, #day-notes)."""
+    """Set/clear a free-text note for a specific date (#day-notes)."""
     ctx = _ctx(request)
     if ctx.setup_error is not None:
         return render_setup(request)
     form = await request.form()
     try:
         schedule.set_day_note(
-            ctx.db, form["engineer_email"], form["weekday"],
+            ctx.db, form["engineer_email"], form["note_date"],
             form.get("note", "").strip(), _now()
         )
     except (KeyError, ValueError) as exc:

@@ -44,11 +44,15 @@
           </thead>
           <tbody>
             {% for d in week %}
-            <tr>
+            {% if d.new_week %}
+            <tr class="week-sep"><td colspan="{{ region.engineers | length + 1 }}">Next week</td></tr>
+            {% endif %}
+            <tr{% if not d.role_editable %} class="next-week"{% endif %}>
               <td class="stk"><span>{{ d.dow }}</span><span class="sched-date">{{ d.date }}</span></td>
               {% for eng in region.engineers %}
-              {% set note = notes.get((eng.email, d.slot)) %}
+              {% set note = notes.get((eng.email, d.iso)) %}
               <td {% if note %}title="{{ note }}"{% endif %}>
+                {% if d.role_editable %}
                 <select hx-post="/schedule/weekly" hx-swap="none"
                         name="role"
                         hx-vals='{"engineer_email": "{{ eng.email }}", "weekday": "{{ d.slot }}"}'>
@@ -56,10 +60,17 @@
                   <option value="{{ r }}" {% if defaults[(eng.email, d.slot)] == r %}selected{% endif %}>{{ r }}</option>
                   {% endfor %}
                 </select>
+                {% else %}
+                <span class="ro-role" title="Weekly role (set under this week)">{{ defaults[(eng.email, d.slot)] }}</span>
+                {% endif %}
+                {% if d.note_editable %}
                 <input class="day-note-input" type="text" name="note" value="{{ note or '' }}"
                        placeholder="note…" maxlength="200" spellcheck="false"
                        hx-post="/schedule/note" hx-swap="none" hx-trigger="change"
-                       hx-vals='{"engineer_email": "{{ eng.email }}", "weekday": "{{ d.slot }}"}'>
+                       hx-vals='{"engineer_email": "{{ eng.email }}", "note_date": "{{ d.iso }}"}'>
+                {% elif note %}
+                <span class="day-note">{{ note }}</span>
+                {% endif %}
               </td>
               {% endfor %}
             </tr>
@@ -86,9 +97,12 @@
     {% endfor %}
 
     <p class="override-note">
-      <strong>Weekend</strong> has no role — coverage is whoever is on-call
-      (from the PagerDuty iCal feed). Overrides apply to <strong>today only</strong>
-      and expire at the engineer's region-local midnight. Weekly defaults persist.
+      <strong>Roles</strong> are weekly and recurring (edit them on this week; next
+      week is shown read-only). <strong>Day notes</strong> attach to a specific date
+      and can be set for today or any future day. <strong>Weekend</strong> has no
+      role — coverage is whoever is on-call (from the PagerDuty iCal feed).
+      Overrides apply to <strong>today only</strong> and expire at the engineer's
+      region-local midnight.
     </p>
   </div>
 </div>
