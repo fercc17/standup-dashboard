@@ -26,3 +26,10 @@ build/
 # Charm/rock build artifacts
 *.rock
 *.charm
+
+# Terraform state + local vars (tokens)
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars

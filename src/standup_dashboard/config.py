@@ -36,6 +36,30 @@ def database_dsn() -> str:
     return _env("POSTGRESQL_DB_CONNECT_STRING", "STANDUP_DB_DSN", default=DEFAULT_DSN)
 
 
+def _apply_proxy_env() -> None:
+    """Route outbound traffic through an HTTP(S) proxy when one is configured.
+
+    All external calls (Jira/PagerDuty/GitHub/calendar) use httpx with
+    ``trust_env=True``, so they honour the standard ``HTTP_PROXY`` /
+    ``HTTPS_PROXY`` / ``NO_PROXY`` env vars. The charm exposes proxy config
+    options as ``APP_*_PROXY``; copy those onto the standard names (without
+    clobbering an explicitly-set standard var) so a single config drives every
+    client. Runs at import, before any httpx client is built.
+    """
+    for std, names in (
+        ("HTTP_PROXY", ("APP_HTTP_PROXY", "STANDUP_HTTP_PROXY")),
+        ("HTTPS_PROXY", ("APP_HTTPS_PROXY", "STANDUP_HTTPS_PROXY")),
+        ("NO_PROXY", ("APP_NO_PROXY", "STANDUP_NO_PROXY")),
+    ):
+        val = _env(*names)
+        if val and not os.environ.get(std) and not os.environ.get(std.lower()):
+            os.environ[std] = val
+            os.environ[std.lower()] = val
+
+
+_apply_proxy_env()
+
+
 # How often the background scheduler process triggers a refresh (seconds).
 REFRESH_INTERVAL_SECONDS = int(_env("APP_REFRESH_INTERVAL", "STANDUP_REFRESH_INTERVAL",
                                     default="1800"))

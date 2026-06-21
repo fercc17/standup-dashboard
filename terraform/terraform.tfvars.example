@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+# OCI image ref for the rock. Either a registry path the cluster can pull, e.g.
+#   app_image = "ghcr.io/yourorg/standup-dashboard:0.1"
+# or a ref already imported into the cluster's containerd (see CHARM.md), e.g.
+#   app_image = "standup-dashboard:0.1"
+app_image = "standup-dashboard:0.1"
+
+# Path to the charm built with `charmcraft pack` (relative to this dir).
+charm_path = "../charm/standup-dashboard_amd64.charm"
+
+# API credentials (read-only tokens).
+jira_token         = "REPLACE_ME"
+pagerduty_token    = "REPLACE_ME"
+pagerduty_ical_url = "https://canonical.pagerduty.com/private/REPLACE/feed.ics"
+github_token       = "" # optional; enables the GH PRs line
+
+# Optional outbound proxy for the app's external calls.
+# https_proxy = "http://proxy.internal:3128"
+# no_proxy    = "10.0.0.0/8,.svc,localhost"

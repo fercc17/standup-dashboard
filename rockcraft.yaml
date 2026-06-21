@@ -29,3 +29,11 @@ services:
     working-dir: /app
     environment:
       PYTHONPATH: /app/src
+
+parts:
+  # The framework's dependencies + runtime parts both stage the CA bundle with
+  # slightly different contents, which fails staging. Drop the dependencies
+  # part's copy and keep the runtime one (a valid CA bundle either way).
+  fastapi-framework/dependencies:
+    stage:
+      - -etc/ssl/certs/ca-certificates.crt
