@@ -275,6 +275,7 @@ class TicketVM:
     status: str = ""  # Jira status name, shown on the ticket line
     ribbon: str = ""  # compact priority ribbon code (H2..L2), '' if unknown (#ribbon)
     priority: str = ""  # full Jira priority name, for the ribbon tooltip (#ribbon)
+    flagged: bool = False  # off-focus ISReq highlighted by the focus toggle (#focus-toggle)
     # Per-line time log shown on the right of the row (#line-time): for a Jira
     # ticket, the worklog this engineer logged on it this pulse; for an alert, how
     # long the incident lasted (fire→resolve) or, if still open, how long it has

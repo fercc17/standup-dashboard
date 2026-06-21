@@ -904,40 +904,36 @@ def build_panel(
     )
 
     # Reclassify assigned tickets into Distractors (To Do / queued work is never a
-    # distraction, even when untriaged):
-    #  * highest_focus toggle (WIP only): any in-progress ISReq that is not
-    #    Highest, not a ps5-blocker, and not [PR/MP Review] → red (#focus-toggle).
-    #  * role rules (#86): BVG non-priority, PVG In-Review (yellow), Project
-    #    non-ISDB (red) — Project distractions also pull completed work out of
-    #    Success, since off-task ISReq is never a success for a Project engineer.
-    focus_distractor_ids: set[str] = set()
+    # distraction, even when untriaged) — role rules (#86): BVG non-priority, PVG
+    # In-Review (yellow), Project non-ISDB (red). Project distractions also pull
+    # completed work out of Success, since off-task ISReq is never a success for a
+    # Project engineer.
     role_distractor_ids: set[str] = set()
     scan_groups = () if is_management else (TicketGroup.WIP, TicketGroup.SUCCESS)
     for grp in scan_groups:
-        # The Highest-focus toggle is about in-progress focus; it never demotes a
-        # completed ticket, so it applies to WIP only.
-        apply_focus = highest_focus and grp is TicketGroup.WIP
         kept = []
         for t in grouped[grp]:
             # An OFF day must not turn the engineer's own assigned work into
             # distractors — the week's assignment wins over the particular day off
             # (#off-distractor). Work they touched but aren't assigned to is still a
             # distractor (classify_for_engineer already put it in Distractors).
-            role_dist = is_role_distractor(role, t) and role is not Role.OFF
-            if role_dist and role is Role.PVG:
-                # PVG's "In Review" rule wins over the Highest-only toggle (yellow).
-                grouped[TicketGroup.DISTRACTORS].append(t)
-                role_distractor_ids.add(t.id)
-            elif (apply_focus and t.is_isreq
-                  and not (t.is_highest or t.is_pr_mp_review or t.has_ps5_blockers)):
-                grouped[TicketGroup.DISTRACTORS].append(t)
-                focus_distractor_ids.add(t.id)
-            elif role_dist:
+            if is_role_distractor(role, t) and role is not Role.OFF:
                 grouped[TicketGroup.DISTRACTORS].append(t)
                 role_distractor_ids.add(t.id)
             else:
                 kept.append(t)
         grouped[grp] = kept
+
+    # Highest-focus toggle (#focus-toggle): rather than moving off-focus work out,
+    # it *flags* in-progress ISReq that isn't Highest, a ps5-blocker, or [PR/MP
+    # Review] — they stay in WIP, just marked so it's obvious at a glance when
+    # someone is working on the wrong ticket.
+    focus_flag_ids: set[str] = set()
+    if highest_focus and not is_management:
+        focus_flag_ids = {
+            t.id for t in grouped[TicketGroup.WIP]
+            if t.is_isreq and not (t.is_highest or t.is_pr_mp_review or t.has_ps5_blockers)
+        }
 
     touched_24h_ids = {
         tc.ticket_id for tc in data.touches
@@ -969,14 +965,11 @@ def build_panel(
     for group in shown:
         vms: list[TicketVM] = []
         for t in grouped[group]:
-            if t.id in focus_distractor_ids:
-                color = Color.RED
-            else:
-                is_rd = t.id in role_distractor_ids
-                assigned = group is not TicketGroup.DISTRACTORS or is_rd
-                color = ticket_color(
-                    role, t, assigned=assigned, group=group, role_distractor=is_rd
-                )
+            is_rd = t.id in role_distractor_ids
+            assigned = group is not TicketGroup.DISTRACTORS or is_rd
+            color = ticket_color(
+                role, t, assigned=assigned, group=group, role_distractor=is_rd
+            )
             secs = worklog_secs.get(t.id, 0)
             vms.append(
                 TicketVM(
@@ -990,6 +983,7 @@ def build_panel(
                     status=t.status,
                     ribbon=t.priority_ribbon,
                     priority=t.priority or "",
+                    flagged=t.id in focus_flag_ids,
                     time_label=hours_label(secs) if secs else "",
                     time_title="Time you logged on this ticket this pulse" if secs else "",
                 )

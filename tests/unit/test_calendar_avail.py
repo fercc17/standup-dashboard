@@ -50,6 +50,24 @@ def test_long_block_is_pto_not_busy():
     a = compute_availability(_ics([("20260608T080000Z", "20260608T180000Z", False)]), WS, WE)
     assert a.busy_seconds == 0          # 10h block → PTO, never busy
     assert a.pto_seconds == 8 * 3600
+    assert a.pto_days == ("Mon Jun 08",)  # the specific PTO date is listed (#pto-card)
+
+
+def test_full_day_block_is_not_pto():
+    """A 24h block (00:00→00:00, what the feed emits for recurring all-day 'busy')
+    is an artifact, not PTO — only sub-24h working-day blocks count (#pto-card)."""
+    a = compute_availability(
+        _ics([("20260608T060000Z", "20260609T060000Z", False)]), WS, WE)
+    assert a.pto_seconds == 0
+    assert a.pto_days == ()
+    assert a.busy_seconds == 0          # and it's not counted as busy either
+
+
+def test_eight_hour_block_counts_as_pto():
+    a = compute_availability(
+        _ics([("20260608T090000Z", "20260608T170000Z", False)]), WS, WE)  # exactly 8h
+    assert a.pto_seconds == 8 * 3600
+    assert a.pto_days == ("Mon Jun 08",)
 
 
 def test_overlapping_meetings_merged():

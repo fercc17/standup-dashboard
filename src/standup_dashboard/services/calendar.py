@@ -3,10 +3,13 @@
 The public Google iCal feed exposes only opaque "Busy" blocks (no titles,
 attendees, or types), so events are classified **purely by duration**:
 
-  * all-day or > 8h  → PTO (excluded; its weekdays drop from capacity)
-  * ~4h              → SD time (one per ISO week; its weekday is marked)
-  * > 1h (≤8h)       → blocker (a "do not book" hold between shifts)
-  * ≤ 1h             → a real meeting
+  * date-type all-day event        → PTO (an explicit day-off entry)
+  * timed block ≥ 8h and < 24h     → PTO (a full working day off)
+  * timed block ≥ 24h              → ignored: a recurring all-day "busy" artifact
+                                      the feed emits (00:00→00:00), not real PTO
+  * ~4h                            → SD time (one per ISO week; its weekday marked)
+  * > 1h (≤8h)                     → blocker (a "do not book" hold between shifts)
+  * ≤ 1h                           → a real meeting
 
 ``busy`` = merged wall-clock of the **meetings** only (≤1h blocks); blockers and
 SD are *not* counted as busy. ``open`` = capacity (40h/week) − busy. Blockers and
@@ -24,7 +27,8 @@ from icalendar import Calendar
 from ..domain.models import CalendarAvail
 
 WORKDAY_S = 8 * 3600         # 40h/week ÷ 5 = 8h capacity per weekday
-PTO_THRESHOLD_S = 8 * 3600
+PTO_MIN_S = 8 * 3600         # a full working-day block counts as PTO …
+FULL_DAY_S = 24 * 3600       # … but a 24h block is an all-day "busy" artifact, not PTO
 MEETING_MAX_S = 3600         # ≤1h is a real meeting; longer is a blocker/SD hold
 SD_MIN_S = int(3.5 * 3600)   # a "4h" SD block, with tolerance
 SD_MAX_S = int(4.5 * 3600)
@@ -117,9 +121,11 @@ def _availability(
         dur = (e_utc - s_utc).total_seconds()
         clip_s, clip_e = max(s_utc, window_start), min(e_utc, window_end)
 
-        if dur > PTO_THRESHOLD_S:
+        if PTO_MIN_S <= dur < FULL_DAY_S:
             _mark_pto(clip_s.date(), clip_e.date() + timedelta(days=1))
             continue
+        if dur >= FULL_DAY_S:
+            continue  # all-day "busy" artifact (recurring 00:00→00:00) — not PTO
         if dur <= MEETING_MAX_S:
             meetings.append((clip_s, clip_e))  # only ≤1h blocks are "busy" meetings
         elif SD_MIN_S <= dur <= SD_MAX_S:

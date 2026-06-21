@@ -1,5 +1,6 @@
 {% macro ticket_row(t) %}
-<div class="ticket c-{{ t.color.value }}">
+<div class="ticket c-{{ t.color.value }}{% if t.flagged %} flagged{% endif %}">
+  {% if t.flagged %}<span class="flag" title="Off-focus: in progress but not Highest, ps5-blocker, or PR/MP Review">&#9873;</span>{% endif %}
   {% if t.ribbon %}<span class="ribbon ribbon-{{ t.ribbon | lower }}" title="Priority: {{ t.priority }}">{{ t.ribbon }}</span>{% endif %}
   {% if t.url %}
   <a class="key" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.key }}</a>
