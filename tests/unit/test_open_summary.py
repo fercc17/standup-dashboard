@@ -54,6 +54,35 @@ def test_open_summary_counts_open_work_and_ongoing_alerts():
     assert s.escalated == 2
 
 
+def test_open_summary_prefers_live_counts():
+    # When the fetch captured live filter / PagerDuty counts they win over the local
+    # sprint-scoped tally, so each number equals the report its link opens (#summary-live).
+    tickets = [_t("ISReq-1", "In Progress", PRIORITY_HIGHEST)]  # local highest would be 1
+    data = DashboardData(
+        fetched_at=_dt(12), tickets=tickets,
+        pulses=[Pulse("ISReq", SPRINT, "s", _dt(8), _dt(20))],
+        open_counts={"highest": 71, "ps5": 50, "ps5_highest": 20,
+                     "pr_mp": 7, "escalated": 30, "ongoing_alerts": 0},
+    )
+    s = build_open_summary(data)
+    assert (s.highest, s.ps5, s.ps5_highest, s.pr_mp, s.escalated, s.ongoing_alerts) == (
+        71, 50, 20, 7, 30, 0)
+
+
+def test_open_summary_falls_back_per_missing_live_key():
+    # A partial live capture (e.g. one count query failed) uses live where present and
+    # the local tally only for the missing metrics.
+    tickets = [_t("ISReq-1", "In Progress", PRIORITY_HIGHEST)]  # local highest = 1
+    data = DashboardData(
+        fetched_at=_dt(12), tickets=tickets,
+        pulses=[Pulse("ISReq", SPRINT, "s", _dt(8), _dt(20))],
+        open_counts={"ps5": 50},  # only ps5 is live
+    )
+    s = build_open_summary(data)
+    assert s.ps5 == 50          # live
+    assert s.highest == 1       # local fallback
+
+
 def test_open_summary_empty():
     s = build_open_summary(DashboardData(fetched_at=_dt(12)))
     assert (s.highest, s.ps5, s.ps5_highest, s.pr_mp, s.escalated, s.ongoing_alerts) == (

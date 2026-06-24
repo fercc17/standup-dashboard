@@ -20,6 +20,7 @@ from standup_dashboard.storage.db import Database
 from standup_dashboard.web.presenters import (
     DashboardData,
     _handover_name,
+    _handover_region,
     build_panel,
 )
 
@@ -163,3 +164,13 @@ def test_handover_rotation_order():
     assert _handover_name(holders, "AMER", Role.PVG, +1) == "Ann"  # wraps to APAC
     # A role with no counterpart in the target region yields no name.
     assert _handover_name(holders, "APAC", Role.BVG, +1) == ""
+
+
+def test_handover_region_rotation():
+    # The counterpart region is named regardless of whether it has a holder, so
+    # the rotation stays legible (and an empty region reads as "unassigned").
+    assert _handover_region("APAC", +1) == "EMEA"   # hands over to
+    assert _handover_region("APAC", -1) == "AMER"   # receives from (wraps)
+    assert _handover_region("EMEA", +1) == "AMER"
+    assert _handover_region("AMER", +1) == "APAC"   # wraps
+    assert _handover_region("Management", +1) == ""  # off-cycle

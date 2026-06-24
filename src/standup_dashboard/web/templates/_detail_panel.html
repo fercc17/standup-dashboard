@@ -13,9 +13,10 @@
   {% if t.is_bvg_review %}<span class="badge">PR/MP Review</span>{% endif %}
   {% if t.pulses_open %}<span class="badge stale" title="Highest priority, open for more than {{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}">&#9203; &gt;{{ t.pulses_open }} pulse{{ 's' if t.pulses_open > 1 else '' }}</span>{% endif %}
   {% if t.time_label %}<span class="ttime" title="{{ t.time_title }}">&#9201; {{ t.time_label }}</span>{% endif %}
+  {% if t.effort_label %}<span class="effort{% if t.effort_over %} over{% endif %}" title="{{ t.effort_title }}">&#8987; {{ t.effort_label }}</span>{% endif %}
 </div>
 {% endmacro %}
-{% macro metric_col(head, total, ao, ano, jp, jt, prs, cbusy, copen, has_cal, sd) %}
+{% macro metric_col(head, total, ao, ano, jp, jt, prs, cbusy, copen, has_cal, sd, dshare) %}
 <div class="pt-col">
   <div class="pt-head">{{ head }}</div>
   <span class="pt-total" title="Total engaged time = alerts (no overlap) + Jira project + Jira ticket + busy">&#9201; total <strong>{{ total }}</strong></span>
@@ -30,6 +31,7 @@
   {% if has_cal %}
   <span title="Meeting time — &le;1h blocks only; &gt;1h blockers, SD and PTO excluded">&#128197; busy {{ cbusy }}</span>
   <span title="Free time = capacity &minus; busy; &gt;1h blockers and PTO don't reduce it">&#128197; open {{ copen }}</span>
+  {% if dshare %}<span class="pt-distract" title="Distractor time as a share of your open (non-busy) time — how much free time went to off-role work">&#128679; distractors {{ dshare }}</span>{% endif %}
   {% if sd %}<span title="Self-development block (4h/week) — the day it falls on">&#127891; SD {{ sd | join(', ') }}</span>{% endif %}
   {% endif %}
 </div>
@@ -55,17 +57,17 @@
                   panel.alert_time_24h_label, panel.alert_union_24h_label,
                   panel.jira_project_24h_label, panel.jira_request_24h_label,
                   panel.pr_stats_24h, panel.cal_busy_24h_label, panel.cal_open_24h_label,
-                  panel.calendar.has_data, none) }}
+                  panel.calendar.has_data, none, panel.distractor_share_24h_label) }}
     {{ metric_col('Today', panel.total_today_label,
                   panel.alert_time_today_label, panel.alert_union_today_label,
                   panel.jira_project_today_label, panel.jira_request_today_label,
                   panel.pr_stats_today, panel.cal_busy_today_label, panel.cal_open_today_label,
-                  panel.calendar.has_data, none) }}
+                  panel.calendar.has_data, none, panel.distractor_share_today_label) }}
     {{ metric_col('Pulse', panel.total_pulse_label,
                   panel.alert_time_label, panel.alert_union_label,
                   panel.jira_project_label, panel.jira_request_label,
                   panel.pr_stats, panel.cal_busy_label, panel.cal_open_label,
-                  panel.calendar.has_data, panel.calendar.sd_days) }}
+                  panel.calendar.has_data, panel.calendar.sd_days, panel.distractor_share_label) }}
   </div>
   {% if panel.calendar.pto_days %}
   <div class="panel-pto" title="Days off across this week and next, from the free/busy calendar feed">

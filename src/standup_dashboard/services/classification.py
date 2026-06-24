@@ -14,6 +14,11 @@ Everything shown is scoped to the current pulse. For an engineer E:
     completed this pulse (a real transition into Done within ``pulse_window``).
     ISDB tickets that were Rejected/dropped (Done category but no done date) are
     not shown — matching the board, which has no Rejected column.
+  * An ISReq ticket Done *before* this pulse is dropped even while Jira still
+    carries it in an active sprint (a completed sprint isn't de-activated the
+    moment the next one starts, so last pulse's closed work can linger). A Done
+    ISReq with no recorded done date is kept — finished work is not hidden merely
+    because its transition date is unknown (#prev-pulse-leak).
   * Success also includes tickets E **touched** that are **Done and in the
     active pulse** but assigned to someone else (#74).
   * Distractors = in-pulse tickets E touched but is not assigned to (they got
@@ -49,10 +54,11 @@ def in_scope(
     """Whether an assigned ticket counts as this-pulse work for its engineer.
 
     In scope when any of:
-      * the ticket is in one of the pulse's active sprints — except an ISDB
-        ticket in the Done category, which counts only if it genuinely completed
-        this pulse (a real Done transition within ``pulse_window``); a
-        Rejected/dropped ISDB ticket (Done category, no done date) is not shown;
+      * the ticket is in one of the pulse's active sprints — except a Done ticket
+        that belongs to a prior pulse: an ISDB Done counts only if it genuinely
+        completed this pulse (a real Done transition within ``pulse_window``; a
+        Rejected/dropped ISDB ticket with no done date is not shown), and an
+        ISReq Done is dropped if it completed *before* the pulse started;
       * it is fresh untriaged ISReq intake not yet sprinted (a new customer
         request the team still needs to triage).
 
@@ -60,8 +66,12 @@ def in_scope(
     scope. ``pulse_window`` is ``(start, end_exclusive)`` region-local dates.
     """
     if in_pulse(ticket, active_sprint_ids):
-        if ticket.is_isdb and ticket.group is TicketGroup.SUCCESS:
-            return _done_this_pulse(ticket, pulse_window)
+        if ticket.group is TicketGroup.SUCCESS:
+            if ticket.is_isdb:
+                return _done_this_pulse(ticket, pulse_window)
+            # ISReq (and any other project): keep unless it was Done in a prior
+            # pulse but is still pinned to an active sprint (#prev-pulse-leak).
+            return not _done_before_pulse(ticket, pulse_window)
         return True
     if (
         ticket.is_isreq
@@ -78,6 +88,21 @@ def _done_this_pulse(ticket: Ticket, pulse_window: tuple[date, date] | None) -> 
         pulse_window is not None
         and ticket.is_done_date is not None
         and pulse_window[0] <= ticket.is_done_date < pulse_window[1]
+    )
+
+
+def _done_before_pulse(ticket: Ticket, pulse_window: tuple[date, date] | None) -> bool:
+    """True iff the ticket transitioned into Done *before* the pulse started.
+
+    Catches prior-pulse Done work that Jira still lists in an active sprint (a
+    completed sprint isn't de-activated the instant the next one starts). Unlike
+    ``_done_this_pulse`` this keeps a Done ticket whose done date is unknown — we
+    only drop work we can positively date to an earlier pulse, so a current Done
+    with a missing transition date is never wrongly hidden."""
+    return (
+        pulse_window is not None
+        and ticket.is_done_date is not None
+        and ticket.is_done_date < pulse_window[0]
     )
 
 
@@ -119,7 +144,10 @@ def classify_for_engineer(
         if not in_pulse(ticket, active_sprint_ids):
             continue
         if ticket.group is TicketGroup.SUCCESS:
-            groups[TicketGroup.SUCCESS].append(ticket)
+            # Don't credit a teammate's ticket that was Done in a prior pulse but
+            # is still pinned to an active sprint (#prev-pulse-leak).
+            if not _done_before_pulse(ticket, pulse_window):
+                groups[TicketGroup.SUCCESS].append(ticket)
         else:
             groups[TicketGroup.DISTRACTORS].append(ticket)
 

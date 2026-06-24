@@ -110,6 +110,8 @@ def parse_ticket(
         reporter_email=_resolve_email(reporter, account_emails),
         wip_since=_wip_since(issue, status, status_category,
                              parse_jira_dt(fields.get("created"))),
+        estimate_seconds=fields.get("timeoriginalestimate"),
+        spent_seconds=fields.get("timespent"),
     )
 
 

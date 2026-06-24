@@ -50,3 +50,109 @@ def test_set_weekly_role_validates(db):
         schedule.set_weekly_role(db, EMAIL, "FUNDAY", "GEN", now)
     with pytest.raises(ValueError):
         schedule.set_weekly_role(db, EMAIL, "MON", "NOPE", now)
+
+
+# --- On-call handover stamping incl. unassigned counterpart (#handover) ------
+
+APAC_PVG = "paul.collins@canonical.com"
+AMER_PVG = "colin.misare@canonical.com"
+
+
+def _pvg_chip(group):
+    from standup_dashboard.domain.models import Role
+    return next(c for c in group.chips if c.role == Role.PVG)
+
+
+def test_handover_stamps_region_and_marks_unassigned_counterpart(db):
+    """APAC→EMEA→AMER rotation: a PVG sees its counterpart *region* both ways, and
+    the name is blank (UI shows 'unassigned') when that region has no PVG set.
+
+    EMEA gets no PVG here, so APAC's hand-over-to and AMER's receive-from both
+    name the EMEA region with no holder — the exact case the user hit."""
+    from standup_dashboard.web.presenters import DashboardData, build_chip_groups
+
+    # Wed 2026-06-17 12:00 UTC is a weekday in all three regions (Sydney 22:00,
+    # Paris 14:00, Mexico 06:00), so the weekly schedule — not the weekend rule —
+    # drives roles. WED is the slot everywhere at this instant.
+    now = utc(2026, 6, 17, 12)
+    schedule.set_weekly_role(db, APAC_PVG, "WED", "PVG", now)
+    schedule.set_weekly_role(db, AMER_PVG, "WED", "PVG", now)
+    # EMEA: nobody set → all default GEN → no EMEA PVG holder.
+
+    data = DashboardData(fetched_at=now)
+    groups, _ = build_chip_groups(db, data, ["APAC", "EMEA", "AMER"], now)
+    by_key = {g.key: g for g in groups}
+
+    apac = _pvg_chip(by_key["APAC"])
+    assert (apac.handover_from_region, apac.handover_from) == ("AMER", "Colin Misare")
+    assert (apac.handover_to_region, apac.handover_to) == ("EMEA", "")  # unassigned
+
+    amer = _pvg_chip(by_key["AMER"])
+    assert (amer.handover_to_region, amer.handover_to) == ("APAC", "Paul Collins")
+    assert (amer.handover_from_region, amer.handover_from) == ("EMEA", "")  # unassigned
+
+
+# --- Weekend view: next-week preview + on-call PVG hand-over to APAC (#weekend-preview)
+
+AMER_ONCALL = "colin.misare@canonical.com"
+AMER_OTHER = "alexandre.gomes@canonical.com"
+APAC_MON_PVG = "james.simpson@canonical.com"
+
+
+def test_weekend_chips_preview_next_week_and_oncall_hands_over_to_apac(db):
+    """On a region-local weekend the on-call shows PVG (not OFF) and hands the duty
+    over to APAC's Monday PVG; everyone else previews their Monday role, not OFF."""
+    from datetime import date
+
+    from standup_dashboard.domain.models import Role, WeekendOnCall
+    from standup_dashboard.web.presenters import DashboardData, build_chip_groups
+
+    # Sun 2026-06-21 18:00 in Mexico City == Mon 2026-06-22 00:00 UTC == Mon 10:00 in
+    # Sydney: AMER is on its weekend while APAC has already rolled into Monday.
+    now = utc(2026, 6, 22, 0)
+    schedule.set_weekly_role(db, APAC_MON_PVG, "MON", "PVG", now)
+    schedule.set_weekly_role(db, AMER_OTHER, "MON", "BVG", now)
+
+    data = DashboardData(
+        fetched_at=now,
+        weekend_oncall=[WeekendOnCall(AMER_ONCALL, date(2026, 6, 20), date(2026, 6, 21))],
+    )
+    groups, _ = build_chip_groups(db, data, ["APAC", "AMER"], now)
+    amer = {c.email: c for c in next(g for g in groups if g.key == "AMER").chips}
+
+    # The on-call covers the weekend as PVG and hands over to APAC's Monday PVG.
+    oncall = amer[AMER_ONCALL]
+    assert oncall.role is Role.PVG
+    assert (oncall.handover_to_region, oncall.handover_to) == ("APAC", "James Simpson")
+
+    # A non-on-call AMER member previews next week's Monday role instead of OFF,
+    # and a preview chip carries no spurious hand-over line.
+    other = amer[AMER_OTHER]
+    assert other.role is Role.BVG
+    assert not other.handover_to_region
+
+
+def test_handover_resolves_when_apac_is_still_in_its_own_weekend(db):
+    """Earlier in the weekend (Sat in AMER) APAC is itself on Sunday, so it reads its
+    WEEKEND slot, not Monday. The on-call's '→ APAC' line must still resolve to APAC's
+    incoming Monday PVG via the display-role preview, not show 'unassigned'."""
+    from datetime import date
+
+    from standup_dashboard.domain.models import Role, WeekendOnCall
+    from standup_dashboard.web.presenters import DashboardData, build_chip_groups
+
+    # Sat 2026-06-20 18:00 in Mexico City == 2026-06-21 00:00 UTC == Sun 10:00 in
+    # Sydney: AMER, EMEA and APAC are *all* on their local weekend.
+    now = utc(2026, 6, 21, 0)
+    schedule.set_weekly_role(db, APAC_MON_PVG, "MON", "PVG", now)
+
+    data = DashboardData(
+        fetched_at=now,
+        weekend_oncall=[WeekendOnCall(AMER_ONCALL, date(2026, 6, 20), date(2026, 6, 21))],
+    )
+    groups, _ = build_chip_groups(db, data, ["APAC", "AMER"], now)
+    amer = {c.email: c for c in next(g for g in groups if g.key == "AMER").chips}
+
+    oncall = amer[AMER_ONCALL]
+    assert oncall.role is Role.PVG
+    assert (oncall.handover_to_region, oncall.handover_to) == ("APAC", "James Simpson")

@@ -101,6 +101,14 @@ PROJECT_BOARDS: dict[str, int] = {PROJECT_ISDB: 1400, PROJECT_ISREQ: 11304}
 # (Mon→today); override with STANDUP_WINDOW_DAYS (e.g. "1" for fast test refreshes).
 FETCH_WINDOW_DAYS = int(_env("APP_WINDOW_DAYS", "STANDUP_WINDOW_DAYS", default="7"))
 
+# How far back to keep re-polling an incident that is still acked-but-unresolved
+# (#open-alert-persist). An open alert is ongoing work, so it stays visible until
+# it resolves — even across a pulse boundary — instead of vanishing the moment a
+# new pulse starts. Bounds the recheck set so an incident left open forever isn't
+# polled indefinitely.
+OPEN_ALERT_RECHECK_DAYS = int(
+    _env("APP_OPEN_ALERT_RECHECK_DAYS", "STANDUP_OPEN_ALERT_RECHECK_DAYS", default="30"))
+
 # Pulse calendar (#93): a pulse is a 2-week cycle. Each anchor pins a Monday
 # (week 1, day 1) to its pulse number; the counts window is clamped to the
 # current pulse so closes rolled forward from a prior pulse aren't recounted.
@@ -177,6 +185,12 @@ REGION_CREATION_WINDOWS_UTC: dict[str, tuple[int, int]] = {
     "APAC": (23, 7),   # 23:00–07:00 UTC  (Sydney ~09:00–17:00, wraps midnight)
 }
 
+# Local working-hours window [start_hour, end_hour) used to split weekend on-call
+# alerts into in-hours vs off-hours (#recap-hours): an alert that fired between
+# 09:00 and 17:00 in the on-call's own timezone counts as in-hours, anything else
+# (evenings, nights, early mornings) as off-hours. Retune per the team's norms.
+BUSINESS_HOURS_LOCAL: tuple[int, int] = (9, 17)
+
 
 @dataclass(frozen=True)
 class EngineerConfig:
@@ -185,6 +199,9 @@ class EngineerConfig:
     region_keys: tuple[str, ...]
     is_manager: bool = False
     is_global: bool = False
+    # Marks the engineer's chip with a ★ (#star). A free-standing designation,
+    # independent of the manager/global flags (which drive the Management grouping).
+    starred: bool = False
     # Short names used in the manager's spreadsheet headers, for schedule paste
     # (#71). Matched case-insensitively alongside email/full-name/first-name.
     aliases: tuple[str, ...] = ()
@@ -233,7 +250,7 @@ _SEED_ROSTER: tuple[EngineerConfig, ...] = (
     EngineerConfig("Haw Loeung", "haw.loeung@canonical.com", ("APAC",),
                    github_login="hloeung"),
     EngineerConfig("Barry Price", "barry.price@canonical.com", ("APAC",),
-                   github_login="barryprice"),
+                   starred=True, github_login="barryprice"),
     # EMEA
     EngineerConfig("Javier Arregui", "javier.arregui@canonical.com", ("EMEA",),
                    is_manager=True, github_login="javier-arregui"),

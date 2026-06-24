@@ -98,6 +98,10 @@ class DashboardData:
     github_prs_today: dict[str, GitHubPRStats] = field(default_factory=dict)
     # email → calendar busy/open this pulse + today + rolling-24h (#cal)
     calendar: dict[str, CalendarAvail] = field(default_factory=dict)
+    # Live open-work summary counts from the latest fetch (#summary-live): metric key
+    # → count, straight from the Jira filters / PagerDuty the summary links to. Empty
+    # keys fall back to a local tally in build_open_summary.
+    open_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def active_sprint_ids(self) -> set[int]:
@@ -180,6 +184,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     github_prs_24h: dict[str, GitHubPRStats] = {}
     github_prs_today: dict[str, GitHubPRStats] = {}
     calendar: dict[str, CalendarAvail] = {}
+    open_counts: dict[str, int] = {}
     for snap in snaps:  # oldest → newest, so later layers win
         for t in db.get_tickets(snap.id):
             tickets[t.id] = t
@@ -197,6 +202,9 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
             github_prs = snap_prs
             github_prs_24h = snap_prs_24h
             github_prs_today = snap_prs_today
+        # Open-work summary counts are a live current snapshot too: latest fetch that
+        # has them wins, merged per-key so a transient miss keeps the last good value.
+        open_counts.update(db.get_open_summary(snap.id))
         # Calendar busy/open accumulates per engineer (latest fetch that has each
         # email wins). A public iCal feed occasionally times out for one person on
         # a given refresh; merging per-email means that transient miss keeps their
@@ -208,21 +216,27 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
     # so each snapshot holds just its window's alerts — accumulate across every
     # PagerDuty-ok snapshot in the pulse. Dedup by (incident, handler, state,
     # time); the 1h fetch overlap re-emits some events, so prefer the enriched
-    # copy (with incident title/number) when the same event recurs. Scope by the
-    # alert's own timestamp, not just the snapshot's fetch time: early/wide-window
-    # fetches (or the recheck) can carry events from before the pulse, which must
-    # not show on this-pulse cards (#stale-prev-pulse).
-    alerts_by_key: dict[tuple, Alert] = {}
+    # copy (with incident title/number) when the same event recurs.
+    #
+    # Scope by the alert's own timestamp: a resolved incident whose events predate
+    # the pulse is a prior pulse's closed work and must not resurface on this
+    # pulse's cards (#stale-prev-pulse). An incident still acked-but-never-resolved,
+    # though, is ongoing work — keep its events even when they predate the pulse so
+    # an open alert stays visible across the rollover until it resolves
+    # (#open-alert-persist; the fetch recheck keeps re-polling it).
+    pd_events: list[Alert] = []
     for snap in snaps:  # oldest → newest
-        if not snap.pagerduty_ok:
-            continue
-        for a in db.get_alerts(snap.id):
-            if a.at < pulse_start:
-                continue
-            key = (a.id, a.handler_email, a.state, a.at)
-            existing = alerts_by_key.get(key)
-            if existing is None or (a.title and not existing.title):
-                alerts_by_key[key] = a
+        if snap.pagerduty_ok:
+            pd_events.extend(db.get_alerts(snap.id))
+    resolved_ids = {a.id for a in pd_events if a.state is AlertState.RESOLVED}
+    alerts_by_key: dict[tuple, Alert] = {}
+    for a in pd_events:
+        if a.at < pulse_start and a.id in resolved_ids:
+            continue  # prior-pulse closed alert — drop (#stale-prev-pulse)
+        key = (a.id, a.handler_email, a.state, a.at)
+        existing = alerts_by_key.get(key)
+        if existing is None or (a.title and not existing.title):
+            alerts_by_key[key] = a
     alerts = list(alerts_by_key.values())
 
     return DashboardData(
@@ -236,6 +250,7 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
         github_prs_24h=github_prs_24h,
         github_prs_today=github_prs_today,
         calendar=calendar,
+        open_counts=open_counts,
     )
 
 
@@ -321,14 +336,29 @@ def _ticket_time_since(
     )
 
 
+def _worklog_on_since(
+    email: str, data: DashboardData, since: datetime, ticket_ids: set[str]
+) -> int:
+    """Worklog seconds ``email`` logged since ``since`` on a specific ticket set —
+    used to total distractor time (the engineer's worklog on their distractor
+    tickets) so it can be shown as a share of their open, non-busy time (#distract-share)."""
+    return sum(
+        tc.seconds for tc in data.touches
+        if tc.engineer_email == email and tc.kind is TouchKind.WORKLOG and tc.at >= since
+        and tc.ticket_id in ticket_ids
+    )
+
+
 def _alert_intervals_since(
-    email: str, data: DashboardData, since: datetime
+    email: str, data: DashboardData, since: datetime,
+    incident_ids: set[str] | None = None,
 ) -> list[tuple[datetime, datetime]]:
     """``(ack, resolve)`` spans for incidents ``email`` resolved since ``since``.
 
     Each incident contributes one span, from its earliest acknowledgement to its
     earliest resolution, credited to the resolver (the same scope as the alert
     counts). Shared by the overlap (sum) and no-overlap (union) time metrics.
+    ``incident_ids`` restricts to a given set (e.g. distractor alerts); None = all.
     """
     ack_at: dict[str, datetime] = {}
     resolved: dict[str, tuple[datetime, str]] = {}  # incident → (earliest resolve, resolver)
@@ -342,6 +372,8 @@ def _alert_intervals_since(
     spans: list[tuple[datetime, datetime]] = []
     for iid, (res_at, resolver) in resolved.items():
         if resolver != email or res_at < since:
+            continue
+        if incident_ids is not None and iid not in incident_ids:
             continue
         acked = ack_at.get(iid)
         if acked is not None and res_at >= acked:
@@ -358,10 +390,14 @@ def _alert_time_since(email: str, data: DashboardData, since: datetime) -> int:
     )
 
 
-def _alert_union_time_since(email: str, data: DashboardData, since: datetime) -> int:
+def _alert_union_time_since(
+    email: str, data: DashboardData, since: datetime,
+    incident_ids: set[str] | None = None,
+) -> int:
     """Alert time with overlapping incident spans merged into wall-clock (#173):
-    when two incidents are handled at once, their shared time is counted once."""
-    spans = sorted(_alert_intervals_since(email, data, since))
+    when two incidents are handled at once, their shared time is counted once.
+    ``incident_ids`` restricts to a subset (e.g. distractor alerts); None = all."""
+    spans = sorted(_alert_intervals_since(email, data, since, incident_ids))
     total = 0
     cur_start: datetime | None = None
     cur_end: datetime | None = None
@@ -445,6 +481,7 @@ def build_chip(
         name=eng.name,
         role=role,
         is_manager=eng.is_manager,
+        starred=eng.starred,
         region_key=region_key,
         assigned_open=_assigned_open(email, data),
         touched_24h=_touched_since(email, data, cutoff),
@@ -460,37 +497,103 @@ def build_chip(
 
 def _region_roles(db: Database, region_key: str, data: DashboardData,
                   now: datetime) -> dict[str, Role]:
-    """Effective role per member of one region, applying the weekend on-call rule."""
+    """Effective role per member of one region, applying the weekend on-call rule.
+
+    On the region-local weekend everyone is OFF except the on-call, who covers as
+    PVG (FR-025). PVG (rather than OFF) lets the on-call's chip carry a hand-over
+    line so they can see who picks the duty up next, e.g. APAC on Monday (#handover)."""
     region = config.REGIONS[region_key]
     emails = list(region.member_emails)
     roles = resolve_roles(db, emails, region.timezone, now)
     if is_weekend(now, region.timezone):
         roles.update(others_off(data.oncall_email, emails))
+        if data.oncall_email in roles:
+            roles[data.oncall_email] = Role.PVG
     return roles
+
+
+def _effort_badge(ticket: Ticket) -> tuple[str, str, bool]:
+    """An ISDB ticket's estimate-vs-invested badge: ``(label, tooltip, over_budget)``.
+
+    Shows the original estimate and the total time logged (Jira time tracking, not
+    just this pulse) on ISDB lines (#isdb-estimate). Empty when the ticket isn't ISDB
+    or carries no time data. ``over_budget`` is set when invested exceeds the estimate.
+    """
+    if not ticket.is_isdb:
+        return "", "", False
+    est, spent = ticket.estimate_seconds, ticket.spent_seconds
+    if not est and not spent:
+        return "", "", False
+    invested = format_duration(spent) if spent else "0m"
+    if est:
+        estimate = format_duration(est)
+        pct = round((spent or 0) / est * 100)        # invested as % of the estimate
+        over = bool(spent and spent > est)
+        suffix = " — over estimate" if over else ""
+        return (f"{estimate} ▸ {invested} · {pct}%",
+                f"{invested} invested of {estimate} estimate ({pct}%){suffix}", over)
+    # Time logged but no estimate set — still useful to surface (e.g. ISDB-3525).
+    return f"▸ {invested}", f"{invested} invested (no estimate set)", False
+
+
+def _next_week_role(weekly: dict[tuple[str, str], str], email: str) -> Role:
+    """The role this engineer is scheduled to hold next week — their Monday slot,
+    defaulting to GEN. Shown on weekend chips so the upcoming week's assignments are
+    visible instead of a wall of OFF (#weekend-preview)."""
+    role_str = weekly.get((email, "MON"))
+    return Role(role_str) if role_str else DEFAULT_WEEKDAY_ROLE
+
+
+def _display_roles(db: Database, region_key: str, data: DashboardData,
+                   now: datetime) -> dict[str, Role]:
+    """Roles as shown to users for one region: the actual effective roles, except on
+    the region-local weekend, where non-on-call members preview their next-week
+    (Monday) role instead of OFF and the on-call stays PVG (#weekend-preview).
+
+    Shared by the chips and the hand-over map so the weekend on-call can see the
+    incoming PVG (e.g. APAC's Monday cover) for the *whole* weekend — not only once
+    that region has itself rolled into Monday and stopped reading its WEEKEND slot."""
+    actual = _region_roles(db, region_key, data, now)
+    region = config.REGIONS[region_key]
+    if not is_weekend(now, region.timezone):
+        return actual
+    weekly = db.get_weekly_schedule()
+    return {
+        e: (actual[e] if e == data.oncall_email else _next_week_role(weekly, e))
+        for e in region.member_emails
+    }
 
 
 def _handover_map(db: Database, data: DashboardData, now: datetime) -> dict[tuple[str, Role], str]:
     """(region, PVG/BVG) → comma-joined holder names, across *all* regions.
 
     Needed even for unselected regions so a PVG/BVG chip can name its hand-over
-    counterpart in the next/previous region (#handover)."""
+    counterpart in the next/previous region (#handover). Uses the *display* roles so a
+    region still in its own weekend contributes its incoming Monday PVG/BVG, letting
+    the weekend on-call see who picks up next all weekend long (#weekend-preview)."""
     holders: dict[tuple[str, Role], list[str]] = {}
     for key in config.REGION_KEYS:
-        for email, role in _region_roles(db, key, data, now).items():
+        for email, role in _display_roles(db, key, data, now).items():
             if role in (Role.PVG, Role.BVG):
                 holders.setdefault((key, role), []).append(
                     config.ENGINEERS_BY_EMAIL[email].name)
     return {k: ", ".join(v) for k, v in holders.items()}
 
 
-def _handover_name(holders: dict[tuple[str, Role], str], region_key: str,
-                   role: Role, offset: int) -> str:
-    """Holder name in the region ``offset`` steps along the APAC→EMEA→AMER cycle."""
+def _handover_region(region_key: str, offset: int) -> str:
+    """Region ``offset`` steps along the APAC→EMEA→AMER cycle, '' if off-cycle."""
     order = config.HANDOVER_ORDER
     if region_key not in order:
         return ""
-    other = order[(order.index(region_key) + offset) % len(order)]
-    return holders.get((other, role), "")
+    return order[(order.index(region_key) + offset) % len(order)]
+
+
+def _handover_name(holders: dict[tuple[str, Role], str], region_key: str,
+                   role: Role, offset: int) -> str:
+    """Holder name in the region ``offset`` steps along the APAC→EMEA→AMER cycle
+    (empty when that region has no current holder of ``role``)."""
+    other = _handover_region(region_key, offset)
+    return holders.get((other, role), "") if other else ""
 
 
 def build_chip_groups(
@@ -502,21 +605,33 @@ def build_chip_groups(
     for key in selected_regions:
         region = config.REGIONS[key]
         emails = list(region.member_emails)
-        roles = _region_roles(db, key, data, now)
+        actual_roles = _region_roles(db, key, data, now)
+        # Chips show display roles: actual, except a weekend region previews each
+        # member's next-week Monday role (on-call stays PVG) (#weekend-preview).
+        display_roles = _display_roles(db, key, data, now)
         local_day = now.astimezone(ZoneInfo(region.timezone)).strftime("%a %d %b")
-        chips = [build_chip(e, roles[e], key, data, now) for e in emails]
-        # Stamp PVG/BVG chips with who they hand the duty to / receive it from.
-        for chip in chips:
-            if chip.role in (Role.PVG, Role.BVG):
-                chip.handover_to = _handover_name(handover, key, chip.role, +1)
-                chip.handover_from = _handover_name(handover, key, chip.role, -1)
+        chips = []
+        for e in emails:
+            chip = build_chip(e, display_roles[e], key, data, now)
+            # Stamp the hand-over line on the genuine PVG/BVG duty-holder, keyed by the
+            # *actual* role so a preview chip never gets a spurious line. Carry the
+            # counterpart region too, so the rotation stays visible even when that
+            # region has nobody on the duty yet (name = "" → "unassigned").
+            actual = actual_roles[e]
+            if actual in (Role.PVG, Role.BVG):
+                chip.handover_to_region = _handover_region(key, +1)
+                chip.handover_from_region = _handover_region(key, -1)
+                chip.handover_to = handover.get((chip.handover_to_region, actual), "")
+                chip.handover_from = handover.get((chip.handover_from_region, actual), "")
+            chips.append(chip)
         groups.append(ChipGroup(key=key, label=key, local_day=local_day, chips=chips))
 
     # Management (regional + global managers) is shown on its own, excluded from
-    # region counts and not tied to any region's daily role schedule (#72).
+    # region counts and not tied to any region's daily role schedule (#72). They
+    # hold no coverage slot, so they're always shown as GEN rather than OFF.
     management = [e.email for e in config.management_engineers()]
     management_chips = [
-        build_chip(e, Role.OFF, "Management", data, now) for e in management
+        build_chip(e, Role.GEN, "Management", data, now) for e in management
     ]
     return groups, management_chips
 
@@ -558,7 +673,15 @@ class OpenSummary:
 
 
 def build_open_summary(data: DashboardData) -> OpenSummary:
-    """Open Highest / ps5-blocker / PR-MP counts + ongoing alerts (#summary)."""
+    """Open Highest / ps5-blocker / PR-MP counts + ongoing alerts (#summary).
+
+    Each number comes from the live Jira filter / JQL / PagerDuty count captured at
+    fetch time (#summary-live), so it equals the report its link opens. Only if a live
+    count is missing (a count query failed, or a pre-#summary-live snapshot) does it
+    fall back to a local tally — which is sprint-scoped and so can diverge from the
+    report, the very mismatch the live counts fix.
+    """
+    live = data.open_counts
     active = data.active_sprint_ids
     open_tickets = [
         t for t in data.tickets
@@ -568,18 +691,22 @@ def build_open_summary(data: DashboardData) -> OpenSummary:
     # (the same acked-minus-resolved logic that drives the stale-ack handling).
     acked = {a.id for a in data.alerts if a.state is AlertState.ACKNOWLEDGED}
     resolved = {a.id for a in data.alerts if a.state is AlertState.RESOLVED}
+
+    def pick(key: str, local: int) -> int:
+        return live[key] if key in live else local
+
     return OpenSummary(
-        highest=sum(1 for t in open_tickets if t.is_highest),
-        ps5=sum(1 for t in open_tickets if t.has_ps5_blockers),
-        ps5_highest=sum(
-            1 for t in open_tickets if t.has_ps5_blockers and t.is_highest
-        ),
-        pr_mp=sum(1 for t in open_tickets if t.is_pr_mp_review),
+        highest=pick("highest", sum(1 for t in open_tickets if t.is_highest)),
+        ps5=pick("ps5", sum(1 for t in open_tickets if t.has_ps5_blockers)),
+        ps5_highest=pick("ps5_highest", sum(
+            1 for t in open_tickets if t.has_ps5_blockers and t.is_highest)),
+        pr_mp=pick("pr_mp", sum(1 for t in open_tickets if t.is_pr_mp_review)),
         # Escalated counts every fetched ISReq ticket in the Jira "Escalated"
         # status, not just active-sprint work: escalation is a cross-sprint state,
         # so this matches the JQL link rather than the sprint-scoped open counts.
-        escalated=sum(1 for t in data.tickets if t.is_isreq and t.is_escalated),
-        ongoing_alerts=len(acked - resolved),
+        escalated=pick(
+            "escalated", sum(1 for t in data.tickets if t.is_isreq and t.is_escalated)),
+        ongoing_alerts=pick("ongoing_alerts", len(acked - resolved)),
         highest_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["highest"]),
         ps5_url=config.jira_filter_url(config.JIRA_OPEN_FILTERS["ps5"]),
         ps5_highest_url=config.jira_filter_url(
@@ -692,15 +819,25 @@ class WeekendRecap:
     resolved: int
     open_acks: int
     mttr_label: str
+    mtta_label: str
     incidents: list[dict]
+    # Total ack→resolve time invested across the weekend's incidents (#recap-hours).
+    total_time_label: str = "—"
+    # In-hours vs off-hours split by the alert's fire time in the on-call's local
+    # business-hours window (config.BUSINESS_HOURS_LOCAL): alert counts + invested time.
+    in_hours_count: int = 0
+    off_hours_count: int = 0
+    in_hours_time_label: str = "0m"
+    off_hours_time_label: str = "0m"
 
 
 def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> WeekendRecap | None:
     """What the previous weekend's on-call engineer dealt with (#145).
 
     Summarises the PagerDuty incidents the on-call engineer handled over their
-    weekend: count, resolved vs still-open, mean ack→resolve, and each incident
-    (title + link). Returns ``None`` when no on-call is known (no iCal data).
+    weekend: count, resolved vs still-open, mean trigger→ack (MTTA) and ack→resolve
+    (MTTR), and each incident (title + link). Returns ``None`` when no on-call is
+    known (no iCal data).
 
     Loads the weekend's alerts directly from the DB rather than ``data.alerts``,
     because the just-passed weekend can fall in the *previous* pulse (so it isn't
@@ -721,10 +858,17 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
     end = datetime(mon.year, mon.month, mon.day, tzinfo=tz)
 
     in_weekend: set[str] = set()
+    trig_at: dict[str, datetime] = {}
     ack_at: dict[str, datetime] = {}
     res_at: dict[str, datetime] = {}
     meta: dict[str, dict] = {}
     for a in accumulated_alerts_since(db, start.astimezone(UTC)):
+        # Triggers are handler-less in PagerDuty, so capture their fire time
+        # (earliest wins) before the on-call filter — needed for MTTA (trigger→ack).
+        if a.state is AlertState.TRIGGERED:
+            if a.id not in trig_at or a.at < trig_at[a.id]:
+                trig_at[a.id] = a.at
+            continue
         if a.handler_email != oc.engineer_email:
             continue
         if start <= a.at < end:
@@ -737,8 +881,22 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
         if m is None or (a.title and not m["title"]):   # prefer an enriched copy
             meta[a.id] = {"title": a.title, "url": a.url, "number": a.number}
 
+    # Business-hours split keys off the alert's fire time (when it *happened*) in the
+    # on-call's own timezone — getting paged at 3am is the burden we want to surface.
+    bh_start, bh_end = config.BUSINESS_HOURS_LOCAL
+
+    def _off_hours(iid: str) -> bool:
+        fired = trig_at.get(iid) or ack_at.get(iid)
+        if fired is None:
+            return False
+        return not (bh_start <= fired.astimezone(tz).hour < bh_end)
+
     incidents: list[dict] = []
     mttr_total = mttr_n = 0
+    mtta_total = mtta_n = 0
+    total_time = 0                          # Σ ack→resolve across incidents
+    in_count = off_count = 0               # alerts by fire-time bucket
+    in_time = off_time = 0                 # invested time by fire-time bucket
     for iid in in_weekend:
         m = meta[iid]
         resolved = iid in res_at
@@ -747,12 +905,25 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
             duration = (res_at[iid] - ack_at[iid]).total_seconds()
             mttr_total += int(duration)
             mttr_n += 1
+        if iid in ack_at and iid in trig_at and ack_at[iid] >= trig_at[iid]:
+            mtta_total += int((ack_at[iid] - trig_at[iid]).total_seconds())
+            mtta_n += 1
+        secs = int(duration) if duration else 0
+        total_time += secs
+        off = _off_hours(iid)
+        if off:
+            off_count += 1
+            off_time += secs
+        else:
+            in_count += 1
+            in_time += secs
         incidents.append({
             "number": m["number"],
             "title": m["title"] or "(untitled incident)",
             "url": m["url"],
             "resolved": resolved,
             "duration_label": format_duration(duration),
+            "off_hours": off,
         })
     # Still-open (acknowledged, unresolved) incidents first, then by number desc.
     incidents.sort(key=lambda i: (i["resolved"], -(i["number"] or 0)))
@@ -764,7 +935,13 @@ def build_weekend_recap(db: Database, data: DashboardData, now: datetime) -> Wee
         resolved=resolved_count,
         open_acks=len(incidents) - resolved_count,
         mttr_label=format_duration(mttr_total / mttr_n) if mttr_n else "—",
+        mtta_label=format_duration(mtta_total / mtta_n) if mtta_n else "—",
         incidents=incidents,
+        total_time_label=format_duration(total_time) if total_time else "—",
+        in_hours_count=in_count,
+        off_hours_count=off_count,
+        in_hours_time_label=format_duration(in_time),
+        off_hours_time_label=format_duration(off_time),
     )
 
 
@@ -916,16 +1093,18 @@ def build_panel(
 ) -> DetailPanelVM:
     eng = config.ENGINEERS_BY_EMAIL[email]
     region = config.REGIONS[region_key]
-    role = resolve_roles(db, [email], region.timezone, now)[email]
+    # Managers/global management get a simple view of their own work: To Do / WIP
+    # / Done, no Distractors and no role-based reclassification (#72 follow-up).
+    # They hold no coverage slot, so they're always GEN rather than OFF — matching
+    # their chip — and never get the day-off reclassification below.
+    is_management = eng.is_manager or eng.is_global
+    role = Role.GEN if is_management else resolve_roles(db, [email], region.timezone, now)[email]
     # On a day off, the week's assignment wins over the particular day (#off-distractor):
     # the engineer's own assigned WIP (ISDB + ISReq) and any alert they covered on a
     # day they were *working* count as real work, not distractions. ``weekly`` lets us
     # recover the role they held on each alert's coverage day.
     is_off = role is Role.OFF
     weekly = db.get_weekly_schedule() if is_off else {}
-    # Managers/global management get a simple view of their own work: To Do / WIP
-    # / Done, no Distractors and no role-based reclassification (#72 follow-up).
-    is_management = eng.is_manager or eng.is_global
 
     # ISDB completions count as Success only if done this pulse, so pass the
     # anchored pulse window (region-local) to the classifier (#172).
@@ -1009,6 +1188,7 @@ def build_panel(
                     role, t, assigned=assigned, group=group, role_distractor=is_rd
                 )
             secs = worklog_secs.get(t.id, 0)
+            effort_label, effort_title, effort_over = _effort_badge(t)
             vms.append(
                 TicketVM(
                     key=t.id,
@@ -1024,6 +1204,9 @@ def build_panel(
                     flagged=t.id in focus_flag_ids,
                     time_label=hours_label(secs) if secs else "",
                     time_title="Time you logged on this ticket this pulse" if secs else "",
+                    effort_label=effort_label,
+                    effort_title=effort_title,
+                    effort_over=effort_over,
                 )
             )
         out[group.value] = vms
@@ -1043,6 +1226,7 @@ def build_panel(
     # Fire/ack/resolve times per incident (all handlers) drive each row's duration.
     trig_at, ack_at, res_at = _alert_spans_by_incident(data.alerts)
     meta = db.incident_meta(alert_by_incident.keys())
+    distractor_alert_ids: set[str] = set()   # incidents classified as distractions (#distract-share)
     for a in sorted(alert_by_incident.values(),
                     key=lambda x: (x.title or meta.get(x.id, (None,))[0] or x.id).lower()):
         recent = a.at >= now - _24H
@@ -1064,6 +1248,8 @@ def build_panel(
                 if is_off else role
             )
             color, target = alert_classification(alert_role, resolved=resolved, recent=recent)
+        if target is TicketGroup.DISTRACTORS:
+            distractor_alert_ids.add(a.id)
         # Line: "STATUS — #code — Title" (code = PagerDuty incident number).
         parts = ["RES" if resolved else "ACK"]
         if number is not None:
@@ -1086,8 +1272,21 @@ def build_panel(
     # "Today" = the engineer's local calendar day so far (midnight → now), in the
     # region's timezone — distinct from the rolling-24h cutoff above (#cal).
     today_start = datetime(today.year, today.month, today.day, tzinfo=ZoneInfo(region.timezone))
+    # Distractor time per window, shown as a share of open (non-busy) time
+    # (#distract-share): worklog on the SRE's distractor tickets + wall-clock time on
+    # alerts classified as distractions. Not for management (no distractor view).
+    distractor_ids = {t.id for t in grouped[TicketGroup.DISTRACTORS]}
+
+    def _distractor_time(since: datetime) -> int:
+        return (_worklog_on_since(email, data, since, distractor_ids)
+                + _alert_union_time_since(email, data, since, distractor_alert_ids))
+
     return DetailPanelVM(
         email=email, name=eng.name, role=role, groups=out,
+        show_distractors=not is_management,
+        distractor_seconds=_distractor_time(pulse_start),
+        distractor_24h_seconds=_distractor_time(cutoff),
+        distractor_today_seconds=_distractor_time(today_start),
         alert_time_seconds=_alert_time_since(email, data, pulse_start),
         alert_union_seconds=_alert_union_time_since(email, data, pulse_start),
         ticket_time_seconds=_ticket_time_since(email, data, pulse_start),

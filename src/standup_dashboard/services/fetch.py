@@ -104,6 +104,9 @@ class JiraResult:
     tickets: list[Ticket] = field(default_factory=list)
     touches: list[TouchEvent] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+    # Live open-work filter counts (#summary-live): key → match count from the saved
+    # Jira filters / JQL the summary line links to, so the numbers equal the report.
+    summary_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,6 +114,9 @@ class PagerDutyResult:
     ok: bool = True
     alerts: list[Alert] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
+    # Live count of still-open (triggered + ack) team incidents, or None if the
+    # count query failed — the figure behind the 'Ongoing alerts' link (#summary-live).
+    open_incident_count: int | None = None
 
 
 @dataclass
@@ -273,6 +279,18 @@ async def _fetch_jira(
                     roster_emails=roster,
                     account_emails=acct_to_email,
                 ))
+
+            # Live open-work counts straight from the saved filters / JQL the summary
+            # line links to, so each number equals its report instead of a sprint-
+            # scoped local tally (#summary-live). Best-effort: a count failure leaves
+            # that key unset (the presenter falls back) and never marks Jira down.
+            try:
+                for key, fid in config.JIRA_OPEN_FILTERS.items():
+                    res.summary_counts[key] = await jira.count(f"filter={fid}")
+                res.summary_counts["escalated"] = await jira.count(
+                    config.JIRA_ESCALATED_ISREQ_JQL)
+            except Exception:  # noqa: BLE001 — counts are best-effort
+                logger.exception("Jira open-work count fetch failed")
     except Exception:  # noqa: BLE001 — any failure marks the source down (US6)
         logger.exception("Jira fetch failed")
         res.ok = False
@@ -354,6 +372,14 @@ async def _fetch_pagerduty(
             # Scope to the roster's PagerDuty team(s) so we don't pull the whole org.
             incidents = await pd.incidents(since, now, team_ids=config.PAGERDUTY_TEAM_IDS)
             res.raw["pagerduty_incidents.json"] = incidents
+            # Live still-open incident count for the summary line — authoritative vs
+            # the accumulated-event tally, which can strand an auto-resolve on ACK
+            # (#stale-ack / #summary-live). Best-effort: a failure leaves it None.
+            try:
+                res.open_incident_count = await pd.open_incident_count(
+                    config.PAGERDUTY_TEAM_IDS)
+            except Exception:  # noqa: BLE001 — count is best-effort
+                logger.exception("PagerDuty open-incident count failed")
             # Incident id → (title, link) so alerts carry "what went down" + a link.
             inc_meta = {
                 i["id"]: (i.get("title") or i.get("summary"), i.get("html_url"),
@@ -569,15 +595,21 @@ async def run_fetch(
         )
     roster = set(config.all_roster_emails())
 
-    # Incidents still showing ACK (acked, never seen resolved) from earlier in this
-    # pulse. Their created_at predates the incremental PagerDuty window, so re-check
-    # them for a resolve that landed since (usually an integration auto-resolve) and
-    # move them ACK→RESOLVED (#stale-ack). Empty on a cold/full-window fetch.
-    from .counts import accumulated_pulse_alerts, persist_pulse_summaries
-    prior_alerts = accumulated_pulse_alerts(db, now)
+    # Incidents still showing ACK (acked, never seen resolved). Their created_at
+    # predates the incremental PagerDuty window, so re-check them for a resolve
+    # that landed since (usually an integration auto-resolve) and move them
+    # ACK→RESOLVED (#stale-ack). The lookback spans more than the current pulse
+    # (OPEN_ALERT_RECHECK_DAYS) so an incident acked last pulse keeps being polled
+    # — and stays on the cards — until it actually resolves, instead of falling
+    # out of scope at the pulse boundary (#open-alert-persist). Empty on a cold
+    # start (no prior snapshots).
+    from .counts import (
+        accumulated_alerts_since, accumulated_pulse_alerts, persist_pulse_summaries)
+    open_pool = accumulated_alerts_since(
+        db, now - timedelta(days=config.OPEN_ALERT_RECHECK_DAYS))
     recheck_ids = frozenset(
-        {a.id for a in prior_alerts if a.state is AlertState.ACKNOWLEDGED}
-        - {a.id for a in prior_alerts if a.state is AlertState.RESOLVED}
+        {a.id for a in open_pool if a.state is AlertState.ACKNOWLEDGED}
+        - {a.id for a in open_pool if a.state is AlertState.RESOLVED}
     )
 
     jira_res, pd_res, ical_res, gh_res, cal_res = await asyncio.gather(
@@ -618,6 +650,15 @@ async def run_fetch(
             fetch_id, gh_res.pr_stats, gh_res.pr_stats_24h, gh_res.pr_stats_today)
     if cal_res.avail:
         db.insert_calendar_avail(fetch_id, cal_res.avail)
+    # Live open-work summary counts: the Jira filter/JQL tallies plus PagerDuty's
+    # still-open incident count, so the summary line matches the reports it links
+    # to (#summary-live). Persist whatever each source returned; absent keys fall
+    # back to a local tally at render time.
+    summary_counts = dict(jira_res.summary_counts)
+    if pd_res.open_incident_count is not None:
+        summary_counts["ongoing_alerts"] = pd_res.open_incident_count
+    if summary_counts:
+        db.insert_open_summary(fetch_id, summary_counts)
 
     # Snapshot this fetch's current + previous pulse totals so the pulse-history
     # table accumulates over time (#80). Persist from the whole pulse's

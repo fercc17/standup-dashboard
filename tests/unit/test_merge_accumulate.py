@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from standup_dashboard.domain.models import (
     Alert,
@@ -12,6 +12,10 @@ from standup_dashboard.domain.models import (
     Ticket,
     TouchEvent,
     TouchKind,
+)
+from standup_dashboard.services.counts import (
+    accumulated_alerts_since,
+    accumulated_pulse_alerts,
 )
 from standup_dashboard.storage.db import Database
 from standup_dashboard.web import presenters
@@ -89,4 +93,67 @@ def test_merge_accumulates_across_fetches(tmp_path, db_dsn):
     inc2 = [a for a in merged.alerts if a.id == "INC2"]
     assert len(inc2) == 1 and inc2[0].title == "DB down"
     assert len(merged.alerts) == 3
+    db.close()
+
+
+def test_open_ack_persists_across_pulse_rollover_but_resolved_does_not(tmp_path, db_dsn):
+    """An incident still acked-but-unresolved is ongoing work, so it stays on the
+    cards after the pulse rolls — while a prior-pulse *resolved* incident is gone
+    (#open-alert-persist / #stale-prev-pulse). now=Jun 23 → pulse starts Jun 22."""
+    db = Database(db_dsn)
+    # A post-rollover fetch (Jun 23). The recheck re-emits the still-open incident's
+    # original ACK (timestamped Jun 20, before the pulse) alongside this pulse's work.
+    f = db.create_fetch_snapshot(_dt(23), True, True, True, "")
+    db.insert_pulses(f, [Pulse("ISReq", 203, "s", _dt(22), _dt(30))])
+    db.insert_alerts(f, [
+        Alert("INC-OPEN", E, AlertState.ACKNOWLEDGED, _dt(20)),    # last pulse, still open
+        Alert("INC-CLOSED", E, AlertState.ACKNOWLEDGED, _dt(19)),  # last pulse, resolved
+        Alert("INC-CLOSED", E, AlertState.RESOLVED, _dt(20)),
+        Alert("INC-NEW", E, AlertState.ACKNOWLEDGED, _dt(23)),     # this pulse
+    ])
+
+    merged = presenters.load_merged_data(db, _dt(23, 18))
+    ids = {a.id for a in merged.alerts}
+    assert "INC-OPEN" in ids        # open ACK survives the rollover
+    assert "INC-NEW" in ids
+    assert "INC-CLOSED" not in ids  # resolved prior-pulse alert stays dropped
+    assert {a.state for a in merged.alerts if a.id == "INC-OPEN"} == {
+        AlertState.ACKNOWLEDGED}
+    db.close()
+
+
+def test_open_ack_drops_to_resolved_state_once_it_resolves_after_rollover(tmp_path, db_dsn):
+    """Once the lingering open incident finally resolves this pulse it reads as
+    RESOLVED (not a stale ACK): the pre-pulse ACK is dropped, the resolve shows."""
+    db = Database(db_dsn)
+    f = db.create_fetch_snapshot(_dt(23), True, True, True, "")
+    db.insert_alerts(f, [
+        Alert("INC-OPEN", E, AlertState.ACKNOWLEDGED, _dt(20)),  # acked last pulse
+        Alert("INC-OPEN", E, AlertState.RESOLVED, _dt(23)),      # resolved this pulse
+    ])
+    merged = presenters.load_merged_data(db, _dt(23, 18))
+    assert {a.state for a in merged.alerts if a.id == "INC-OPEN"} == {
+        AlertState.RESOLVED}
+    db.close()
+
+
+def test_open_ack_recheck_lookback_spans_a_prior_pulse(tmp_path, db_dsn):
+    """The recheck pool must look back past pulse start (OPEN_ALERT_RECHECK_DAYS) so
+    an incident acked last pulse keeps being polled — the pulse-scoped set misses
+    it, which is exactly why it would otherwise stop being fetched at rollover."""
+    db = Database(db_dsn)
+    # A prior-pulse fetch (Jun 20) holding one still-open and one resolved incident.
+    f = db.create_fetch_snapshot(_dt(20), True, True, True, "")
+    db.insert_alerts(f, [
+        Alert("INC-OPEN", E, AlertState.ACKNOWLEDGED, _dt(20)),
+        Alert("INC-DONE", E, AlertState.ACKNOWLEDGED, _dt(19)),
+        Alert("INC-DONE", E, AlertState.RESOLVED, _dt(19, 13)),
+    ])
+    now = _dt(23, 18)
+    wide = accumulated_alerts_since(db, now - timedelta(days=30))
+    open_ids = ({a.id for a in wide if a.state is AlertState.ACKNOWLEDGED}
+                - {a.id for a in wide if a.state is AlertState.RESOLVED})
+    assert open_ids == {"INC-OPEN"}
+    # The pulse-scoped accumulation (since Jun 22) can't see it — hence the wider pool.
+    assert "INC-OPEN" not in {a.id for a in accumulated_pulse_alerts(db, now)}
     db.close()

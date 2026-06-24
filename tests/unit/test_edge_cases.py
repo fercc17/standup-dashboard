@@ -110,6 +110,29 @@ def test_done_isdb_is_success_only_when_genuinely_completed_this_pulse():
     assert groups[TicketGroup.SUCCESS] == [in_win]
 
 
+def test_done_isreq_from_prior_pulse_drops_even_if_sprint_still_active():
+    # The James case (#prev-pulse-leak): an ISReq Done last pulse but still pinned
+    # to an active sprint (old sprint not yet completed) must not show as this
+    # pulse's Success — yet a Done *this* pulse, or one with no recorded done
+    # date, still counts.
+    from datetime import date
+    prior = Ticket(id="ISREQ-2162", project_key="ISReq", title="fw service",
+                   status="Done", priority="Highest", labels=[], assignee_email=EMAIL,
+                   sprint_id=34046, status_category="Done", is_done_date=date(2026, 6, 5))
+    this_pulse = Ticket(id="ISREQ-2430", project_key="ISReq", title="gh team",
+                        status="Done", priority="Highest", labels=[], assignee_email=EMAIL,
+                        sprint_id=34046, status_category="Done", is_done_date=date(2026, 6, 11))
+    no_date = Ticket(id="ISREQ-2500", project_key="ISReq", title="no date",
+                     status="Done", priority=None, labels=[], assignee_email=EMAIL,
+                     sprint_id=34046, status_category="Done", is_done_date=None)
+    window = (date(2026, 6, 8), date(2026, 6, 22))
+    groups = classify_for_engineer(EMAIL, [prior, this_pulse, no_date], [],
+                                   active_sprint_ids={34046}, pulse_window=window)
+    assert this_pulse in groups[TicketGroup.SUCCESS]
+    assert no_date in groups[TicketGroup.SUCCESS]
+    assert prior not in groups[TicketGroup.SUCCESS]
+
+
 def test_assigned_unsprinted_untriaged_is_todo_not_distractor():
     # Assigned to E, Untriaged (To Do), but in no sprint (sprint_id=None) — it is
     # the engineer's queued work, so it belongs in To Do, not Distractors.

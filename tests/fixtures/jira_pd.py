@@ -32,6 +32,8 @@ def issue(
     sprint_id: int | None = None,
     created: str | None = None,
     changelog: list[dict[str, Any]] | None = None,
+    estimate_seconds: int | None = None,
+    spent_seconds: int | None = None,
 ) -> dict[str, Any]:
     return {
         "key": key,
@@ -44,6 +46,8 @@ def issue(
             "reporter": {"emailAddress": reporter} if reporter else None,
             "sprint": {"id": sprint_id} if sprint_id else None,
             "created": created,
+            "timeoriginalestimate": estimate_seconds,
+            "timespent": spent_seconds,
         },
         "changelog": {"histories": changelog or []},
     }
@@ -63,6 +67,11 @@ class Scenario:
     log_entries: dict[str, list[dict]] = field(default_factory=dict)
     ical_text: str | None = None
     fail_jira: bool = False  # when True, Jira endpoints return 500 (outage simulation)
+    # Live open-work summary counts (#summary-live): saved-filter id → count, the
+    # Escalated-JQL count, and PagerDuty's still-open (triggered+ack) incident count.
+    filter_counts: dict[int, int] = field(default_factory=dict)
+    escalated_count: int = 0
+    open_incidents: int = 0
 
 
 _BOARD_SPRINT = re.compile(r"/rest/agile/1\.0/board/(\d+)/sprint")
@@ -81,7 +90,7 @@ def install(respx_mock, scenario: Scenario) -> None:
         if host == "warthogs.atlassian.net":
             return _jira(path, params, scenario)
         if host == "api.pagerduty.com":
-            return _pagerduty(path, scenario)
+            return _pagerduty(path, params, scenario)
         if path.endswith(".ics"):
             return httpx.Response(200, text=scenario.ical_text or "")
         return httpx.Response(404, json={"error": f"unmocked {host}{path}"})
@@ -112,6 +121,15 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
         return httpx.Response(200, json={"issues": issues, "total": len(issues)})
 
     if path == "/rest/api/3/search/jql":
+        jql = params.get("jql") or ""
+        # Live open-work count queries (#summary-live): a saved filter or the Escalated
+        # JQL. Return a list sized to the scenario's declared count so the client's
+        # page-tally yields it; every other search returns the candidate issue set.
+        if fm := re.fullmatch(r"filter=(\d+)", jql):
+            n = scenario.filter_counts.get(int(fm.group(1)), 0)
+            return httpx.Response(200, json={"issues": [{} for _ in range(n)]})
+        if 'status = "Escalated"' in jql:
+            return httpx.Response(200, json={"issues": [{} for _ in range(scenario.escalated_count)]})
         # Enhanced search: single page, no nextPageToken (matches client paging).
         return httpx.Response(200, json={"issues": scenario.search_issues})
 
@@ -131,10 +149,15 @@ def _jira(path: str, params, scenario: Scenario) -> httpx.Response:
     return httpx.Response(404, json={"error": f"unmocked jira {path}"})
 
 
-def _pagerduty(path: str, scenario: Scenario) -> httpx.Response:
+def _pagerduty(path: str, params, scenario: Scenario) -> httpx.Response:
     if path == "/users":
         return httpx.Response(200, json={"users": scenario.users, "more": False})
     if path == "/incidents":
+        # The live open-incident count query passes total=true (#summary-live); the
+        # windowed ack/resolve fetch does not — answer each with its own shape.
+        if params.get("total"):
+            return httpx.Response(
+                200, json={"incidents": [], "total": scenario.open_incidents, "more": False})
         return httpx.Response(200, json={"incidents": scenario.incidents, "more": False})
     if m := _PD_LOGS.match(path):
         return httpx.Response(

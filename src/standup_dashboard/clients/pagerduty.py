@@ -60,6 +60,25 @@ class PagerDutyClient(ReadOnlyClient):
             params["team_ids[]"] = list(team_ids)
         return await self._paginate("/incidents", "incidents", params=params)
 
+    async def open_incident_count(
+        self, team_ids: list[str] | tuple[str, ...] | None = None
+    ) -> int:
+        """Number of still-open (triggered + acknowledged) incidents, team-scoped.
+
+        This is the live figure behind the 'Ongoing alerts' summary link, queried
+        directly rather than derived from accumulated ack/resolve events (which can
+        strand an auto-resolved incident on ACK; #stale-ack). ``total=true`` makes
+        PagerDuty return the match count, so a single 1-row page suffices."""
+        params: dict[str, Any] = {
+            "statuses[]": ["triggered", "acknowledged"],
+            "total": "true",
+            "limit": 1,
+        }
+        if team_ids:
+            params["team_ids[]"] = list(team_ids)
+        data = await self._get_json("/incidents", params=params)
+        return int(data.get("total") or 0)
+
     async def log_entries(self, incident_id: str) -> list[dict[str, Any]]:
         return await self._paginate(
             f"/incidents/{incident_id}/log_entries", "log_entries",

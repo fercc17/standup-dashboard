@@ -81,7 +81,8 @@ class JiraClient(ReadOnlyClient):
         return await self._paginate(
             f"{_AGILE}/sprint/{sprint_id}/issue",
             params={
-                "fields": "summary,status,priority,labels,assignee,reporter,sprint,created,updated",
+                "fields": "summary,status,priority,labels,assignee,reporter,sprint,created,"
+                          "updated,timeoriginalestimate,timespent",
                 "expand": "changelog",
             },
         )
@@ -94,7 +95,8 @@ class JiraClient(ReadOnlyClient):
         """
         params: dict[str, Any] = {
             "jql": jql,
-            "fields": "summary,status,priority,labels,assignee,reporter,created",
+            "fields": "summary,status,priority,labels,assignee,reporter,created,"
+                      "timeoriginalestimate,timespent",
             "maxResults": _PAGE,
         }
         if expand_changelog:
@@ -110,6 +112,27 @@ class JiraClient(ReadOnlyClient):
             if not token:
                 break
         return out
+
+    async def count(self, jql: str) -> int:
+        """Number of issues matching ``jql`` (e.g. a saved filter via ``filter=39785``).
+
+        The enhanced ``/search/jql`` endpoint dropped the ``total`` field and Jira's
+        approximate-count endpoint is POST-only — which the read-only base forbids
+        (GET surface only, FR-027). So page the matches with no changelog and a single
+        small field and tally them. The open-work filters return small sets (tens of
+        issues), so this is a page or two each.
+        """
+        params: dict[str, Any] = {"jql": jql, "fields": "summary", "maxResults": _PAGE}
+        total = 0
+        token: str | None = None
+        while True:
+            page = {**params, **({"nextPageToken": token} if token else {})}
+            data = await self._get_json(f"{_API}/search/jql", params=page)
+            total += len(data.get("issues", []))
+            token = data.get("nextPageToken")
+            if not token:
+                break
+        return total
 
     async def account_ids_for(self, emails: Iterable[str]) -> dict[str, str]:
         """Map Jira ``accountId`` → email for each given roster email.

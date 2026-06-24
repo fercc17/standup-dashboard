@@ -40,6 +40,9 @@ from ..domain.models import (
 # Connection string for local dev; the charm injects POSTGRESQL_DB_CONNECT_STRING.
 DEFAULT_DSN = "postgresql:///standup_dashboard"
 
+# Columns of open_summary_count, in order — the live open-work summary metrics.
+_OPEN_SUMMARY_KEYS = ("highest", "ps5", "ps5_highest", "pr_mp", "escalated", "ongoing_alerts")
+
 # ``start``/``end`` are SQL keywords (``end`` is reserved in PostgreSQL), so the
 # pulse table quotes them in DDL and inserts.
 SCHEMA = """
@@ -67,6 +70,8 @@ CREATE TABLE IF NOT EXISTS ticket (
     status_category TEXT,
     reporter_email TEXT,
     wip_since      TEXT,
+    estimate_seconds INTEGER,
+    spent_seconds    INTEGER,
     PRIMARY KEY (fetch_id, id)
 );
 
@@ -163,6 +168,19 @@ CREATE TABLE IF NOT EXISTS calendar_avail (
     PRIMARY KEY (fetch_id, engineer_email)
 );
 
+-- Live open-work summary counts taken straight from the saved Jira filters / JQL
+-- and PagerDuty the summary line links to — one row per fetch (current snapshot,
+-- latest fetch wins). NULL = that count was unavailable this fetch (#summary-live).
+CREATE TABLE IF NOT EXISTS open_summary_count (
+    fetch_id       BIGINT NOT NULL PRIMARY KEY REFERENCES fetch_snapshot(id),
+    highest        INTEGER,
+    ps5            INTEGER,
+    ps5_highest    INTEGER,
+    pr_mp          INTEGER,
+    escalated      INTEGER,
+    ongoing_alerts INTEGER
+);
+
 -- Full-fidelity raw fetch payloads (Jira/PagerDuty JSON, oncall.ics), append-only
 -- and never pruned. Stored as JSONB; independent of the normalised schema (FR-028).
 CREATE TABLE IF NOT EXISTS raw_snapshot (
@@ -250,6 +268,9 @@ ALTER TABLE calendar_avail ADD COLUMN IF NOT EXISTS pto_days TEXT NOT NULL DEFAU
 -- Day notes moved from a recurring weekday slot to a specific date (#day-notes).
 ALTER TABLE day_note ADD COLUMN IF NOT EXISTS note_date TEXT NOT NULL DEFAULT '';
 ALTER TABLE day_note ALTER COLUMN weekday SET DEFAULT '';
+-- Jira time-tracking on tickets: estimate vs invested on ISDB lines (#isdb-estimate).
+ALTER TABLE ticket ADD COLUMN IF NOT EXISTS estimate_seconds INTEGER;
+ALTER TABLE ticket ADD COLUMN IF NOT EXISTS spent_seconds INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_role_schedule_latest
     ON role_schedule (engineer_email, weekday, updated_at);
@@ -365,8 +386,8 @@ class Database:
             "INSERT INTO ticket"
             " (fetch_id, id, project_key, title, status, priority, labels_json,"
             "  assignee_email, sprint_id, is_done_date, created, status_category,"
-            "  reporter_email, wip_since)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "  reporter_email, wip_since, estimate_seconds, spent_seconds)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             " ON CONFLICT DO NOTHING",
             [
                 (
@@ -376,6 +397,7 @@ class Database:
                     t.created.isoformat() if t.created else None,
                     t.status_category, t.reporter_email,
                     t.wip_since.isoformat() if t.wip_since else None,
+                    t.estimate_seconds, t.spent_seconds,
                 )
                 for t in tickets
             ],
@@ -505,6 +527,28 @@ class Database:
             r["created_today"], r["merged_today"], r["updated_today"], r["reviewed_today"])
             for r in rows}
         return pulse, day, today
+
+    def insert_open_summary(self, fetch_id: int, counts: dict[str, int]) -> None:
+        """Persist this fetch's live open-work counts (#summary-live). A missing key
+        stores NULL so the presenter falls back to a local tally for that metric."""
+        vals = [counts.get(k) for k in _OPEN_SUMMARY_KEYS]
+        self._execute(
+            "INSERT INTO open_summary_count"
+            " (fetch_id, highest, ps5, ps5_highest, pr_mp, escalated, ongoing_alerts)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (fetch_id, *vals),
+        )
+
+    def get_open_summary(self, fetch_id: int) -> dict[str, int]:
+        """Live open-work counts for this fetch — only the keys with a stored value."""
+        rows = self._fetchall(
+            "SELECT highest, ps5, ps5_highest, pr_mp, escalated, ongoing_alerts"
+            " FROM open_summary_count WHERE fetch_id = %s", (fetch_id,)
+        )
+        if not rows:
+            return {}
+        r = rows[0]
+        return {k: r[k] for k in _OPEN_SUMMARY_KEYS if r[k] is not None}
 
     def insert_calendar_avail(self, fetch_id: int, avail: dict[str, CalendarAvail]) -> None:
         """Persist per-engineer calendar busy/open — pulse + today + 24h (#cal)."""
@@ -758,4 +802,6 @@ def _row_to_ticket(row: dict[str, Any]) -> Ticket:
         status_category=row["status_category"],
         reporter_email=row["reporter_email"],
         wip_since=datetime.fromisoformat(row["wip_since"]) if row["wip_since"] else None,
+        estimate_seconds=row.get("estimate_seconds"),
+        spent_seconds=row.get("spent_seconds"),
     )

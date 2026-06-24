@@ -2,12 +2,12 @@
      data-engineer="{{ chip.email }}"
      hx-get="/chip/{{ chip.email }}/detail?regions={{ chip.region_key }}"
      hx-target="#panels" hx-swap="innerHTML">
-  <span class="name">{{ chip.name }}{% if chip.is_manager %} &#9733;{% endif %}
+  <span class="name">{{ chip.name }}{% if chip.starred %} &#9733;{% endif %}
     <span class="role-tag">{{ chip.role.value }}</span></span>
-  {% if chip.handover_from or chip.handover_to %}
+  {% if chip.handover_from_region or chip.handover_to_region %}
   <span class="handover" title="On-call handover (APAC → EMEA → AMER): receives from / hands over to">
-    {% if chip.handover_from %}<span class="ho-from" title="Receives the handover from {{ chip.handover_from }}">&#8592; {{ chip.handover_from }}</span>{% endif %}
-    {% if chip.handover_to %}<span class="ho-to" title="Hands the duty over to {{ chip.handover_to }}">&#8594; {{ chip.handover_to }}</span>{% endif %}
+    {% if chip.handover_from_region %}<span class="ho-from{% if not chip.handover_from %} ho-unassigned{% endif %}" title="Receives the {{ chip.role.value }} handover from {{ chip.handover_from_region }}{% if chip.handover_from %}: {{ chip.handover_from }}{% else %} — nobody assigned yet{% endif %}">&#8592; {{ chip.handover_from or 'unassigned' }} &middot; {{ chip.handover_from_region }}</span>{% endif %}
+    {% if chip.handover_to_region %}<span class="ho-to{% if not chip.handover_to %} ho-unassigned{% endif %}" title="Hands the {{ chip.role.value }} duty over to {{ chip.handover_to_region }}{% if chip.handover_to %}: {{ chip.handover_to }}{% else %} — nobody assigned yet{% endif %}">&#8594; {{ chip.handover_to or 'unassigned' }} &middot; {{ chip.handover_to_region }}</span>{% endif %}
   </span>
   {% endif %}
   <span class="meta" title="Last 24h — touched / assigned-open / completed · alerts ack/resolved">

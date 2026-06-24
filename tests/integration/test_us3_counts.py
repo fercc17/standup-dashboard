@@ -36,6 +36,10 @@ def _scenario(now: datetime) -> Scenario:
             "INC1": [{"type": "acknowledge_log_entry", "agent": {"id": "PU1"},
                       "created_at": acked}],
         },
+        # Live open-work summary counts come straight from the saved Jira filters /
+        # PagerDuty now (#summary-live): one open IS Highest, one still-open incident.
+        filter_counts={39785: 1},   # Open IS Highest filter
+        open_incidents=1,
     )
 
 

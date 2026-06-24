@@ -204,6 +204,9 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .chip .handover { display: flex; gap: 8px; font-size: 10px; color: #1c1f23; flex-wrap: wrap; }
 .chip .handover .ho-from { opacity: .85; }
 .chip .handover .ho-to { font-weight: 600; }
+/* Counterpart region has nobody on the duty yet — dim it, but keep it visible so
+   the rotation reads end-to-end and the gap is obvious (#handover). */
+.chip .handover .ho-unassigned { opacity: .5; font-style: italic; font-weight: 400; }
 /* Role colors from the Google Sheets palette (chip background + darker border). */
 .chip.role-PVG { background: #cfe2f3; border-left-color: #3d85c6; }   /* light blue 3 */
 .chip.role-BVG { background: #9fc5e8; border-left-color: #2b6cb0; }   /* light blue 2 */
@@ -236,6 +239,9 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .panel-time .pt-total { color: var(--fg); border-bottom: 1px solid var(--border); padding-bottom: 3px; margin-bottom: 1px; }
 .panel-time .pt-total strong { font-size: 13px; margin-left: 2px; }
 .panel-time span { white-space: nowrap; }
+/* Distractor share of open time (#distract-share): a touch of emphasis since it's a
+   derived signal, not a raw bucket like the lines above it. */
+.panel-time .pt-distract { color: var(--fg); font-weight: 600; }
 .group-title { font-size: 12px; font-weight: 600; color: var(--muted); margin: 8px 0 4px; }
 .group-title .group-count { color: var(--fg); font-weight: 700; }
 /* Touched-24h | not-touched split for WIP / Success / Distractors (#17). */
@@ -257,6 +263,11 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .ticket a.key:hover, .ticket a.title:hover { text-decoration: underline; }
 .ticket .tstatus { font-size: 10px; color: var(--muted); white-space: nowrap; text-transform: uppercase; letter-spacing: .03em; }
 .ticket .ttime { font-size: 10px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; margin-left: auto; }
+/* ISDB estimate ▸ invested (#isdb-estimate). Right-aligned like .ttime; when both
+   show, sit just after it. Turns red when invested has overrun the estimate. */
+.ticket .effort { font-size: 10px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; margin-left: auto; }
+.ticket .ttime + .effort { margin-left: 8px; }
+.ticket .effort.over { color: var(--red); font-weight: 600; }
 .ticket .badge { font-size: 10px; background: #ece9ff; color: #4b34c9; padding: 0 5px; border-radius: 4px; white-space: nowrap; }
 .ticket .badge.stale { background: var(--red-bg); color: var(--red); font-weight: 600; }
 /* Focus-toggle flag (#focus-toggle): off-focus in-progress ISReq, highlighted in
@@ -353,7 +364,14 @@ table.legend th.role { text-align: left; font-weight: 700; white-space: nowrap; 
 /* ---- Weekend on-call recap (#145) ---- */
 .weekend-recap { font-size: 13px; margin: 0 0 12px; }
 .weekend-recap > summary { cursor: pointer; color: var(--fg); }
+/* Stack the recap header onto separate lines (#recap-hours): the headline, then the
+   MTTA/MTTR and time/hours sub-lines indented under the disclosure marker. */
+.weekend-recap > summary .recap-line { display: block; }
+.weekend-recap > summary .recap-sub { margin-left: 1.1em; color: var(--muted); line-height: 1.6; }
 .weekend-recap .recap-open { color: var(--red); font-weight: 600; }
+/* Off-hours on-call burden (#recap-hours): alerts fired outside 09:00–17:00 local. */
+.weekend-recap .recap-off { color: var(--red); font-weight: 600; }
+.recap-moon { font-size: 11px; }
 .recap-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .recap-list li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-top: 1px solid var(--border); }
 .recap-list li a { color: var(--fg); text-decoration: none; }

@@ -17,10 +17,13 @@
   {% if weekend_recap %}
   <details class="weekend-recap">
     <summary>
-      Weekend recap &middot; <strong>{{ weekend_recap.oncall_name }}</strong> &middot; {{ weekend_recap.weekend_label }} &middot;
+      <span class="recap-line">Weekend recap &middot; <strong>{{ weekend_recap.oncall_name }}</strong> &middot; {{ weekend_recap.weekend_label }} &middot;
       <strong>{{ weekend_recap.incident_count }}</strong> incident{{ 's' if weekend_recap.incident_count != 1 else '' }}
-      ({{ weekend_recap.resolved }} resolved{% if weekend_recap.open_acks %}, <span class="recap-open">{{ weekend_recap.open_acks }} open</span>{% endif %})
-      &middot; MTTR {{ weekend_recap.mttr_label }}
+      ({{ weekend_recap.resolved }} resolved{% if weekend_recap.open_acks %}, <span class="recap-open">{{ weekend_recap.open_acks }} open</span>{% endif %})</span>
+      <span class="recap-line recap-sub"><span title="Mean time to acknowledge (trigger&rarr;ack)">MTTA {{ weekend_recap.mtta_label }}</span>
+      &middot; <span title="Mean time to resolve (ack&rarr;resolve)">MTTR {{ weekend_recap.mttr_label }}</span></span>
+      <span class="recap-line recap-sub"><span title="Total ack&rarr;resolve time invested across the weekend's incidents"><strong>{{ weekend_recap.total_time_label }}</strong> on alerts</span>
+      &middot; <span class="recap-hours" title="Alerts that fired in business hours (09:00&ndash;17:00 the on-call's local time) vs outside, with time invested in each">{{ weekend_recap.in_hours_count }} in-hours ({{ weekend_recap.in_hours_time_label }}) &middot; <span class="recap-off">{{ weekend_recap.off_hours_count }} off-hours ({{ weekend_recap.off_hours_time_label }})</span></span></span>
     </summary>
     {% if weekend_recap.incidents %}
     <ul class="recap-list">
@@ -28,7 +31,7 @@
       <li class="{% if not inc.resolved %}open{% endif %}">
         {% if inc.url %}<a href="{{ inc.url }}" target="_blank" rel="noopener">{% endif %}
         {% if inc.number %}#{{ inc.number }} {% endif %}{{ inc.title }}{% if inc.url %}</a>{% endif %}
-        <span class="recap-meta">{% if inc.resolved %}&#10003; {{ inc.duration_label }}{% else %}open{% endif %}</span>
+        <span class="recap-meta">{% if inc.off_hours %}<span class="recap-moon" title="Fired outside business hours">&#127769;</span> {% endif %}{% if inc.resolved %}&#10003; {{ inc.duration_label }}{% else %}open{% endif %}</span>
       </li>
       {% endfor %}
     </ul>

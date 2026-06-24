@@ -138,6 +138,11 @@ class Ticket:
     status_category: str | None = None
     reporter_email: str | None = None
     wip_since: datetime | None = None   # start of the current In-Progress streak (#147)
+    # Jira time tracking (#isdb-estimate), in seconds: the original estimate and the
+    # total time logged on the ticket. Shown on ISDB lines as estimate vs invested.
+    # None = the field is unset in Jira.
+    estimate_seconds: int | None = None
+    spent_seconds: int | None = None
 
     def wip_age_seconds(self, now: datetime) -> float | None:
         """How long the ticket has sat in its current WIP streak, or None."""
@@ -250,6 +255,7 @@ class ChipVM:
     alerts_ack_24h: int
     alerts_resolved_24h: int
     region_key: str
+    starred: bool = False  # show a ★ next to the name (#star)
     # Two-row metrics: last 24h and since the start of the pulse (#chip-metrics).
     assigned_open: int = 0          # current open assigned work (To Do + WIP), in pulse
     completed_24h: int = 0
@@ -257,10 +263,14 @@ class ChipVM:
     completed_pulse: int = 0
     alerts_ack_pulse: int = 0
     alerts_resolved_pulse: int = 0
-    # Weekend on-call handover (#handover): for a PVG/BVG chip, who they hand the
-    # duty to (next region) and receive it from (previous region), names only.
+    # On-call handover (#handover): for a PVG/BVG chip, who they hand the duty to
+    # (next region in APAC→EMEA→AMER) and receive it from (previous region). The
+    # ``_region`` fields name the counterpart region so the rotation stays legible
+    # even when that region has no holder yet (then the name is "" = unassigned).
     handover_to: str = ""
     handover_from: str = ""
+    handover_to_region: str = ""
+    handover_from_region: str = ""
 
 
 @dataclass
@@ -282,6 +292,12 @@ class TicketVM:
     # been open (fire→now). Empty string = nothing to show.
     time_label: str = ""
     time_title: str = ""  # tooltip explaining what the time means
+    # ISDB estimate vs invested effort (#isdb-estimate): a compact "1h ▸ 6h" badge
+    # (estimate ▸ invested) with ``effort_over`` set when invested exceeds the
+    # estimate. Empty = not an ISDB ticket with time-tracking data.
+    effort_label: str = ""
+    effort_title: str = ""
+    effort_over: bool = False
 
 
 @dataclass
@@ -365,6 +381,33 @@ class DetailPanelVM:
     # Calendar occupancy this pulse + today + rolling-24h (#cal); has_data False
     # when not public.
     calendar: CalendarAvail = field(default_factory=CalendarAvail)
+    # Distractor time per window (#distract-share): worklog on this SRE's distractor
+    # tickets + wall-clock time on alerts classified as distractions, shown as a share
+    # of open (non-busy) time. Off for management (no distractor view).
+    distractor_seconds: int = 0
+    distractor_24h_seconds: int = 0
+    distractor_today_seconds: int = 0
+    show_distractors: bool = False
+
+    def _distractor_share(self, spent: int, open_seconds: int) -> str:
+        """``'4h · 20% of open'`` — distractor time and its % of open time, or '' when
+        not applicable (management, or no open-time data to divide by)."""
+        if not self.show_distractors or open_seconds <= 0:
+            return ""
+        return f"{hours_label(spent)} · {round(spent / open_seconds * 100)}% of open"
+
+    @property
+    def distractor_share_label(self) -> str:
+        return self._distractor_share(self.distractor_seconds, self.calendar.open_seconds)
+
+    @property
+    def distractor_share_24h_label(self) -> str:
+        return self._distractor_share(self.distractor_24h_seconds, self.calendar.open_24h_seconds)
+
+    @property
+    def distractor_share_today_label(self) -> str:
+        return self._distractor_share(
+            self.distractor_today_seconds, self.calendar.open_today_seconds)
 
     @property
     def alert_time_label(self) -> str:

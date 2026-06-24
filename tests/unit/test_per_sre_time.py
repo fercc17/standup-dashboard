@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from standup_dashboard.domain.models import (
     Alert,
     AlertState,
+    CalendarAvail,
     GitHubPRStats,
     Pulse,
     TouchEvent,
@@ -125,6 +126,46 @@ def test_alert_time_overlap_vs_union(tmp_path, db_dsn):
     assert panel.alert_time_seconds == (10 + 7) * 60   # 17m, overlap double-counted
     assert panel.alert_union_seconds == 12 * 60        # 12m wall-clock
     db.close()
+
+
+def test_distractor_share_folds_in_distraction_alert_time(tmp_path, db_dsn):
+    # A GEN engineer's handled alerts classify as distractions (#158), so their
+    # ack→resolve time folds into the distractor share alongside ticket worklog
+    # (#distract-share). 30m of alert time against 5h open → 10%.
+    db = Database(db_dsn)
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "GEN", NOW)
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
+        alerts=[
+            Alert("INC1", E, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 0, tzinfo=UTC)),
+            Alert("INC1", E, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 30, tzinfo=UTC)),
+        ],
+        calendar={E: CalendarAvail(has_data=True, open_seconds=5 * 3600)},
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert panel.show_distractors is True
+    assert panel.distractor_seconds == 1800                 # 30m distraction-alert time
+    assert panel.distractor_share_label == "30m · 10% of open"
+
+
+def test_distractor_share_excludes_pvg_alert_time(tmp_path, db_dsn):
+    # The same alert handled as PVG (on-call) is real work, not a distraction — so it
+    # must NOT count toward the distractor share (#distract-share).
+    db = Database(db_dsn)
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW)],
+        alerts=[
+            Alert("INC1", E, AlertState.ACKNOWLEDGED, datetime(2026, 6, 12, 18, 0, tzinfo=UTC)),
+            Alert("INC1", E, AlertState.RESOLVED, datetime(2026, 6, 12, 18, 30, tzinfo=UTC)),
+        ],
+        calendar={E: CalendarAvail(has_data=True, open_seconds=5 * 3600)},
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert panel.distractor_seconds == 0
+    assert panel.distractor_share_label == "0m · 0% of open"
 
 
 def test_build_panel_reports_pr_stats(tmp_path, db_dsn):
