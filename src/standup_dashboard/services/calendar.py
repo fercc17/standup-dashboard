@@ -20,15 +20,21 @@ window so it is deterministically unit-testable (mirrors ``services/oncall.py``)
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 
 from icalendar import Calendar
 
+from ..config import BUSINESS_HOURS_LOCAL
 from ..domain.models import CalendarAvail
 
 WORKDAY_S = 8 * 3600         # 40h/week ÷ 5 = 8h capacity per weekday
 PTO_MIN_S = 8 * 3600         # a full working-day block counts as PTO …
-FULL_DAY_S = 24 * 3600       # … but a 24h block is an all-day "busy" artifact, not PTO
+# … but only when it actually covers the engineer's local working hours. An 8–12h
+# block that sits *overnight* (evening→morning) is a personal/do-not-disturb hold,
+# not a day off, so a timed PTO block must overlap [09:00,17:00) local by at least
+# this much. Without it, recurring overnight "Busy" blocks read as a week of PTO.
+PTO_WORKDAY_OVERLAP_MIN_S = 6 * 3600
+FULL_DAY_S = 24 * 3600       # a 24h block is an all-day "busy" artifact, not PTO
 MEETING_MAX_S = 3600         # ≤1h is a real meeting; longer is a blocker/SD hold
 SD_MIN_S = int(3.5 * 3600)   # a "4h" SD block, with tolerance
 SD_MAX_S = int(4.5 * 3600)
@@ -62,14 +68,16 @@ def _merge_seconds(intervals: list[tuple[datetime, datetime]]) -> int:
 
 
 def compute_availability(
-    ical_text: str, window_start: datetime, window_end: datetime
+    ical_text: str, window_start: datetime, window_end: datetime, tz: tzinfo = UTC
 ) -> CalendarAvail:
-    """Busy/open/PTO/SD for one window from a free/busy iCal feed (parses the feed)."""
-    return _availability(Calendar.from_ical(ical_text), window_start, window_end)
+    """Busy/open/PTO/SD for one window from a free/busy iCal feed (parses the feed).
+    ``tz`` is the engineer's region timezone — it decides whether a long block sits
+    on their working day (PTO) or overnight (a personal hold)."""
+    return _availability(Calendar.from_ical(ical_text), window_start, window_end, tz)
 
 
 def compute_availability_windows(
-    ical_text: str, windows: list[tuple[datetime, datetime]]
+    ical_text: str, windows: list[tuple[datetime, datetime]], tz: tzinfo = UTC
 ) -> list[CalendarAvail]:
     """Availability for several windows, parsing the (large) feed only once.
 
@@ -77,13 +85,14 @@ def compute_availability_windows(
     fetch path derives the pulse + today windows from a single parse instead of
     re-parsing per window — and runs this off the event loop (it's CPU-bound, and
     blocking the loop would starve the other engineers' concurrent HTTP fetches).
+    ``tz`` is the engineer's region timezone (see ``compute_availability``).
     """
     cal = Calendar.from_ical(ical_text)
-    return [_availability(cal, s, e) for s, e in windows]
+    return [_availability(cal, s, e, tz) for s, e in windows]
 
 
 def _availability(
-    cal: Calendar, window_start: datetime, window_end: datetime
+    cal: Calendar, window_start: datetime, window_end: datetime, tz: tzinfo = UTC
 ) -> CalendarAvail:
     """Busy/open/PTO/SD for ``[window_start, window_end)`` from a parsed feed."""
     meetings: list[tuple[datetime, datetime]] = []   # ≤1h blocks → the busy number
@@ -95,6 +104,23 @@ def _availability(
         while d < d1:
             if window_start.date() <= d < window_end.date() and d.weekday() < 5:
                 pto_weekdays.add(d)
+            d += timedelta(days=1)
+
+    bh_start, bh_end = BUSINESS_HOURS_LOCAL
+
+    def _mark_pto_timed(s_utc, e_utc) -> None:
+        """Mark PTO for each in-window weekday whose *local* working hours the block
+        substantially covers — so an overnight 8–12h block (which overlaps the working
+        day by ~0) isn't mistaken for a day off (#pto-overnight)."""
+        d = s_utc.astimezone(tz).date()
+        last = e_utc.astimezone(tz).date()
+        while d <= last:
+            if window_start.date() <= d < window_end.date() and d.weekday() < 5:
+                w0 = datetime(d.year, d.month, d.day, bh_start, tzinfo=tz).astimezone(UTC)
+                w1 = datetime(d.year, d.month, d.day, bh_end, tzinfo=tz).astimezone(UTC)
+                overlap = (min(e_utc, w1) - max(s_utc, w0)).total_seconds()
+                if overlap >= PTO_WORKDAY_OVERLAP_MIN_S:
+                    pto_weekdays.add(d)
             d += timedelta(days=1)
 
     for ev in cal.walk("VEVENT"):
@@ -122,7 +148,7 @@ def _availability(
         clip_s, clip_e = max(s_utc, window_start), min(e_utc, window_end)
 
         if PTO_MIN_S <= dur < FULL_DAY_S:
-            _mark_pto(clip_s.date(), clip_e.date() + timedelta(days=1))
+            _mark_pto_timed(s_utc, e_utc)   # only if it covers the local working day
             continue
         if dur >= FULL_DAY_S:
             continue  # all-day "busy" artifact (recurring 00:00→00:00) — not PTO

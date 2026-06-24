@@ -70,6 +70,21 @@ def test_eight_hour_block_counts_as_pto():
     assert a.pto_days == ("Mon Jun 08",)
 
 
+def test_overnight_block_is_not_pto_in_local_tz():
+    """A long block that sits *overnight* in the engineer's timezone is a personal
+    hold, not a day off — it must not read as PTO (#pto-overnight)."""
+    from zoneinfo import ZoneInfo
+    mx = ZoneInfo("America/Mexico_City")  # UTC−6, like AMER
+    # 02:00–11:45 UTC = 20:00–05:45 Mexico: ~10h overnight, 0 overlap with 09:00–17:00.
+    overnight = compute_availability(
+        _ics([("20260608T020000Z", "20260608T114500Z", False)]), WS, WE, mx)
+    assert overnight.pto_days == () and overnight.pto_seconds == 0
+    # 15:00–23:00 UTC = 09:00–17:00 Mexico: covers the local working day → real PTO.
+    daytime = compute_availability(
+        _ics([("20260608T150000Z", "20260608T230000Z", False)]), WS, WE, mx)
+    assert daytime.pto_days == ("Mon Jun 08",) and daytime.pto_seconds == 8 * 3600
+
+
 def test_overlapping_meetings_merged():
     a = compute_availability(_ics([
         ("20260608T100000Z", "20260608T110000Z", False),

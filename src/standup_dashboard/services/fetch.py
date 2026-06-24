@@ -529,12 +529,16 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
                         return email, None
                     try:
                         ts, te = _today_window(email, now)                  # local day
+                        # The engineer's region tz decides whether a long block sits on
+                        # their working day (PTO) or overnight (a personal hold) (#cal).
+                        region = config.primary_region_for(email)
+                        tz = ZoneInfo(config.region_timezone(region)) if region else UTC
                         # Parse the (large) feed once, off the event loop: it's
                         # CPU-bound (~3s for a 2 MB feed) and blocking the loop here
                         # would time out the other engineers' in-flight fetches.
                         avail, day, h24, ptowin = await asyncio.to_thread(
                             compute_availability_windows, text,
-                            [(ws, we), (ts, te), (ws24, we24), (pto_ws, pto_we)],
+                            [(ws, we), (ts, te), (ws24, we24), (pto_ws, pto_we)], tz,
                         )
                         avail.busy_today_seconds = day.busy_seconds
                         avail.open_today_seconds = day.open_seconds
