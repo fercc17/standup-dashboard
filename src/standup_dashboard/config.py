@@ -151,6 +151,14 @@ GITHUB_FETCH_CONCURRENCY = int(_env("APP_GITHUB_CONCURRENCY", "STANDUP_GITHUB_CO
 TEMPO_BASE_URL = _env("APP_TEMPO_BASE_URL", "STANDUP_TEMPO_BASE_URL",
                       default="https://api.tempo.io/4")
 
+# How many days back each refresh queries Tempo worklogs, regardless of the (often
+# tiny) incremental Jira window. Worklogs are routinely logged late and backdated, so
+# an incremental window misses them; this lookback lets a refresh re-see a worklog
+# created now but dated up to a week ago, which the createdAt touch filter then keeps
+# (#tempo-backdate). Bounded so the per-refresh Tempo query stays cheap.
+TEMPO_WORKLOG_LOOKBACK_DAYS = int(
+    _env("APP_TEMPO_LOOKBACK_DAYS", "STANDUP_TEMPO_LOOKBACK_DAYS", default="8"))
+
 # Server bind. Defaults to loopback (single-user, localhost-only per FR-011).
 # Set STANDUP_HOST=0.0.0.0 to expose the dashboard on the LAN (no auth — only
 # do this on a trusted network), and STANDUP_PORT to change the port.

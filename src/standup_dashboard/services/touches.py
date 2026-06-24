@@ -241,6 +241,13 @@ def _tempo_started(worklog: dict[str, Any]) -> datetime | None:
     return parse_jira_dt(f"{start_date}T{worklog.get('startTime') or '00:00:00'}")
 
 
+def _tempo_created(worklog: dict[str, Any]) -> datetime | None:
+    """When the worklog entry was *created* in Tempo (``createdAt``), as UTC. A worklog
+    is often logged after the work and backdated before it, so this — not the
+    work-time ``started`` — is when it became visible to a fetch (#tempo-backdate)."""
+    return parse_jira_dt(worklog.get("createdAt"))
+
+
 def tempo_worklog_touches(
     worklogs: Iterable[dict[str, Any]],
     *,
@@ -267,7 +274,16 @@ def tempo_worklog_touches(
         seconds = int(w.get("timeSpentSeconds") or 0)
         if not email or at is None or email not in roster_emails:
             continue
-        if not (window_start <= at <= window_end):
+        # Keep the worklog if its work-time falls in the window, OR if the entry was
+        # *created* in the window (it's new to this fetch). The latter rescues a
+        # backdated worklog whose ``started`` predates an incremental ``window_start``
+        # that has since chased forward — otherwise it's dropped on every refresh and
+        # never appears (#tempo-backdate). Either way the touch is stamped at ``started``.
+        created = _tempo_created(w)
+        in_window = at <= window_end and (
+            window_start <= at
+            or (created is not None and window_start <= created <= window_end))
+        if not in_window:
             continue
         sig = (key, email, at, seconds)
         if sig in seen:

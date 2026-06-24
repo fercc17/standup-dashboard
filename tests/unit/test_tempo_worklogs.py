@@ -70,6 +70,24 @@ def test_out_of_window_worklog_is_dropped():
     assert _touches([_wl("acc-paul", start_date="2026-06-01")]) == []
 
 
+def test_backdated_worklog_created_in_window_is_kept():
+    # The work-time (started) predates the incremental window, but the entry was
+    # *created* within it — Tempo lets you log late and backdate. It must be kept,
+    # stamped at its started time, so it isn't dropped forever (#tempo-backdate).
+    w = _wl("acc-paul", start_date="2026-06-10")     # started before WIN_START (06-13)
+    w["createdAt"] = "2026-06-18T03:10:00Z"          # but logged in-window
+    [t] = _touches([w])
+    assert t.engineer_email == PAUL
+    assert t.at == datetime(2026, 6, 10, 9, 0, tzinfo=UTC)   # bucketed at the work-time
+
+
+def test_backdated_worklog_created_out_of_window_still_dropped():
+    # Backdated work AND a create time before the window → genuinely old, dropped.
+    w = _wl("acc-paul", start_date="2026-06-10")
+    w["createdAt"] = "2026-06-01T00:00:00Z"
+    assert _touches([w]) == []
+
+
 def test_duplicate_worklogs_are_deduped():
     assert len(_touches([_wl("acc-paul"), _wl("acc-paul")])) == 1
 

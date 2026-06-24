@@ -226,9 +226,16 @@ async def _fetch_jira(
             tempo_worklogs: list[dict[str, Any]] = []
             if tempo_active:
                 try:
+                    # Query Tempo over a fixed lookback (not just the incremental Jira
+                    # window), so a worklog logged now but backdated several days is
+                    # still returned; the createdAt touch filter scopes what's kept
+                    # (#tempo-backdate).
+                    tempo_from = min(
+                        window_start.date(),
+                        (now - timedelta(days=config.TEMPO_WORKLOG_LOOKBACK_DAYS)).date())
                     async with tempo_mod.make_async_client(secrets.tempo_token) as tclient:
                         tempo_worklogs = await tempo_mod.TempoClient(tclient).worklogs(
-                            window_start.date(), now.date())
+                            tempo_from, now.date())
                     res.raw["tempo_worklogs.json"] = tempo_worklogs
                 except Exception:  # noqa: BLE001 — fall back to Jira/assignee worklogs
                     logger.exception("Tempo worklog fetch failed; using Jira worklogs")
