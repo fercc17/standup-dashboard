@@ -33,3 +33,6 @@ terraform/.terraform.lock.hcl
 terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.tfvars
+
+# Personal feature backlog — keep local, not in the public repo
+/todo.txt
