@@ -424,7 +424,9 @@ async def _fetch_pagerduty(
     return res
 
 
-async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
+async def _fetch_github(
+    secrets: Secrets, now: datetime, emails: set[str] | None = None
+) -> GitHubResult:
     """Per-engineer PR activity for the current pulse (#173).
 
     For each mapped login, counts PRs created / merged / touched plus PRs
@@ -437,6 +439,8 @@ async def _fetch_github(secrets: Secrets, now: datetime) -> GitHubResult:
     """
     res = GitHubResult()
     logins = config.github_logins()
+    if emails is not None:  # person-scoped refresh — just this engineer (#person-refresh)
+        logins = {e: l for e, l in logins.items() if e in emails}
     if not secrets.github_token or not config.GITHUB_ORG or not logins:
         return res
     # Pulse window is the global anchored 2-week span; the Search API date
@@ -494,7 +498,7 @@ def _today_window(email: str, now: datetime) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-async def _fetch_calendar(now: datetime) -> CalendarResult:
+async def _fetch_calendar(now: datetime, emails: list[str] | None = None) -> CalendarResult:
     """Per-engineer calendar busy/open for the current pulse + today (#cal).
 
     Derives each engineer's public iCal URL from their email and computes
@@ -550,9 +554,8 @@ async def _fetch_calendar(now: datetime) -> CalendarResult:
                         logger.exception("Calendar parse failed for %s", email)
                         return email, None
 
-            for email, av in await asyncio.gather(
-                *(_one(e) for e in config.all_roster_emails())
-            ):
+            targets = emails if emails is not None else config.all_roster_emails()
+            for email, av in await asyncio.gather(*(_one(e) for e in targets)):
                 if av is not None:
                     res.avail[email] = av
     except Exception:  # noqa: BLE001
@@ -578,42 +581,35 @@ async def run_fetch(
     db: Database,
     secrets: Secrets,
     *,
+    sources: frozenset[str] | set[str] | None = None,
     now: datetime | None = None,
     window_days: int | None = None,
 ) -> int:
-    """Perform one refresh; persist a snapshot; return its fetch_id."""
+    """Refresh ``sources`` (default all), persist a snapshot, return its fetch_id.
+
+    The per-source scheduler passes only the due sources (#per-source-schedule); the
+    manual button and cold start fetch them all. A source that isn't fetched leaves its
+    ok-flag NULL ('not attempted'), so it neither anchors its incremental window nor
+    trips the failure banner."""
     now = now or datetime.now(UTC)
+    sources = frozenset(config.ALL_SOURCES if sources is None else sources)
     full_window_start = now - timedelta(days=config.FETCH_WINDOW_DAYS)
     if window_days is not None:
         jira_window_start = pd_window_start = now - timedelta(days=window_days)
     else:
-        # Incremental (#88): each source resumes just after its own last
-        # successful fetch (a 1h overlap absorbs clock skew / boundary misses);
-        # earlier data is preserved by merging the pulse's snapshots — tickets
-        # and now alerts both accumulate (see load_merged_data). On a cold start
-        # (no prior good fetch) fall back to the full FETCH_WINDOW_DAYS window.
+        # Incremental (#88): each source resumes just after its own last successful
+        # fetch (a 1h overlap absorbs clock skew); earlier data is preserved by merging
+        # the pulse's snapshots. Cold start → the full FETCH_WINDOW_DAYS window.
         last_jira = db.latest_good_fetch()
         last_pd = db.latest_pagerduty_fetch()
-        jira_window_start = (
-            last_jira.fetched_at - timedelta(hours=1)
-            if last_jira is not None
-            else full_window_start
-        )
-        pd_window_start = (
-            last_pd.fetched_at - timedelta(hours=1)
-            if last_pd is not None
-            else full_window_start
-        )
+        jira_window_start = (last_jira.fetched_at - timedelta(hours=1)
+                             if last_jira is not None else full_window_start)
+        pd_window_start = (last_pd.fetched_at - timedelta(hours=1)
+                           if last_pd is not None else full_window_start)
     roster = set(config.all_roster_emails())
 
-    # Incidents still showing ACK (acked, never seen resolved). Their created_at
-    # predates the incremental PagerDuty window, so re-check them for a resolve
-    # that landed since (usually an integration auto-resolve) and move them
-    # ACK→RESOLVED (#stale-ack). The lookback spans more than the current pulse
-    # (OPEN_ALERT_RECHECK_DAYS) so an incident acked last pulse keeps being polled
-    # — and stays on the cards — until it actually resolves, instead of falling
-    # out of scope at the pulse boundary (#open-alert-persist). Empty on a cold
-    # start (no prior snapshots).
+    # Incidents still showing ACK (acked, never seen resolved): re-check for a resolve
+    # that landed since (#stale-ack/#open-alert-persist). Empty on a cold start.
     from .counts import (
         accumulated_alerts_since, accumulated_pulse_alerts, persist_pulse_summaries)
     open_pool = accumulated_alerts_since(
@@ -623,71 +619,187 @@ async def run_fetch(
         - {a.id for a in open_pool if a.state is AlertState.RESOLVED}
     )
 
-    jira_res, pd_res, ical_res, gh_res, cal_res = await asyncio.gather(
-        _fetch_jira(secrets, now, jira_window_start, roster),
-        _fetch_pagerduty(secrets, now, pd_window_start, roster, recheck_ids),
-        _fetch_ical(secrets, now),
-        _fetch_github(secrets, now),
-        _fetch_calendar(now),
-    )
+    # Fetch only the due sources, concurrently.
+    coros: dict[str, Any] = {}
+    if "jira" in sources:
+        coros["jira"] = _fetch_jira(secrets, now, jira_window_start, roster)
+    if "pagerduty" in sources:
+        coros["pagerduty"] = _fetch_pagerduty(secrets, now, pd_window_start, roster, recheck_ids)
+    if "ical" in sources:
+        coros["ical"] = _fetch_ical(secrets, now)
+    if "github" in sources:
+        coros["github"] = _fetch_github(secrets, now)
+    if "calendar" in sources:
+        coros["calendar"] = _fetch_calendar(now)
+    done = dict(zip(coros, await asyncio.gather(*coros.values()))) if coros else {}
+    jira_res = done.get("jira")
+    pd_res = done.get("pagerduty")
+    ical_res = done.get("ical")
+    gh_res = done.get("github")
+    cal_res = done.get("calendar")
 
     fetch_id = db.create_fetch_snapshot(
         fetched_at=now,
-        jira_ok=jira_res.ok,
-        pagerduty_ok=pd_res.ok,
-        ical_ok=ical_res.ok,
+        jira_ok=jira_res.ok if jira_res else None,
+        pagerduty_ok=pd_res.ok if pd_res else None,
+        ical_ok=ical_res.ok if ical_res else None,
     )
-    # Raw payloads → JSONB (append-only, never pruned; FR-028). Trim the bulky,
-    # never-read changelog author blocks by default so the store doesn't balloon
-    # under a 30-min scheduler (#snapshot-trim); RAW_SNAPSHOT_FULL stores verbatim.
-    raw_payloads: dict[str, Any] = {**jira_res.raw, **pd_res.raw}
-    if ical_res.raw is not None:
+    # Raw payloads → JSONB (append-only; #snapshot-trim trims changelog noise).
+    raw_payloads: dict[str, Any] = {}
+    if jira_res:
+        raw_payloads.update(jira_res.raw)
+    if pd_res:
+        raw_payloads.update(pd_res.raw)
+    if ical_res and ical_res.raw is not None:
         raw_payloads["oncall.ics"] = ical_res.raw
     if raw_payloads:
         if not config.RAW_SNAPSHOT_FULL:
             raw_payloads = _trim_snapshot_payloads(raw_payloads)
         db.insert_raw_snapshots(fetch_id, raw_payloads)
 
-    db.insert_pulses(fetch_id, jira_res.pulses)
+    if jira_res:
+        db.insert_pulses(fetch_id, jira_res.pulses)
+        db.insert_tickets(fetch_id, jira_res.tickets)
+        db.insert_touches(fetch_id, jira_res.touches)
+    if pd_res:
+        db.insert_alerts(fetch_id, pd_res.alerts)
+    if ical_res:
+        oncalls = [oc for oc in (ical_res.oncall, ical_res.next_oncall) if oc is not None]
+        if oncalls:
+            db.insert_weekend_oncall(fetch_id, oncalls)
+    if gh_res and gh_res.pr_stats:
+        db.insert_github_prs(
+            fetch_id, gh_res.pr_stats, gh_res.pr_stats_24h, gh_res.pr_stats_today)
+    if cal_res and cal_res.avail:
+        db.insert_calendar_avail(fetch_id, cal_res.avail)
+    # Live open-work summary counts (#summary-live): Jira filter tallies + PD's still-
+    # open count. Store whichever this fetch produced; they merge per-key on read.
+    summary_counts = dict(jira_res.summary_counts) if jira_res else {}
+    if pd_res and pd_res.open_incident_count is not None:
+        summary_counts["ongoing_alerts"] = pd_res.open_incident_count
+    if summary_counts:
+        db.insert_open_summary(fetch_id, summary_counts)
+
+    # Pulse-history + offenders need the full ticket set, which only a Jira fetch
+    # carries, so refresh them when Jira ran (#80/#146). The current pulse is computed
+    # live, so a PD-only fetch's fresh alerts still show immediately.
+    if jira_res:
+        pulse_alerts = accumulated_pulse_alerts(db, now)
+        persist_pulse_summaries(db, jira_res.tickets, pulse_alerts, jira_res.pulses, now)
+        from .offenders import incidents_from_alerts
+        db.upsert_incidents(incidents_from_alerts(pulse_alerts))
+
+    logger.info(
+        "Fetch %s complete: sources=%s jira_ok=%s pagerduty_ok=%s ical_ok=%s "
+        "tickets=%d alerts=%d", fetch_id, sorted(sources),
+        jira_res.ok if jira_res else None, pd_res.ok if pd_res else None,
+        ical_res.ok if ical_res else None,
+        len(jira_res.tickets) if jira_res else 0, len(pd_res.alerts) if pd_res else 0,
+    )
+    return fetch_id
+
+
+async def _fetch_jira_person(
+    secrets: Secrets, now: datetime, window_start: datetime, email: str
+) -> JiraResult:
+    """Jira for ONE engineer (#person-refresh): just their assigned + worklogged
+    issues, skipping the org-wide sprint scan, so it's ~1-2s instead of ~85s. Builds
+    the same tickets + touches the global fetch would, scoped to this person."""
+    res = JiraResult()
+    try:
+        async with jira_mod.make_async_client(secrets.jira_token) as hc:
+            jira = jira_mod.JiraClient(hc)
+            acct_to_email = await jira.account_ids_for([email])      # {accountId: email}
+            aid = next((a for a, e in acct_to_email.items() if e == email), None)
+            if aid is None:
+                return res  # can't resolve the account — nothing to fetch (still ok)
+            # Their open assigned work (any age) + anything they recently touched.
+            since = window_start.strftime("%Y-%m-%d %H:%M")
+            jql = (f'(assignee = "{aid}" OR worklogAuthor = "{aid}") '
+                   f'AND project in ({config.PROJECT_ISDB}, {config.PROJECT_ISREQ.upper()}) '
+                   f'AND (statusCategory != Done OR updated >= "{since}")')
+            issues = await jira.search(jql)
+            issues_by_key = {i["key"]: i for i in issues}
+            res.tickets = [parse_ticket(i, acct_to_email) for i in issues_by_key.values()]
+
+            tempo_active = bool(secrets.tempo_token)
+            sem = asyncio.Semaphore(10)
+
+            async def _touches_for(key: str, issue: dict[str, Any]) -> list[TouchEvent]:
+                async with sem:
+                    comments = await jira.comments(key)
+                    worklogs = [] if tempo_active else await jira.worklogs(key)
+                return extract_touches(
+                    issue, comments=comments, worklogs=worklogs,
+                    window_start=window_start, window_end=now,
+                    roster_emails={email}, account_emails=acct_to_email)
+
+            for touches in await asyncio.gather(
+                    *(_touches_for(k, i) for k, i in issues_by_key.items())):
+                res.touches.extend(touches)
+
+            if tempo_active:
+                tempo_from = min(
+                    window_start.date(),
+                    (now - timedelta(days=config.TEMPO_WORKLOG_LOOKBACK_DAYS)).date())
+                async with tempo_mod.make_async_client(secrets.tempo_token) as tclient:
+                    tempo_worklogs = await tempo_mod.TempoClient(tclient).worklogs(
+                        tempo_from, now.date())
+                id_to_key = {str(i["id"]): k for k, i in issues_by_key.items() if i.get("id")}
+                res.touches.extend(tempo_worklog_touches(
+                    tempo_worklogs, id_to_key=id_to_key,
+                    window_start=window_start, window_end=now,
+                    roster_emails={email}, account_emails=acct_to_email))
+    except Exception:  # noqa: BLE001 — a person refresh failing is isolated
+        logger.exception("Person Jira fetch failed for %s", email)
+        res.ok = False
+    return res
+
+
+async def run_person_fetch(
+    db: Database, secrets: Secrets, email: str, *, now: datetime | None = None
+) -> int:
+    """Refresh just ONE engineer (#person-refresh): their Jira tickets/time, calendar
+    and GitHub PRs (scoped), plus the team PagerDuty pull so their alerts are fresh.
+
+    Persists a *partial* snapshot — its tickets/touches/calendar/GitHub merge into the
+    card view (per-email + latest-wins-per-ticket), but it is flagged so it never
+    anchors the global incremental Jira window. Returns the snapshot id."""
+    now = now or datetime.now(UTC)
+    window_start = now - timedelta(days=config.PULSE_LENGTH_DAYS)
+    last_pd = db.latest_pagerduty_fetch()
+    pd_window_start = (last_pd.fetched_at - timedelta(hours=1)
+                       if last_pd is not None else now - timedelta(days=config.FETCH_WINDOW_DAYS))
+    roster = set(config.all_roster_emails())
+    from .counts import accumulated_alerts_since
+    open_pool = accumulated_alerts_since(db, now - timedelta(days=config.OPEN_ALERT_RECHECK_DAYS))
+    recheck_ids = frozenset(
+        {a.id for a in open_pool if a.state is AlertState.ACKNOWLEDGED}
+        - {a.id for a in open_pool if a.state is AlertState.RESOLVED})
+
+    jira_res, pd_res, gh_res, cal_res = await asyncio.gather(
+        _fetch_jira_person(secrets, now, window_start, email),
+        _fetch_pagerduty(secrets, now, pd_window_start, roster, recheck_ids),
+        _fetch_github(secrets, now, emails={email}),
+        _fetch_calendar(now, emails=[email]),
+    )
+
+    # Partial snapshot: ical_ok=True (not attempted ≠ failure, so no false banner).
+    fetch_id = db.create_fetch_snapshot(
+        fetched_at=now, jira_ok=jira_res.ok, pagerduty_ok=pd_res.ok, ical_ok=True,
+        partial=True)
     db.insert_tickets(fetch_id, jira_res.tickets)
     db.insert_touches(fetch_id, jira_res.touches)
     db.insert_alerts(fetch_id, pd_res.alerts)
-    # Store the current/just-passed + the upcoming weekend's on-call.
-    oncalls = [oc for oc in (ical_res.oncall, ical_res.next_oncall) if oc is not None]
-    if oncalls:
-        db.insert_weekend_oncall(fetch_id, oncalls)
     if gh_res.pr_stats:
         db.insert_github_prs(
             fetch_id, gh_res.pr_stats, gh_res.pr_stats_24h, gh_res.pr_stats_today)
     if cal_res.avail:
         db.insert_calendar_avail(fetch_id, cal_res.avail)
-    # Live open-work summary counts: the Jira filter/JQL tallies plus PagerDuty's
-    # still-open incident count, so the summary line matches the reports it links
-    # to (#summary-live). Persist whatever each source returned; absent keys fall
-    # back to a local tally at render time.
-    summary_counts = dict(jira_res.summary_counts)
-    if pd_res.open_incident_count is not None:
-        summary_counts["ongoing_alerts"] = pd_res.open_incident_count
-    if summary_counts:
-        db.insert_open_summary(fetch_id, summary_counts)
-
-    # Snapshot this fetch's current + previous pulse totals so the pulse-history
-    # table accumulates over time (#80). Persist from the whole pulse's
-    # accumulated alerts, not just this fetch's incremental window, so MTTR and
-    # alert totals reflect the full pulse (#140). (counts imported above.)
-    pulse_alerts = accumulated_pulse_alerts(db, now)
-    persist_pulse_summaries(db, jira_res.tickets, pulse_alerts, jira_res.pulses, now)
-
-    # Accumulate this pulse's incidents into the long-lived year history that
-    # powers the repeat-offender analysis (#146); idempotent across refreshes.
-    from .offenders import incidents_from_alerts
-    db.upsert_incidents(incidents_from_alerts(pulse_alerts))
-
-    logger.info(
-        "Fetch %s complete: jira_ok=%s pagerduty_ok=%s ical_ok=%s github_ok=%s "
-        "tickets=%d alerts=%d oncall=%s gh_engineers=%d gh_created=%d",
-        fetch_id, jira_res.ok, pd_res.ok, ical_res.ok, gh_res.ok, len(jira_res.tickets),
-        len(pd_res.alerts), ical_res.oncall.engineer_email if ical_res.oncall else None,
-        len(gh_res.pr_stats), sum(s.created for s in gh_res.pr_stats.values()),
-    )
+    # NB: pulse-summary / offenders tables are deliberately NOT re-persisted here —
+    # they're global aggregates and a single person's ticket set would skew them; the
+    # 30-min global cycle keeps them current. The current pulse is computed live, so
+    # the refreshed alerts still show immediately.
+    logger.info("Person refresh %s for %s: tickets=%d touches=%d alerts=%d",
+                fetch_id, email, len(jira_res.tickets), len(jira_res.touches), len(pd_res.alerts))
     return fetch_id

@@ -56,6 +56,26 @@ def test_calendar_merges_per_engineer_across_fetches(tmp_path, db_dsn):
     db.close()
 
 
+def test_partial_snapshot_merges_but_does_not_anchor_jira_window(tmp_path, db_dsn):
+    """A single-person partial refresh (#person-refresh): its tickets still merge into
+    the view, but it must NOT become the Jira incremental anchor — otherwise the next
+    global fetch would resume from one person's data and miss everyone else."""
+    db = Database(db_dsn)
+    full = db.create_fetch_snapshot(_dt(10), True, True, True, "")
+    db.insert_tickets(full, [Ticket("ISReq-1", "ISReq", "a", "To Do", None)])
+    # A later partial refresh (jira_ok True, but partial) adds one person's ticket.
+    part = db.create_fetch_snapshot(_dt(12), True, True, True, "", partial=True)
+    db.insert_tickets(part, [Ticket("ISDB-9", "ISDB", "b", "In Progress", None)])
+
+    # Latest snapshot is the partial one, but the Jira anchor skips it.
+    assert db.latest_fetch().id == part
+    assert db.latest_good_fetch().id == full        # window stays on the full fetch
+    # Both fetches' tickets still merge into the pulse view.
+    data = presenters.load_merged_data(db, _dt(12))
+    assert {t.id for t in data.tickets} == {"ISReq-1", "ISDB-9"}
+    db.close()
+
+
 def test_merge_accumulates_across_fetches(tmp_path, db_dsn):
     db = Database(db_dsn)
     pulse = [Pulse("ISReq", 201, "s", _dt(8), _dt(20))]

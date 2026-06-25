@@ -60,9 +60,32 @@ def _apply_proxy_env() -> None:
 _apply_proxy_env()
 
 
-# How often the background scheduler process triggers a refresh (seconds).
+# How often the background scheduler process triggers a refresh (seconds). Retained
+# for the legacy single-interval mode / cold-start; per-source cron is below.
 REFRESH_INTERVAL_SECONDS = int(_env("APP_REFRESH_INTERVAL", "STANDUP_REFRESH_INTERVAL",
                                     default="1800"))
+
+# Per-source refresh schedule (#per-source-schedule). The scheduler ticks every minute
+# and fetches whichever sources are "due" — each on its own cadence, tailored to how
+# fast it changes and to land fresh before the standups (Jira/PD at :13 and :58 sit just
+# ahead of the :15 and :00 standups). Minutes are within every hour; iCal (on-call,
+# rarely changes) runs once a day instead.
+SOURCE_SCHEDULE_MINUTES: dict[str, frozenset[int]] = {
+    "jira":      frozenset({13, 30, 58}),
+    "pagerduty": frozenset({13, 30, 58}),
+    "github":    frozenset({13, 23, 33, 44, 58}),
+    "calendar":  frozenset({45}),
+}
+ICAL_DAILY_HOUR = 0          # iCal once a day at this UTC hour, minute 0
+ALL_SOURCES = frozenset({"jira", "pagerduty", "github", "calendar", "ical"})
+
+
+def due_sources(now: datetime) -> frozenset[str]:
+    """Which sources are due to refresh at ``now`` (UTC), per the per-source schedule."""
+    due = {s for s, mins in SOURCE_SCHEDULE_MINUTES.items() if now.minute in mins}
+    if now.hour == ICAL_DAILY_HOUR and now.minute == 0:
+        due.add("ical")
+    return frozenset(due)
 
 # Raw-snapshot fidelity (#snapshot-trim). Every refresh re-fetches the whole
 # sprint board with ``expand=changelog`` and stores it verbatim in the write-only

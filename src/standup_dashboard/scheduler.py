@@ -24,12 +24,15 @@ from .storage.db import Database
 logger = logging.getLogger("standup_dashboard.scheduler")
 
 
-async def _run_once(db: Database, secrets: Secrets) -> None:
+async def _run_once(
+    db: Database, secrets: Secrets, sources: frozenset[str], now: datetime
+) -> None:
     try:
-        fetch_id = await run_fetch(db, secrets, now=datetime.now(UTC))
-        logger.info("Scheduled refresh complete (fetch_id=%s)", fetch_id)
+        fetch_id = await run_fetch(db, secrets, sources=sources, now=now)
+        logger.info("Scheduled refresh of %s complete (fetch_id=%s)", sorted(sources), fetch_id)
     except Exception:  # noqa: BLE001 — never let one bad cycle kill the loop
-        logger.exception("Scheduled refresh failed; will retry next tick")
+        logger.exception("Scheduled refresh of %s failed; will retry on its next slot",
+                         sorted(sources))
 
 
 async def main_async() -> None:
@@ -44,12 +47,24 @@ async def main_async() -> None:
     from .services import roster
     roster.load(db)
 
-    interval = config.REFRESH_INTERVAL_SECONDS
-    logger.info("Refresh scheduler started; interval=%ss", interval)
+    logger.info("Per-source refresh scheduler started: %s; iCal daily @ %02d:00 UTC",
+                {s: sorted(m) for s, m in config.SOURCE_SCHEDULE_MINUTES.items()},
+                config.ICAL_DAILY_HOUR)
+    # Cold start: one full fetch so the dashboard has data immediately, then follow the
+    # per-source cron — wake each minute and refresh whatever's due (#per-source-schedule).
+    await _run_once(db, secrets, config.ALL_SOURCES, datetime.now(UTC))
+    last_key = (lambda n: (n.hour, n.minute))(datetime.now(UTC))
     try:
         while True:
-            await _run_once(db, secrets)
-            await asyncio.sleep(interval)
+            await asyncio.sleep(max(1, 60 - datetime.now(UTC).second))
+            now = datetime.now(UTC)
+            key = (now.hour, now.minute)
+            if key == last_key:           # don't run the same minute twice
+                continue
+            last_key = key
+            due = config.due_sources(now)
+            if due:
+                await _run_once(db, secrets, due, now)
     finally:
         db.close()
 

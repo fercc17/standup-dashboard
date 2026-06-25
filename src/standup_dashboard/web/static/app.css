@@ -232,6 +232,11 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .panel-head .role-pick { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .panel-head .role-pick select { font-size: 12px; padding: 1px 2px; }
 .panel-head .close { margin-left: auto; cursor: pointer; color: var(--muted); border: none; background: none; font-size: 16px; }
+/* Per-person refresh (#person-refresh): spins while the fetch runs (htmx-request). */
+.panel-refresh { margin-left: auto; cursor: pointer; color: var(--muted); border: none; background: none; font-size: 15px; padding: 0 4px; line-height: 1; }
+.panel-refresh:hover { color: var(--fg); }
+.panel-refresh.htmx-request { display: inline-block; animation: spin 1s linear infinite; color: var(--fg); }
+.panel-refresh:disabled { cursor: default; }
 /* PTO this & next week (#pto-card): amber call-out so a day-off doesn't get lost in
    the panel — theme-aware via the --yellow vars (light + dark). */
 .panel-pto { font-size: 11px; color: var(--yellow); font-weight: 600; margin: 4px 0 8px; padding: 5px 9px; background: var(--yellow-bg); border-left: 3px solid var(--yellow); border-radius: 5px; }

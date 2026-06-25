@@ -226,9 +226,11 @@ class WeekendOnCall:
 class FetchSnapshot:
     id: int
     fetched_at: datetime
-    jira_ok: bool
-    pagerduty_ok: bool
-    ical_ok: bool
+    # None = the source wasn't attempted in this fetch (per-source schedule); True ok,
+    # False attempted-and-failed (#per-source-schedule).
+    jira_ok: bool | None
+    pagerduty_ok: bool | None
+    ical_ok: bool | None
     raw_path: str
 
 

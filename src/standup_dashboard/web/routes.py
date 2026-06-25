@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from .. import config
 from ..domain.models import WEEKDAY_SLOTS, FetchSnapshot, Role
 from ..services import aging, offenders, roster, schedule
-from ..services.fetch import run_fetch
+from ..services.fetch import run_fetch, run_person_fetch
 from ..services.pulse import current_pulse
 from . import presenters
 
@@ -142,17 +142,20 @@ def _dashboard_context(request: Request, selected_regions: list[str], now: datet
     )
 
     if latest is not None:
+        # Per-source: each source has its own schedule, so check the latest fetch that
+        # *attempted* it — False = failed, None = not yet attempted (#per-source-schedule).
+        jira_failed = db.latest_source_ok("jira_ok") is False
         failed = [
-            name for name, ok in (
-                ("Jira", latest.jira_ok),
-                ("PagerDuty", latest.pagerduty_ok),
-                ("on-call iCal", latest.ical_ok),
-            ) if not ok
+            name for name, col in (
+                ("Jira", "jira_ok"),
+                ("PagerDuty", "pagerduty_ok"),
+                ("on-call iCal", "ical_ok"),
+            ) if db.latest_source_ok(col) is False
         ]
         if failed:
-            stale = " Showing accumulated data." if not latest.jira_ok else ""
+            stale = " Showing accumulated data." if jira_failed else ""
             context["banner"] = {
-                "kind": "error" if not latest.jira_ok else "warn",
+                "kind": "error" if jira_failed else "warn",
                 "text": f"Latest refresh failed for: {', '.join(failed)}.{stale}",
             }
     return context
@@ -271,6 +274,25 @@ async def chip_role(request: Request, engineer_email: str) -> HTMLResponse:
         schedule.set_today_override(ctx.db, engineer_email, form["role"], _now())
     except (KeyError, ValueError) as exc:
         return PlainTextResponse(f"Invalid role: {exc}", status_code=400)
+    return _render_panel(request, engineer_email, region_key)
+
+
+@router.post("/chip/{engineer_email}/refresh", response_class=HTMLResponse)
+async def chip_refresh(request: Request, engineer_email: str) -> HTMLResponse:
+    """Refresh just this engineer's data (#person-refresh) — their Jira tickets/time,
+    calendar, GitHub PRs and alerts — then re-render their panel. Fast (~a few seconds)
+    because it skips the org-wide Jira scan."""
+    ctx = _ctx(request)
+    if ctx.setup_error is not None or ctx.secrets is None:
+        return render_setup(request)
+    if engineer_email not in config.ENGINEERS_BY_EMAIL:
+        return PlainTextResponse("Unknown engineer", status_code=404)
+    form = await request.form()
+    region_key = _resolve_region(engineer_email, form.getlist("regions"))
+    try:
+        await run_person_fetch(ctx.db, ctx.secrets, engineer_email, now=_now())
+    except Exception:  # noqa: BLE001 — re-render with whatever we have; never 500 the panel
+        logger.exception("Person refresh failed for %s", engineer_email)
     return _render_panel(request, engineer_email, region_key)
 
 
