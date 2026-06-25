@@ -53,14 +53,22 @@ def test_long_block_is_pto_not_busy():
     assert a.pto_days == ("Mon Jun 08",)  # the specific PTO date is listed (#pto-card)
 
 
-def test_full_day_block_is_not_pto():
-    """A 24h block (00:00→00:00, what the feed emits for recurring all-day 'busy')
-    is an artifact, not PTO — only sub-24h working-day blocks count (#pto-card)."""
+def test_full_day_block_is_pto():
+    """The team marks a day off as a ≥24h 'Busy' block covering the local day — so a
+    24h block makes that weekday PTO (#cal-off), and it's never counted as busy."""
     a = compute_availability(
-        _ics([("20260608T060000Z", "20260609T060000Z", False)]), WS, WE)
-    assert a.pto_seconds == 0
-    assert a.pto_days == ()
-    assert a.busy_seconds == 0          # and it's not counted as busy either
+        _ics([("20260608T060000Z", "20260609T060000Z", False)]), WS, WE)  # full Mon
+    assert a.pto_days == ("Mon Jun 08",)
+    assert a.pto_seconds == 8 * 3600
+    assert a.busy_seconds == 0          # a day off is not "busy" meeting time
+
+
+def test_multi_day_block_marks_each_weekday_pto():
+    """A multi-day block (e.g. a short vacation) → every weekday it covers is PTO."""
+    a = compute_availability(
+        _ics([("20260608T060000Z", "20260611T060000Z", False)]), WS, WE)  # Mon–Wed
+    assert a.pto_days == ("Mon Jun 08", "Tue Jun 09", "Wed Jun 10")
+    assert a.pto_seconds == 3 * 8 * 3600
 
 
 def test_eight_hour_block_counts_as_pto():

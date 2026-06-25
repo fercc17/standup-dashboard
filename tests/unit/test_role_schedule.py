@@ -52,6 +52,23 @@ def test_set_weekly_role_validates(db):
         schedule.set_weekly_role(db, EMAIL, "MON", "NOPE", now)
 
 
+def test_calendar_day_off_beats_weekly_but_not_manual_override(db):
+    """A calendar day-off (``pto_today``) resolves to OFF over the weekly schedule,
+    but a manual today-override still wins (#cal-off)."""
+    from standup_dashboard.domain.models import Role
+    from standup_dashboard.web.presenters import resolve_roles
+    now = utc(2026, 6, 11, 12)          # Thursday (06:00 in Mexico City)
+    tz = "America/Mexico_City"
+    schedule.set_weekly_role(db, EMAIL, "THU", "PVG", now)
+
+    assert resolve_roles(db, [EMAIL], tz, now)[EMAIL] is Role.PVG          # schedule
+    # Calendar marks today off → OFF, overriding the weekly PVG.
+    assert resolve_roles(db, [EMAIL], tz, now, {EMAIL})[EMAIL] is Role.OFF
+    # A manual today-override beats the calendar day-off.
+    schedule.set_today_override(db, EMAIL, "BVG", now)
+    assert resolve_roles(db, [EMAIL], tz, now, {EMAIL})[EMAIL] is Role.BVG
+
+
 # --- On-call handover stamping incl. unassigned counterpart (#handover) ------
 
 APAC_PVG = "paul.collins@canonical.com"

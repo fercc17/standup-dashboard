@@ -34,7 +34,6 @@ PTO_MIN_S = 8 * 3600         # a full working-day block counts as PTO …
 # not a day off, so a timed PTO block must overlap [09:00,17:00) local by at least
 # this much. Without it, recurring overnight "Busy" blocks read as a week of PTO.
 PTO_WORKDAY_OVERLAP_MIN_S = 6 * 3600
-FULL_DAY_S = 24 * 3600       # a 24h block is an all-day "busy" artifact, not PTO
 MEETING_MAX_S = 3600         # ≤1h is a real meeting; longer is a blocker/SD hold
 SD_MIN_S = int(3.5 * 3600)   # a "4h" SD block, with tolerance
 SD_MAX_S = int(4.5 * 3600)
@@ -147,11 +146,13 @@ def _availability(
         dur = (e_utc - s_utc).total_seconds()
         clip_s, clip_e = max(s_utc, window_start), min(e_utc, window_end)
 
-        if PTO_MIN_S <= dur < FULL_DAY_S:
-            _mark_pto_timed(s_utc, e_utc)   # only if it covers the local working day
+        if dur >= PTO_MIN_S:
+            # Any block covering a full local working day is a day off — a single 24h
+            # block (the team's day-off convention), a multi-day vacation span, or an
+            # 8h "out" block. _mark_pto_timed keeps only the weekdays it actually covers,
+            # so overnight holds (which overlap the working day by ~0) don't count.
+            _mark_pto_timed(s_utc, e_utc)
             continue
-        if dur >= FULL_DAY_S:
-            continue  # all-day "busy" artifact (recurring 00:00→00:00) — not PTO
         if dur <= MEETING_MAX_S:
             meetings.append((clip_s, clip_e))  # only ≤1h blocks are "busy" meetings
         elif SD_MIN_S <= dur <= SD_MAX_S:

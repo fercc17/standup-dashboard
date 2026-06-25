@@ -255,13 +255,32 @@ def load_merged_data(db: Database, now: datetime) -> DashboardData:
 
 
 def resolve_roles(
-    db: Database, emails: list[str], timezone: str, now: datetime
+    db: Database, emails: list[str], timezone: str, now: datetime,
+    pto_today: frozenset[str] | set[str] = frozenset(),
 ) -> dict[str, Role]:
+    """Effective role per engineer. An engineer whose calendar marks today as a day
+    off (``pto_today``) resolves to OFF — overriding their weekly schedule — but a
+    manual today-only override still wins over the calendar (#cal-off)."""
     weekly = db.get_weekly_schedule()
     overrides = db.get_active_overrides(now)
+    out: dict[str, Role] = {}
+    for email in emails:
+        if email not in overrides and email in pto_today:
+            out[email] = Role.OFF
+        else:
+            out[email] = effective_role(email, timezone, now, weekly, overrides)
+    return out
+
+
+def _pto_today(emails: list[str], data: DashboardData, timezone: str, now: datetime) -> set[str]:
+    """Emails whose calendar marks *today* (region-local) as a day off (#cal-off).
+
+    Matched against ``CalendarAvail.pto_days`` (the ``"%a %b %d"`` strings the card
+    lists), which already covers a ≥24h day-off block clipped to the local weekday."""
+    today = now.astimezone(ZoneInfo(timezone)).strftime("%a %b %d")
     return {
-        email: effective_role(email, timezone, now, weekly, overrides)
-        for email in emails
+        e for e in emails
+        if today in (data.calendar.get(e) or CalendarAvail()).pto_days
     }
 
 
@@ -504,7 +523,8 @@ def _region_roles(db: Database, region_key: str, data: DashboardData,
     line so they can see who picks the duty up next, e.g. APAC on Monday (#handover)."""
     region = config.REGIONS[region_key]
     emails = list(region.member_emails)
-    roles = resolve_roles(db, emails, region.timezone, now)
+    roles = resolve_roles(db, emails, region.timezone, now,
+                          _pto_today(emails, data, region.timezone, now))
     if is_weekend(now, region.timezone):
         roles.update(others_off(data.oncall_email, emails))
         if data.oncall_email in roles:
@@ -1098,7 +1118,9 @@ def build_panel(
     # They hold no coverage slot, so they're always GEN rather than OFF — matching
     # their chip — and never get the day-off reclassification below.
     is_management = eng.is_manager or eng.is_global
-    role = Role.GEN if is_management else resolve_roles(db, [email], region.timezone, now)[email]
+    role = Role.GEN if is_management else resolve_roles(
+        db, [email], region.timezone, now,
+        _pto_today([email], data, region.timezone, now))[email]
     # On a day off, the week's assignment wins over the particular day (#off-distractor):
     # the engineer's own assigned WIP (ISDB + ISReq) and any alert they covered on a
     # day they were *working* count as real work, not distractions. ``weekly`` lets us
