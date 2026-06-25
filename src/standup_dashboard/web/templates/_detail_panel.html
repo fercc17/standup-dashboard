@@ -71,7 +71,7 @@
   </div>
   {% if panel.calendar.pto_days %}
   <div class="panel-pto" title="Days off across this week and next, from the free/busy calendar feed">
-    &#127958; PTO this &amp; next week: {{ panel.calendar.pto_days | join(', ') }}
+    &#127958; PTO this &amp; next week: <strong>{{ panel.calendar.pto_days | join(', ') }}</strong>
   </div>
   {% endif %}
   {% for group, tickets in panel.groups.items() %}
