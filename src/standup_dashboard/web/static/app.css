@@ -237,6 +237,11 @@ body.dark table.counts th.div, body.dark table.counts td.div { border-left-color
 .panel-refresh:hover { color: var(--fg); }
 .panel-refresh.htmx-request { display: inline-block; animation: spin 1s linear infinite; color: var(--fg); }
 .panel-refresh:disabled { cursor: default; }
+/* Current-sprint ticket counts + live Jira links (#sprint-link). */
+.panel-sprints { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.panel-sprints a { color: var(--fg); text-decoration: none; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; }
+.panel-sprints a:hover { text-decoration: underline; }
+.panel-sprints a strong { color: var(--fg); }
 /* PTO this & next week (#pto-card): amber call-out so a day-off doesn't get lost in
    the panel — theme-aware via the --yellow vars (light + dark). */
 .panel-pto { font-size: 11px; color: var(--yellow); font-weight: 600; margin: 4px 0 8px; padding: 5px 9px; background: var(--yellow-bg); border-left: 3px solid var(--yellow); border-radius: 5px; }

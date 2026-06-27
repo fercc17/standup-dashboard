@@ -1303,9 +1303,31 @@ def build_panel(
         return (_worklog_on_since(email, data, since, distractor_ids)
                 + _alert_union_time_since(email, data, since, distractor_alert_ids))
 
+    # Their tickets in the current active sprint per project, linking to that person's
+    # sprint board by Jira accountId (#sprint-link) — accountId filters correctly for
+    # everyone, including the private-email engineers. Falls back to an email JQL only
+    # until the accountId has been fetched once.
+    account_id = db.get_account_ids().get(email)
+
+    def _sprint_count(project_key: str) -> int:
+        return sum(1 for t in data.tickets
+                   if t.assignee_email == email and t.project_key == project_key
+                   and t.sprint_id in data.active_sprint_ids)
+
+    def _sprint_url(project_key: str) -> str:
+        if account_id:
+            return config.jira_sprint_board_url(project_key, account_id)
+        return config.jira_jql_url(
+            f'project = {project_key.upper()} AND assignee = "{email}"'
+            f' AND sprint in openSprints() ORDER BY status DESC')
+
     return DetailPanelVM(
         email=email, name=eng.name, role=role, groups=out,
         show_distractors=not is_management,
+        sprint_isreq_count=_sprint_count(config.PROJECT_ISREQ),
+        sprint_isdb_count=_sprint_count(config.PROJECT_ISDB),
+        sprint_isreq_url=_sprint_url(config.PROJECT_ISREQ),
+        sprint_isdb_url=_sprint_url(config.PROJECT_ISDB),
         distractor_seconds=_distractor_time(pulse_start),
         distractor_24h_seconds=_distractor_time(cutoff),
         distractor_today_seconds=_distractor_time(today_start),

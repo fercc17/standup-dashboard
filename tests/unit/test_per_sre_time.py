@@ -10,6 +10,7 @@ from standup_dashboard.domain.models import (
     CalendarAvail,
     GitHubPRStats,
     Pulse,
+    Ticket,
     TouchEvent,
     TouchKind,
     hours_label,
@@ -183,6 +184,35 @@ def test_build_panel_reports_pr_stats(tmp_path, db_dsn):
     # Unmapped engineer → all zeros, never a KeyError.
     other = build_panel(db, "colin.misare@canonical.com", data, NOW, region_key="AMER")
     assert other.pr_stats.created == 0
+    db.close()
+
+
+def test_panel_current_sprint_counts_and_links(tmp_path, db_dsn):
+    # Per-project count of the engineer's tickets in the active sprint, + a Jira link
+    # (#sprint-link). Active sprints come from the pulses (201 ISReq, 202 ISDB).
+    db = Database(db_dsn)
+    db.set_weekly_role(E, region_weekday(NOW, TZ), "PVG", NOW)
+    db.upsert_account_ids({E: "712020:abc-123"})      # accountId known
+    data = DashboardData(
+        fetched_at=NOW,
+        pulses=[Pulse("ISReq", 201, "s", NOW, NOW), Pulse("ISDB", 202, "s", NOW, NOW)],
+        tickets=[
+            Ticket("ISReq-1", "ISReq", "a", "To Do", None, assignee_email=E, sprint_id=201),
+            Ticket("ISReq-2", "ISReq", "b", "In Progress", None, assignee_email=E, sprint_id=201),
+            Ticket("ISDB-1", "ISDB", "c", "In Progress", None, assignee_email=E, sprint_id=202),
+            # No sprint → not counted (the exact case the user hit).
+            Ticket("ISDB-9", "ISDB", "d", "To Do", None, assignee_email=E, sprint_id=None),
+            # Someone else's ticket in the sprint → not counted.
+            Ticket("ISReq-3", "ISReq", "e", "To Do", None, assignee_email="other@x", sprint_id=201),
+        ],
+    )
+    panel = build_panel(db, E, data, NOW, region_key="AMER")
+    assert panel.sprint_isreq_count == 2          # ISReq-1, ISReq-2
+    assert panel.sprint_isdb_count == 1           # ISDB-1 only (ISDB-9 has no sprint)
+    # accountId-based sprint board links (board 1400 ISDB / 11304 ISReq).
+    assert "/jira/software/c/projects/ISDB/boards/1400" in panel.sprint_isdb_url
+    assert "assignee=712020%3Aabc-123" in panel.sprint_isdb_url
+    assert "/jira/software/c/projects/ISREQ/boards/11304" in panel.sprint_isreq_url
     db.close()
 
 

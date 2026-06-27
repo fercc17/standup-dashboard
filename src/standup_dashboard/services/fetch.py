@@ -107,6 +107,8 @@ class JiraResult:
     # Live open-work filter counts (#summary-live): key → match count from the saved
     # Jira filters / JQL the summary line links to, so the numbers equal the report.
     summary_counts: dict[str, int] = field(default_factory=dict)
+    # email → Jira accountId, persisted for accountId-based sprint board links (#sprint-link).
+    account_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -212,6 +214,7 @@ async def _fetch_jira(
                     acct_to_email.update(await jira.account_ids_for(missing))
                 except Exception:  # noqa: BLE001 — fall back to email-only attribution
                     logger.exception("Jira account-id lookup failed")
+            res.account_ids = {e: a for a, e in acct_to_email.items()}  # email → accountId
 
             res.tickets = [
                 parse_ticket(issue, acct_to_email) for issue in issues_by_key.values()
@@ -661,6 +664,7 @@ async def run_fetch(
         db.insert_pulses(fetch_id, jira_res.pulses)
         db.insert_tickets(fetch_id, jira_res.tickets)
         db.insert_touches(fetch_id, jira_res.touches)
+        db.upsert_account_ids(jira_res.account_ids)   # for sprint board links (#sprint-link)
     if pd_res:
         db.insert_alerts(fetch_id, pd_res.alerts)
     if ical_res:
@@ -713,6 +717,7 @@ async def _fetch_jira_person(
             aid = next((a for a, e in acct_to_email.items() if e == email), None)
             if aid is None:
                 return res  # can't resolve the account — nothing to fetch (still ok)
+            res.account_ids = {email: aid}   # for the sprint board link (#sprint-link)
             # Their open assigned work (any age) + anything they recently touched.
             since = window_start.strftime("%Y-%m-%d %H:%M")
             jql = (f'(assignee = "{aid}" OR worklogAuthor = "{aid}") '
@@ -790,6 +795,7 @@ async def run_person_fetch(
         partial=True)
     db.insert_tickets(fetch_id, jira_res.tickets)
     db.insert_touches(fetch_id, jira_res.touches)
+    db.upsert_account_ids(jira_res.account_ids)   # for sprint board links (#sprint-link)
     db.insert_alerts(fetch_id, pd_res.alerts)
     if gh_res.pr_stats:
         db.insert_github_prs(

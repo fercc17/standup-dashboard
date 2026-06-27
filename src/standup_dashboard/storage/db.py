@@ -219,6 +219,13 @@ CREATE TABLE IF NOT EXISTS day_note (
     updated_at     TEXT NOT NULL
 );
 
+-- email → Jira accountId (#sprint-link): persisted from the fetch so the card can
+-- link to a person's sprint board by accountId (works for private-email engineers).
+CREATE TABLE IF NOT EXISTS jira_account (
+    email      TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS ui_state (
     key        TEXT NOT NULL,
     value      TEXT NOT NULL,
@@ -360,6 +367,20 @@ class Database:
              raw_path, int(partial)),
         )
         return int(row["id"])
+
+    def upsert_account_ids(self, mapping: dict[str, str]) -> None:
+        """Persist email → Jira accountId for sprint board links (#sprint-link)."""
+        if not mapping:
+            return
+        self._executemany(
+            "INSERT INTO jira_account (email, account_id) VALUES (%s, %s)"
+            " ON CONFLICT (email) DO UPDATE SET account_id = EXCLUDED.account_id",
+            [(e, a) for e, a in mapping.items()],
+        )
+
+    def get_account_ids(self) -> dict[str, str]:
+        rows = self._fetchall("SELECT email, account_id FROM jira_account")
+        return {r["email"]: r["account_id"] for r in rows}
 
     def latest_source_ok(self, column: str) -> bool | None:
         """Result of the most recent fetch that *attempted* this source (#per-source-

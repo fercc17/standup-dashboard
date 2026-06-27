@@ -395,6 +395,15 @@ def jira_jql_url(jql: str) -> str:
     return f"{JIRA_BASE_URL}/issues/?jql={quote(jql)}"
 
 
+def jira_sprint_board_url(project_key: str, account_id: str) -> str:
+    """A project's active sprint board, filtered to one person by Jira accountId
+    (#sprint-link): e.g. .../jira/software/c/projects/ISDB/boards/1400?assignee=<id>.
+    accountId works for everyone, unlike an email filter (private-email engineers)."""
+    board = PROJECT_BOARDS.get(project_key)
+    return (f"{JIRA_BASE_URL}/jira/software/c/projects/{project_key.upper()}"
+            f"/boards/{board}?assignee={quote(account_id)}")
+
+
 # JQL for the "Escalated ISReq" summary item — every ISReq ticket sitting in the
 # Jira ``Escalated`` workflow status (project key is uppercase ``ISREQ`` in JQL,
 # though the dashboard's canonical key is ``ISReq``). The count is recomputed from

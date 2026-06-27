@@ -57,6 +57,12 @@
             hx-disabled-elt="this">&#10227;</button>
     <button class="close" data-close-panel title="Close">&times;</button>
   </div>
+  <div class="panel-sprints" title="Their tickets in the current active sprint — click to open the live Jira sprint filter">
+    &#127939; Current sprint:
+    <a href="{{ panel.sprint_isreq_url }}" target="_blank" rel="noopener">ISReq <strong>{{ panel.sprint_isreq_count }}</strong></a>
+    &middot;
+    <a href="{{ panel.sprint_isdb_url }}" target="_blank" rel="noopener">ISDB <strong>{{ panel.sprint_isdb_count }}</strong></a>
+  </div>
   <div class="panel-time">
     {{ metric_col('24H', panel.total_24h_label,
                   panel.alert_time_24h_label, panel.alert_union_24h_label,

@@ -390,6 +390,12 @@ class DetailPanelVM:
     distractor_24h_seconds: int = 0
     distractor_today_seconds: int = 0
     show_distractors: bool = False
+    # Their ticket count in the current active sprint per project, each linking to the
+    # live Jira sprint filter for that person (#sprint-link).
+    sprint_isreq_count: int = 0
+    sprint_isdb_count: int = 0
+    sprint_isreq_url: str = ""
+    sprint_isdb_url: str = ""
 
     def _distractor_share(self, spent: int, open_seconds: int) -> str:
         """``'4h · 20% of open'`` — distractor time and its % of open time, or '' when
